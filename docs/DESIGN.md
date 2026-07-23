@@ -1,0 +1,105 @@
+# VideoShelf 設計ドキュメント
+
+Windows 向け動画管理ソフト(仮称: VideoShelf)。
+参考: ホワイトブラウザ / TMPGEnc KARMA / Eagle / XnView / foobar2000
+
+## コンセプト
+
+- **ファイルはコピーしない**。元のディレクトリに置いたまま、SQLite データベースで管理する(Eagle 方式の否定)
+- タグ・シリーズ・メタデータで検索/絞り込み/編集ができる
+- サクサク動くことを最優先。数万件のライブラリでも軽快に
+- あらゆる動画フォーマットに対応(サムネイル生成・再生とも FFmpeg を軸にする)
+
+## 技術スタック
+
+| 層 | 技術 |
+|---|---|
+| UI | Tauri 2 + React + TypeScript (Vite) |
+| バックエンド | Rust (Tauri コマンド + 非同期ワーカー) |
+| DB | SQLite + FTS5(全文検索) |
+| メタデータ / サムネイル | FFmpeg / ffprobe(サイドカーバイナリとして同梱) |
+| 再生 (v1) | 外部プレイヤー起動(mpv / MPC-HC など、ユーザー設定) |
+| 再生 (将来) | WebView2 ネイティブ再生 → FFmpeg remux → トランスコード → libmpv 埋め込み |
+
+## データモデル(SQLite)
+
+### videos — 動画ファイル本体
+| カラム | 型 | 説明 |
+|---|---|---|
+| id | INTEGER PK | |
+| path | TEXT UNIQUE | 絶対パス |
+| filename | TEXT | 表示・検索用 |
+| size | INTEGER | バイト数 |
+| partial_hash | TEXT | 先頭 1MB + サイズの xxHash。移動・リネーム検出用 |
+| duration_ms | INTEGER | |
+| width / height | INTEGER | |
+| video_codec / audio_codec / container | TEXT | ffprobe から取得 |
+| fps / bitrate | REAL / INTEGER | |
+| title | TEXT | ユーザー編集可(初期値はファイル名) |
+| comment | TEXT | 自由記入メモ |
+| rating | INTEGER | 0–5 |
+| view_count | INTEGER | |
+| last_viewed_at | TEXT | |
+| file_created_at / file_modified_at | TEXT | ファイルシステム由来 |
+| added_at | TEXT | ライブラリ登録日時 |
+| is_missing | INTEGER | ファイルが見つからない状態のフラグ(即削除しない) |
+| watched_folder_id | INTEGER NULL | 発見元の監視フォルダ。**NULL = 個別登録**(手動追加) |
+| thumb_state | INTEGER | サムネイル生成状態 (0=未 / 1=済 / 2=失敗) |
+
+### tags / video_tags — タグ(多対多)
+- `tags(id, name UNIQUE, color, parent_id)` — parent_id で階層タグに対応
+- `video_tags(video_id, tag_id)` — 複合 PK
+
+### series / series_entries — シリーズ(順序つきグループ)
+- `series(id, name, comment)`
+- `series_entries(series_id, video_id, position)` — position で並び順を保持
+
+### watched_folders — 監視対象フォルダ
+- `watched_folders(id, path, recursive, enabled)`
+- 起動時スキャン + notify クレートによるリアルタイム監視
+
+## ライブラリへの登録経路(2 種類)
+
+1. **監視フォルダ**: 登録したフォルダを自動スキャンし、新規ファイルを取り込む
+2. **個別登録**: ファイル単位で手動追加する
+   - ウィンドウへのドラッグ&ドロップ
+   - ファイル選択ダイアログ(複数選択可)
+   - 個別登録されたファイルは `watched_folder_id = NULL` で区別する
+
+区別が効く場面: 監視フォルダを解除したとき、そのフォルダ由来の動画をまとめて外す(または残すか確認する)ことができる一方、個別登録したファイルは影響を受けない。missing 検出(起動時の存在チェック・移動検出)はどちらの経路でも同じように働く。
+
+### videos_fts — FTS5 仮想テーブル
+- filename / title / comment / タグ名を対象にした全文検索
+- トリガーで videos と同期
+
+## ファイル同一性の追跡
+
+1. スキャン時、まず path で照合
+2. path が消えたファイルは `size + partial_hash` が一致する新規ファイルを探す
+   → 一致すれば「移動 / リネーム」とみなし、タグ等のメタデータを引き継いで path を更新
+3. 見つからなければ `is_missing = 1`(ユーザーが明示的に整理するまで DB には残す)
+
+全体ハッシュは使わない(動画は巨大で遅すぎる)。先頭 1MB で実用上十分。
+
+## サムネイル戦略
+
+- 取り込み時にバックグラウンドで生成し、**アプリデータフォルダにディスクキャッシュ**(WebP)
+- ファイル名は `{video_id}_{index}.webp`
+- グリッド用 1 枚 + ホバー/詳細用の複数枚(等間隔 N 枚、ホワイトブラウザ方式)を段階的に生成
+- 表示時は動画に一切触らない。キャッシュ画像を読むだけ
+
+## パフォーマンス原則(必守)
+
+1. サムネイルグリッドは**必ず仮想化**(TanStack Virtual)。DOM に載せるのは可視分のみ
+2. 走査・ハッシュ・ffprobe・サムネイル生成はすべて Rust 側の非同期ワーカーで。UI スレッドをブロックしない
+3. 一覧クエリはページング or 仮想化前提。全件を一括で JS 側に渡さない
+4. DB には適切なインデックス(path, partial_hash, video_tags の両方向, added_at 等)
+
+## ロードマップ
+
+- **v0.1**: フォルダ登録 → スキャン → ffprobe メタデータ取得 → サムネイル生成 → 仮想化グリッド表示。ファイルの個別登録(D&D / ダイアログ)
+- **v0.2**: タグ付け・タグ検索・FTS5 全文検索・ソート/フィルタ
+- **v0.3**: シリーズ管理、レーティング、外部プレイヤー起動、視聴履歴
+- **v0.4**: ファイル監視(notify)、移動検出、missing 整理 UI
+- **v1.0**: 設定画面、DB バックアップ、磨き込み
+- **将来**: アプリ内再生(WebView2 → remux → トランスコード → libmpv)、mac/Linux 対応
