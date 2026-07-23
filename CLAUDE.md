@@ -29,7 +29,8 @@ Windows 向け動画管理ソフト(Tauri 2 + React + TypeScript + Rust)。
 - DB アクセス: Rust 側から(sqlx または rusqlite)。フロントから直接 SQL を触らない
 - Tauri コマンドは `src-tauri/src/commands/` に機能別に分ける
 - フロントの状態管理は軽く始める(Zustand)。過剰な抽象化をしない
-- パスは常に絶対パスで扱う。Windows のパス(`\`、ドライブレター、長いパス)を意識する
+- パスは常に絶対パスで扱う。Windows のパス(`\`、ドライブレター、UNC、長いパス)を意識する
+- 外付け HDD / NAS 前提: ドライブ未接続を missing と誤判定しない(DESIGN.md「オフラインドライブの扱い」参照)
 - 日本語ファイル名・パスが普通に存在する前提でテストする
 
 ## 開発コマンド
