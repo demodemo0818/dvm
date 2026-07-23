@@ -18,12 +18,17 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPDATA/thumbs/**"]
+      }
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": ["binaries/ffmpeg.exe", "binaries/ffprobe.exe"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

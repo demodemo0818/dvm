@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# FFmpeg バイナリ(scripts/fetch-ffmpeg.ps1 で取得する)
+src-tauri/binaries/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

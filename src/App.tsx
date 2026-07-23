@@ -1,51 +1,48 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import { listen } from '@tauri-apps/api/event';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { useEffect, useRef } from 'react';
+import './App.css';
+import { api } from './api';
+import { Sidebar } from './components/Sidebar';
+import { Toolbar } from './components/Toolbar';
+import { VideoGrid } from './components/VideoGrid';
+import { useLibrary } from './store';
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+export default function App() {
+  const { bumpVersion, setStatus, status, scanning } = useLibrary();
+  const debounceTimer = useRef<number | undefined>(undefined);
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+  useEffect(() => {
+    const unlisteners: Array<() => void> = [];
+
+    listen('library:changed', () => {
+      window.clearTimeout(debounceTimer.current);
+      debounceTimer.current = window.setTimeout(() => bumpVersion(), 300);
+    }).then((u) => unlisteners.push(u));
+
+    listen<{ scanning: boolean; message: string }>('scan:state', (e) => {
+      setStatus(e.payload.scanning, e.payload.message);
+    }).then((u) => unlisteners.push(u));
+
+    getCurrentWebview()
+      .onDragDropEvent((e) => {
+        if (e.payload.type === 'drop' && e.payload.paths.length > 0) {
+          api.registerFiles(e.payload.paths);
+        }
+      })
+      .then((u) => unlisteners.push(u));
+
+    return () => unlisteners.forEach((u) => u());
+  }, [bumpVersion, setStatus]);
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+    <div className="app">
+      <Sidebar />
+      <main className="main">
+        <Toolbar />
+        <VideoGrid />
+        <div className="statusbar">{scanning || status ? status : '準備完了'}</div>
+      </main>
+    </div>
   );
 }
-
-export default App;
