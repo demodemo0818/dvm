@@ -42,4 +42,5 @@ Windows 向け動画管理ソフト(Tauri 2 + React + TypeScript + Rust)。
 ## 会話・ドキュメント
 
 - ユーザーへの説明は日本語で行う
+- git コミットメッセージはタイトル・本文とも日本語で書く
 - 設計変更をしたら docs/DESIGN.md も更新する
