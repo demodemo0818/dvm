@@ -2,7 +2,7 @@ import { ask, open } from '@tauri-apps/plugin-dialog';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useLibrary } from '../store';
-import type { WatchedFolder } from '../types';
+import type { Tag, WatchedFolder } from '../types';
 
 const VIDEO_EXTENSIONS = [
   'mp4', 'm4v', 'mkv', 'avi', 'wmv', 'mov', 'flv', 'webm',
@@ -16,14 +16,27 @@ function folderName(path: string): string {
 }
 
 export function Sidebar() {
-  const { folderId, setFolderId, version, bumpVersion } = useLibrary();
+  const { folderId, setFolderId, version, bumpVersion, tagIds, toggleTagFilter } = useLibrary();
   const [folders, setFolders] = useState<WatchedFolder[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
   const [totalCount, setTotalCount] = useState(0);
 
   useEffect(() => {
     api.listWatchedFolders().then(setFolders);
+    api.listTags().then(setTags);
     api.countVideos({}).then(setTotalCount);
   }, [version]);
+
+  const removeTag = async (tag: Tag) => {
+    const yes = await ask(
+      `タグ「${tag.name}」を削除しますか?\n(${tag.videoCount} 件の動画から外れます。動画自体は消えません)`,
+      { title: 'タグの削除' },
+    );
+    if (!yes) return;
+    await api.deleteTag(tag.id);
+    if (tagIds.includes(tag.id)) toggleTagFilter(tag.id);
+    bumpVersion();
+  };
 
   const addFolder = async () => {
     const selected = await open({ directory: true, multiple: false, title: '監視フォルダを追加' });
@@ -96,6 +109,30 @@ export function Sidebar() {
 
       <button className="side-action" onClick={addFolder}>+ フォルダを追加</button>
       <button className="side-action" onClick={addFiles}>+ ファイルを追加</button>
+
+      {tags.length > 0 && <div className="side-section">タグ</div>}
+      {tags.map((t) => (
+        <div
+          key={t.id}
+          className={`side-item folder ${tagIds.includes(t.id) ? 'active' : ''}`}
+          onClick={() => toggleTagFilter(t.id)}
+          title={`${t.name}(クリックで絞り込み。複数選択で AND 検索)`}
+        >
+          <span className="tag-mark">#</span>
+          <span className="folder-name">{t.name}</span>
+          <span className="count">{t.videoCount}</span>
+          <button
+            className="remove"
+            title="タグを削除"
+            onClick={(e) => {
+              e.stopPropagation();
+              removeTag(t);
+            }}
+          >
+            ×
+          </button>
+        </div>
+      ))}
     </aside>
   );
 }

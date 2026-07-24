@@ -46,6 +46,12 @@ pub fn run() {
             commands::videos::count_videos,
             commands::videos::register_files,
             commands::videos::open_video,
+            commands::tags::list_tags,
+            commands::tags::tag_videos,
+            commands::tags::untag_videos,
+            commands::tags::rename_tag,
+            commands::tags::delete_tag,
+            commands::tags::tags_for_videos,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

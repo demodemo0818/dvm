@@ -284,6 +284,138 @@ body {
   line-height: 1.8;
 }
 
+/* ---- 選択・インスペクタ・タグ ---- */
+.card.selected .thumb {
+  outline: 2px solid #2f66d0;
+  outline-offset: 1px;
+}
+
+.card.selected .card-name {
+  color: #7da7f0;
+}
+
+.tag-mark {
+  color: #8a8f9c;
+  flex-shrink: 0;
+}
+
+.inspector {
+  width: 260px;
+  min-width: 260px;
+  background: #1c1f26;
+  border-left: 1px solid #2a2e37;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+}
+
+.inspector-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 700;
+  color: #fff;
+  padding: 2px 2px 8px;
+}
+
+.inspector-head .close {
+  background: none;
+  border: none;
+  color: #9aa0ad;
+  cursor: pointer;
+  font-size: 15px;
+}
+
+.inspector-head .close:hover {
+  color: #fff;
+}
+
+.inspector-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.info-name {
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.info-path {
+  font-size: 11px;
+  color: #8a8f9c;
+  word-break: break-all;
+  user-select: text;
+}
+
+.info-sub {
+  font-size: 11px;
+  color: #8a8f9c;
+}
+
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #2a3140;
+  border: 1px solid #3a4356;
+  color: #c9d4e8;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 10px;
+}
+
+.chip button {
+  background: none;
+  border: none;
+  color: #8a95ab;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+}
+
+.chip button:hover {
+  color: #fff;
+}
+
+.chip-empty {
+  font-size: 11px;
+  color: #6b7180;
+}
+
+.tag-add input {
+  width: 100%;
+  background: #22252d;
+  border: 1px solid #343945;
+  color: #e2e5ec;
+  padding: 6px 8px;
+  border-radius: 6px;
+  outline: none;
+  font-family: inherit;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.tag-add input:focus {
+  border-color: #2f66d0;
+}
+
+.inspector-note {
+  font-size: 11px;
+  color: #6b7180;
+  padding: 6px 2px;
+  line-height: 1.5;
+}
+
 /* ---- ステータスバー ---- */
 .statusbar {
   height: 26px;

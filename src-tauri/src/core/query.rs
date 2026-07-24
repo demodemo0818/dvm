@@ -7,6 +7,8 @@ pub struct VideoQuery {
     pub text: Option<String>,
     pub sort: Option<String>,
     pub folder_id: Option<i64>,
+    /// 指定タグすべてが付いている動画に絞る(AND 条件)
+    pub tag_ids: Option<Vec<i64>>,
 }
 
 impl VideoQuery {
@@ -25,6 +27,14 @@ impl VideoQuery {
         }
         if let Some(fid) = self.folder_id {
             conds.push(format!("watched_folder_id = {fid}"));
+        }
+        if let Some(tag_ids) = &self.tag_ids {
+            // i64 なので直接埋め込んでも安全。タグごとに IN 条件を重ねて AND にする
+            for tid in tag_ids {
+                conds.push(format!(
+                    "id IN (SELECT video_id FROM video_tags WHERE tag_id = {tid})"
+                ));
+            }
         }
 
         let sql = if conds.is_empty() {

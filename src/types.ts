@@ -36,4 +36,12 @@ export interface VideoQuery {
   text?: string;
   sort?: SortKey;
   folderId?: number | null;
+  tagIds?: number[];
+}
+
+export interface Tag {
+  id: number;
+  name: string;
+  color: string | null;
+  videoCount: number;
 }

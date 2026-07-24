@@ -3,14 +3,23 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useEffect, useRef } from 'react';
 import './App.css';
 import { api } from './api';
+import { Inspector } from './components/Inspector';
 import { Sidebar } from './components/Sidebar';
 import { Toolbar } from './components/Toolbar';
 import { VideoGrid } from './components/VideoGrid';
 import { useLibrary } from './store';
 
 export default function App() {
-  const { bumpVersion, setStatus, status, scanning } = useLibrary();
+  const { bumpVersion, setStatus, status, scanning, clearSelection } = useLibrary();
   const debounceTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') clearSelection();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [clearSelection]);
 
   useEffect(() => {
     const unlisteners: Array<() => void> = [];
@@ -43,6 +52,7 @@ export default function App() {
         <VideoGrid />
         <div className="statusbar">{scanning || status ? status : '準備完了'}</div>
       </main>
+      <Inspector />
     </div>
   );
 }

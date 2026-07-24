@@ -1,5 +1,6 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { api } from '../api';
+import { useLibrary } from '../store';
 import type { VideoRow } from '../types';
 
 function fmtDuration(ms: number | null): string {
@@ -22,13 +23,19 @@ function fmtSize(bytes: number): string {
 }
 
 export function VideoCard({ video }: { video?: VideoRow }) {
+  const { selection, selectOnly, toggleSelect } = useLibrary();
   if (!video) return <div className="card card-loading" />;
 
+  const selected = selection.some((v) => v.id === video.id);
   const openable = !video.isMissing && !video.isOffline;
   return (
     <div
-      className="card"
+      className={`card ${selected ? 'selected' : ''}`}
       title={video.path}
+      onClick={(e) => {
+        if (e.ctrlKey || e.metaKey) toggleSelect(video);
+        else selectOnly(video);
+      }}
       onDoubleClick={() => {
         if (openable) api.openVideo(video.id);
       }}

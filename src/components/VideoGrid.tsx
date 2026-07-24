@@ -9,10 +9,15 @@ const CARD_W = 224; // カード幅 + ギャップの目安
 const CARD_H = 210; // 1 行の高さ
 
 export function VideoGrid() {
-  const { text, sort, folderId, version } = useLibrary();
+  const { text, sort, folderId, tagIds, version, clearSelection } = useLibrary();
   const query = useMemo<VideoQuery>(
-    () => ({ text: text || undefined, sort, folderId }),
-    [text, sort, folderId],
+    () => ({
+      text: text || undefined,
+      sort,
+      folderId,
+      tagIds: tagIds.length > 0 ? tagIds : undefined,
+    }),
+    [text, sort, folderId, tagIds],
   );
   const { total, getVideo } = useVideos(query, version);
 
@@ -38,7 +43,14 @@ export function VideoGrid() {
   });
 
   return (
-    <div ref={parentRef} className="grid-scroll">
+    <div
+      ref={parentRef}
+      className="grid-scroll"
+      onClick={(e) => {
+        // カード以外の余白クリックで選択解除
+        if (!(e.target as HTMLElement).closest('.card')) clearSelection();
+      }}
+    >
       <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
         {virtualizer.getVirtualItems().map((row) => (
           <div
