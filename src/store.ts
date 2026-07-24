@@ -26,6 +26,8 @@ interface LibraryState {
   selectOnly: (video: VideoRow) => void;
   toggleSelect: (video: VideoRow) => void;
   clearSelection: () => void;
+  /** 選択中の全行に部分更新を適用する(例: レーティング変更の即時反映) */
+  patchSelection: (patch: Partial<VideoRow>) => void;
 }
 
 export const useLibrary = create<LibraryState>((set) => ({
@@ -69,4 +71,6 @@ export const useLibrary = create<LibraryState>((set) => ({
         : [...s.selection, video],
     })),
   clearSelection: () => set({ selection: [] }),
+  patchSelection: (patch) =>
+    set((s) => ({ selection: s.selection.map((v) => ({ ...v, ...patch })) })),
 }));

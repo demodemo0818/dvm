@@ -5,7 +5,7 @@ import type { Series, Tag } from '../types';
 
 /** 選択中の動画の詳細とタグ・シリーズ・レーティング編集を行う右パネル */
 export function Inspector() {
-  const { selection, version, bumpVersion, clearSelection } = useLibrary();
+  const { selection, version, bumpVersion, clearSelection, patchSelection } = useLibrary();
   const [commonTags, setCommonTags] = useState<Tag[]>([]);
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [commonSeries, setCommonSeries] = useState<Series[]>([]);
@@ -53,6 +53,8 @@ export function Inspector() {
     const next = value === rating ? 0 : value;
     setRatingLocal(next);
     await api.setRating(ids, next);
+    // 選択中の行データにも即時反映(再取得までの間に古い値へ戻るのを防ぐ)
+    patchSelection({ rating: next });
     bumpVersion();
   };
 
