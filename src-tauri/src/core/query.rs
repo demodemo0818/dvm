@@ -9,6 +9,8 @@ pub struct VideoQuery {
     pub folder_id: Option<i64>,
     /// 指定タグすべてが付いている動画に絞る(AND 条件)
     pub tag_ids: Option<Vec<i64>>,
+    /// シリーズで絞る
+    pub series_id: Option<i64>,
 }
 
 impl VideoQuery {
@@ -36,6 +38,11 @@ impl VideoQuery {
                 ));
             }
         }
+        if let Some(sid) = self.series_id {
+            conds.push(format!(
+                "id IN (SELECT video_id FROM series_entries WHERE series_id = {sid})"
+            ));
+        }
 
         let sql = if conds.is_empty() {
             String::new()
@@ -46,7 +53,15 @@ impl VideoQuery {
     }
 
     /// ORDER BY 句(ホワイトリスト方式。任意文字列を SQL に混ぜない)
-    pub fn order_clause(&self) -> &'static str {
+    pub fn order_clause(&self) -> String {
+        if self.sort.as_deref() == Some("series_asc") {
+            if let Some(sid) = self.series_id {
+                return format!(
+                    "ORDER BY (SELECT se.position FROM series_entries se
+                               WHERE se.video_id = videos.id AND se.series_id = {sid}), id"
+                );
+            }
+        }
         match self.sort.as_deref() {
             Some("name_asc") => "ORDER BY filename COLLATE NOCASE ASC",
             Some("name_desc") => "ORDER BY filename COLLATE NOCASE DESC",
@@ -55,7 +70,10 @@ impl VideoQuery {
             Some("duration_asc") => "ORDER BY duration_ms ASC NULLS FIRST",
             Some("duration_desc") => "ORDER BY duration_ms DESC NULLS LAST",
             Some("added_asc") => "ORDER BY added_at ASC, id ASC",
+            Some("rating_desc") => "ORDER BY rating DESC, added_at DESC, id DESC",
+            Some("viewed_desc") => "ORDER BY last_viewed_at DESC NULLS LAST, id DESC",
             _ => "ORDER BY added_at DESC, id DESC",
         }
+        .to_string()
     }
 }

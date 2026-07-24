@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useLibrary } from '../store';
-import type { Tag } from '../types';
+import type { Series, Tag } from '../types';
 
-/** 選択中の動画の詳細とタグ編集を行う右パネル */
+/** 選択中の動画の詳細とタグ・シリーズ・レーティング編集を行う右パネル */
 export function Inspector() {
   const { selection, version, bumpVersion, clearSelection } = useLibrary();
   const [commonTags, setCommonTags] = useState<Tag[]>([]);
   const [allTags, setAllTags] = useState<Tag[]>([]);
-  const [input, setInput] = useState('');
+  const [commonSeries, setCommonSeries] = useState<Series[]>([]);
+  const [allSeries, setAllSeries] = useState<Series[]>([]);
+  const [tagInput, setTagInput] = useState('');
+  const [seriesInput, setSeriesInput] = useState('');
+  const [rating, setRatingLocal] = useState(0);
 
   const ids = selection.map((v) => v.id);
   const idsKey = ids.join(',');
@@ -17,6 +21,11 @@ export function Inspector() {
     if (ids.length === 0) return;
     api.tagsForVideos(ids).then(setCommonTags);
     api.listTags().then(setAllTags);
+    api.seriesForVideos(ids).then(setCommonSeries);
+    api.listSeries().then(setAllSeries);
+    // 全選択で同じレーティングならそれを、バラバラなら 0 を表示
+    const ratings = new Set(selection.map((v) => v.rating));
+    setRatingLocal(ratings.size === 1 ? selection[0].rating : 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsKey, version]);
 
@@ -25,15 +34,25 @@ export function Inspector() {
   const single = selection.length === 1 ? selection[0] : undefined;
 
   const addTag = async () => {
-    const name = input.trim();
+    const name = tagInput.trim();
     if (!name) return;
     await api.tagVideos(ids, name);
-    setInput('');
+    setTagInput('');
     bumpVersion();
   };
 
-  const removeTag = async (tagId: number) => {
-    await api.untagVideos(ids, tagId);
+  const addSeries = async () => {
+    const name = seriesInput.trim();
+    if (!name) return;
+    await api.addToSeries(ids, name);
+    setSeriesInput('');
+    bumpVersion();
+  };
+
+  const applyRating = async (value: number) => {
+    const next = value === rating ? 0 : value;
+    setRatingLocal(next);
+    await api.setRating(ids, next);
     bumpVersion();
   };
 
@@ -51,15 +70,34 @@ export function Inspector() {
           {single.width && single.height ? (
             <div className="info-sub">{single.width}×{single.height}</div>
           ) : null}
+          <div className="info-sub">
+            視聴 {single.viewCount} 回
+            {single.lastViewedAt ? `(最終: ${single.lastViewedAt})` : ''}
+          </div>
+          <div className="info-sub">追加日: {single.addedAt}</div>
         </div>
       )}
+
+      <div className="side-section">レーティング</div>
+      <div className="stars">
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button
+            key={n}
+            className={`star ${n <= rating ? 'on' : ''}`}
+            title={`★${n}(同じ星をもう一度クリックで解除)`}
+            onClick={() => applyRating(n)}
+          >
+            {n <= rating ? '★' : '☆'}
+          </button>
+        ))}
+      </div>
 
       <div className="side-section">タグ</div>
       <div className="chip-list">
         {commonTags.map((t) => (
           <span key={t.id} className="chip">
             {t.name}
-            <button onClick={() => removeTag(t.id)} title="このタグを外す">×</button>
+            <button onClick={() => api.untagVideos(ids, t.id).then(bumpVersion)} title="このタグを外す">×</button>
           </span>
         ))}
         {commonTags.length === 0 && <span className="chip-empty">タグなし</span>}
@@ -68,8 +106,8 @@ export function Inspector() {
         <input
           list="all-tags"
           placeholder="タグを追加して Enter"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
+          value={tagInput}
+          onChange={(e) => setTagInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') addTag();
           }}
@@ -80,8 +118,41 @@ export function Inspector() {
           ))}
         </datalist>
       </div>
+
+      <div className="side-section">シリーズ</div>
+      <div className="chip-list">
+        {commonSeries.map((s) => (
+          <span key={s.id} className="chip">
+            ≡ {s.name}
+            <button
+              onClick={() => api.removeFromSeries(ids, s.id).then(bumpVersion)}
+              title="このシリーズから外す"
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        {commonSeries.length === 0 && <span className="chip-empty">シリーズなし</span>}
+      </div>
+      <div className="tag-add">
+        <input
+          list="all-series"
+          placeholder="シリーズに追加して Enter"
+          value={seriesInput}
+          onChange={(e) => setSeriesInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') addSeries();
+          }}
+        />
+        <datalist id="all-series">
+          {allSeries.map((s) => (
+            <option key={s.id} value={s.name} />
+          ))}
+        </datalist>
+      </div>
+
       {!single && (
-        <div className="inspector-note">タグの追加・削除は選択中の全動画に適用されます</div>
+        <div className="inspector-note">変更は選択中の全動画に適用されます</div>
       )}
     </aside>
   );

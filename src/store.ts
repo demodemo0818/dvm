@@ -7,6 +7,8 @@ interface LibraryState {
   folderId: number | null;
   /** 選択中のタグフィルタ(AND 条件) */
   tagIds: number[];
+  /** 選択中のシリーズフィルタ */
+  seriesId: number | null;
   /** ライブラリ内容の変更通知。増えると各所が再取得する */
   version: number;
   status: string;
@@ -18,6 +20,7 @@ interface LibraryState {
   setFolderId: (folderId: number | null) => void;
   toggleTagFilter: (tagId: number) => void;
   clearTagFilter: () => void;
+  toggleSeriesFilter: (seriesId: number) => void;
   bumpVersion: () => void;
   setStatus: (scanning: boolean, status: string) => void;
   selectOnly: (video: VideoRow) => void;
@@ -30,6 +33,7 @@ export const useLibrary = create<LibraryState>((set) => ({
   sort: 'added_desc',
   folderId: null,
   tagIds: [],
+  seriesId: null,
   version: 0,
   status: '',
   scanning: false,
@@ -45,6 +49,16 @@ export const useLibrary = create<LibraryState>((set) => ({
       selection: [],
     })),
   clearTagFilter: () => set({ tagIds: [], selection: [] }),
+  toggleSeriesFilter: (seriesId) =>
+    set((s) => {
+      const next = s.seriesId === seriesId ? null : seriesId;
+      return {
+        seriesId: next,
+        // シリーズを選んだらシリーズ順、外したら追加日順に戻す
+        sort: next !== null ? 'series_asc' : s.sort === 'series_asc' ? 'added_desc' : s.sort,
+        selection: [],
+      };
+    }),
   bumpVersion: () => set((s) => ({ version: s.version + 1 })),
   setStatus: (scanning, status) => set({ scanning, status }),
   selectOnly: (video) => set({ selection: [video] }),

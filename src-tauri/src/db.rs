@@ -75,6 +75,11 @@ CREATE TABLE IF NOT EXISTS series_entries (
   PRIMARY KEY (series_id, video_id)
 );
 
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
+
 CREATE TABLE IF NOT EXISTS operations_log (
   id INTEGER PRIMARY KEY,
   timestamp TEXT NOT NULL DEFAULT (datetime('now','localtime')),

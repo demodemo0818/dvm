@@ -8,6 +8,8 @@ export interface VideoRow {
   width: number | null;
   height: number | null;
   rating: number;
+  viewCount: number;
+  lastViewedAt: string | null;
   isMissing: boolean;
   isOffline: boolean;
   thumbState: number;
@@ -30,18 +32,28 @@ export type SortKey =
   | 'name_asc'
   | 'name_desc'
   | 'size_desc'
-  | 'duration_desc';
+  | 'duration_desc'
+  | 'rating_desc'
+  | 'viewed_desc'
+  | 'series_asc';
 
 export interface VideoQuery {
   text?: string;
   sort?: SortKey;
   folderId?: number | null;
   tagIds?: number[];
+  seriesId?: number | null;
 }
 
 export interface Tag {
   id: number;
   name: string;
   color: string | null;
+  videoCount: number;
+}
+
+export interface Series {
+  id: number;
+  name: string;
   videoCount: number;
 }

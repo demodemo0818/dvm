@@ -416,6 +416,105 @@ body {
   line-height: 1.5;
 }
 
+/* ---- レーティング・設定モーダル ---- */
+.stars {
+  display: flex;
+  gap: 2px;
+  padding: 0 2px;
+}
+
+.star {
+  background: none;
+  border: none;
+  color: #5a5f6b;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.star.on {
+  color: #e8b93e;
+}
+
+.star:hover {
+  color: #f0cd6e;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: #1c1f26;
+  border: 1px solid #343945;
+  border-radius: 10px;
+  padding: 16px;
+  width: 460px;
+  max-width: 90vw;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.modal-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.modal-label {
+  font-size: 12px;
+  color: #aab0bd;
+}
+
+.modal-row {
+  display: flex;
+  gap: 8px;
+}
+
+.modal-row input {
+  flex: 1;
+  background: #22252d;
+  border: 1px solid #343945;
+  color: #e2e5ec;
+  padding: 6px 8px;
+  border-radius: 6px;
+  outline: none;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.modal-row button,
+.modal-actions button {
+  background: #22252d;
+  border: 1px solid #343945;
+  color: #d8dbe2;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.modal-actions .primary {
+  background: #2f66d0;
+  border-color: #2f66d0;
+  color: #fff;
+}
+
 /* ---- ステータスバー ---- */
 .statusbar {
   height: 26px;

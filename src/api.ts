@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Tag, VideoQuery, VideoRow, WatchedFolder } from './types';
+import type { Series, Tag, VideoQuery, VideoRow, WatchedFolder } from './types';
 
 export const api = {
   listWatchedFolders: () => invoke<WatchedFolder[]>('list_watched_folders'),
@@ -20,4 +20,15 @@ export const api = {
   renameTag: (tagId: number, name: string) => invoke<void>('rename_tag', { tagId, name }),
   deleteTag: (tagId: number) => invoke<void>('delete_tag', { tagId }),
   tagsForVideos: (videoIds: number[]) => invoke<Tag[]>('tags_for_videos', { videoIds }),
+  setRating: (videoIds: number[], rating: number) =>
+    invoke<void>('set_rating', { videoIds, rating }),
+  listSeries: () => invoke<Series[]>('list_series'),
+  addToSeries: (videoIds: number[], name: string) =>
+    invoke<number>('add_to_series', { videoIds, name }),
+  removeFromSeries: (videoIds: number[], seriesId: number) =>
+    invoke<void>('remove_from_series', { videoIds, seriesId }),
+  deleteSeries: (seriesId: number) => invoke<void>('delete_series', { seriesId }),
+  seriesForVideos: (videoIds: number[]) => invoke<Series[]>('series_for_videos', { videoIds }),
+  getSetting: (key: string) => invoke<string | null>('get_setting', { key }),
+  setSetting: (key: string, value: string) => invoke<void>('set_setting', { key, value }),
 };

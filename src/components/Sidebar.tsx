@@ -2,7 +2,7 @@ import { ask, open } from '@tauri-apps/plugin-dialog';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useLibrary } from '../store';
-import type { Tag, WatchedFolder } from '../types';
+import type { Series, Tag, WatchedFolder } from '../types';
 
 const VIDEO_EXTENSIONS = [
   'mp4', 'm4v', 'mkv', 'avi', 'wmv', 'mov', 'flv', 'webm',
@@ -16,16 +16,32 @@ function folderName(path: string): string {
 }
 
 export function Sidebar() {
-  const { folderId, setFolderId, version, bumpVersion, tagIds, toggleTagFilter } = useLibrary();
+  const {
+    folderId, setFolderId, version, bumpVersion,
+    tagIds, toggleTagFilter, seriesId, toggleSeriesFilter,
+  } = useLibrary();
   const [folders, setFolders] = useState<WatchedFolder[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
+  const [seriesList, setSeriesList] = useState<Series[]>([]);
   const [totalCount, setTotalCount] = useState(0);
 
   useEffect(() => {
     api.listWatchedFolders().then(setFolders);
     api.listTags().then(setTags);
+    api.listSeries().then(setSeriesList);
     api.countVideos({}).then(setTotalCount);
   }, [version]);
+
+  const removeSeries = async (s: Series) => {
+    const yes = await ask(
+      `シリーズ「${s.name}」を削除しますか?\n(動画自体は消えません)`,
+      { title: 'シリーズの削除' },
+    );
+    if (!yes) return;
+    await api.deleteSeries(s.id);
+    if (seriesId === s.id) toggleSeriesFilter(s.id);
+    bumpVersion();
+  };
 
   const removeTag = async (tag: Tag) => {
     const yes = await ask(
@@ -109,6 +125,30 @@ export function Sidebar() {
 
       <button className="side-action" onClick={addFolder}>+ フォルダを追加</button>
       <button className="side-action" onClick={addFiles}>+ ファイルを追加</button>
+
+      {seriesList.length > 0 && <div className="side-section">シリーズ</div>}
+      {seriesList.map((s) => (
+        <div
+          key={s.id}
+          className={`side-item folder ${seriesId === s.id ? 'active' : ''}`}
+          onClick={() => toggleSeriesFilter(s.id)}
+          title={`${s.name}(クリックで絞り込み。シリーズ内は登録順で表示)`}
+        >
+          <span className="tag-mark">≡</span>
+          <span className="folder-name">{s.name}</span>
+          <span className="count">{s.videoCount}</span>
+          <button
+            className="remove"
+            title="シリーズを削除"
+            onClick={(e) => {
+              e.stopPropagation();
+              removeSeries(s);
+            }}
+          >
+            ×
+          </button>
+        </div>
+      ))}
 
       {tags.length > 0 && <div className="side-section">タグ</div>}
       {tags.map((t) => (
