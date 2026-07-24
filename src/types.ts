@@ -44,7 +44,15 @@ export interface VideoQuery {
   tagIds?: number[];
   seriesId?: number | null;
   missing?: boolean;
+  /** このレーティング以上に絞る(1〜5) */
+  minRating?: number;
+  /** 尺の範囲(ミリ秒)。指定時、尺が未取得の動画は含まれない */
+  minDurationMs?: number;
+  maxDurationMs?: number;
 }
+
+/** 尺フィルタのプリセット */
+export type DurationBucket = 'lt5' | '5to20' | '20to60' | 'gt60';
 
 export interface Tag {
   id: number;
@@ -57,4 +65,21 @@ export interface Series {
   id: number;
   name: string;
   videoCount: number;
+}
+
+export interface AppInfo {
+  dataDir: string;
+  dbPath: string;
+  dbSize: number;
+  thumbsDir: string;
+  thumbCount: number;
+  thumbCacheSize: number;
+  backupsDir: string;
+}
+
+export interface BackupInfo {
+  fileName: string;
+  path: string;
+  size: number;
+  createdAt: string;
 }

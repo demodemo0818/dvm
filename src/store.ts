@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { SortKey, VideoRow } from './types';
+import type { DurationBucket, SortKey, VideoRow } from './types';
 
 interface LibraryState {
   text: string;
@@ -11,6 +11,10 @@ interface LibraryState {
   seriesId: number | null;
   /** true のとき「見つからないファイル」だけを表示 */
   missingOnly: boolean;
+  /** このレーティング以上に絞る(0 = 絞らない) */
+  minRating: number;
+  /** 尺フィルタのプリセット(null = 絞らない) */
+  durationBucket: DurationBucket | null;
   /** ライブラリ内容の変更通知。増えると各所が再取得する */
   version: number;
   status: string;
@@ -24,6 +28,8 @@ interface LibraryState {
   clearTagFilter: () => void;
   toggleSeriesFilter: (seriesId: number) => void;
   toggleMissingOnly: () => void;
+  setMinRating: (minRating: number) => void;
+  setDurationBucket: (durationBucket: DurationBucket | null) => void;
   bumpVersion: () => void;
   setStatus: (scanning: boolean, status: string) => void;
   selectOnly: (video: VideoRow) => void;
@@ -40,6 +46,8 @@ export const useLibrary = create<LibraryState>((set) => ({
   tagIds: [],
   seriesId: null,
   missingOnly: false,
+  minRating: 0,
+  durationBucket: null,
   version: 0,
   status: '',
   scanning: false,
@@ -56,6 +64,8 @@ export const useLibrary = create<LibraryState>((set) => ({
     })),
   clearTagFilter: () => set({ tagIds: [], selection: [] }),
   toggleMissingOnly: () => set((s) => ({ missingOnly: !s.missingOnly, selection: [] })),
+  setMinRating: (minRating) => set({ minRating, selection: [] }),
+  setDurationBucket: (durationBucket) => set({ durationBucket, selection: [] }),
   toggleSeriesFilter: (seriesId) =>
     set((s) => {
       const next = s.seriesId === seriesId ? null : seriesId;

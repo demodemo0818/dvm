@@ -326,6 +326,21 @@ pub fn run_scan_all(app: &AppHandle) {
     }
     emit_state(app, true, "スキャン中...");
 
+    // ドライブレター変動(E: → F: 等)を検出したら path を再マッピングしてからスキャンする
+    let remapped = {
+        let conn = state.db.lock().unwrap();
+        crate::core::volumes::sync_drive_letters(&conn)
+            .map(|r| !r.is_empty())
+            .unwrap_or_else(|e| {
+                eprintln!("sync_drive_letters failed: {e}");
+                false
+            })
+    };
+    if remapped {
+        crate::core::watcher::rebuild(app);
+        emit_changed(app);
+    }
+
     let folder_ids: Vec<i64> = {
         let conn = state.db.lock().unwrap();
         conn.prepare("SELECT id FROM watched_folders WHERE enabled=1")

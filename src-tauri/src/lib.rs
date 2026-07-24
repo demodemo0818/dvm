@@ -10,7 +10,9 @@ use tauri::Manager;
 
 pub struct AppState {
     pub db: Mutex<rusqlite::Connection>,
+    pub data_dir: PathBuf,
     pub thumbs_dir: PathBuf,
+    pub backups_dir: PathBuf,
     pub ffmpeg: crate::core::ffmpeg::FfmpegPaths,
     pub scanning: AtomicBool,
     pub watcher: Mutex<Option<notify::RecommendedWatcher>>,
@@ -27,20 +29,34 @@ pub fn run() {
             std::fs::create_dir_all(&data_dir)?;
             let thumbs_dir = data_dir.join("thumbs");
             std::fs::create_dir_all(&thumbs_dir)?;
+            let backups_dir = data_dir.join("backups");
+            std::fs::create_dir_all(&backups_dir)?;
             let conn = db::init(&data_dir.join("library.db"))?;
             app.manage(AppState {
                 db: Mutex::new(conn),
+                data_dir,
                 thumbs_dir,
+                backups_dir,
                 ffmpeg: crate::core::ffmpeg::FfmpegPaths::resolve(),
                 scanning: AtomicBool::new(false),
                 watcher: Mutex::new(None),
                 watch_tx: Mutex::new(None),
             });
 
-            // ファイル監視を開始し、起動時の自動スキャンを回す(バックグラウンド)
+            // ファイル監視を開始し、自動バックアップ → 起動時スキャンを回す(バックグラウンド)
             crate::core::watcher::init(app.handle());
             let handle = app.handle().clone();
-            tauri::async_runtime::spawn_blocking(move || crate::core::library::run_scan_all(&handle));
+            tauri::async_runtime::spawn_blocking(move || {
+                {
+                    let state = handle.state::<AppState>();
+                    let conn = state.db.lock().unwrap();
+                    // スキャン前の DB 状態を保全するため、先にバックアップする
+                    if let Err(e) = crate::core::backup::auto_backup_if_due(&conn, &state.backups_dir) {
+                        eprintln!("auto backup failed: {e}");
+                    }
+                }
+                crate::core::library::run_scan_all(&handle);
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -67,6 +83,12 @@ pub fn run() {
             commands::series::series_for_videos,
             commands::settings::get_setting,
             commands::settings::set_setting,
+            commands::maintenance::backup_db,
+            commands::maintenance::list_db_backups,
+            commands::maintenance::open_backups_dir,
+            commands::maintenance::open_data_dir,
+            commands::maintenance::get_app_info,
+            commands::maintenance::regenerate_thumbnails,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

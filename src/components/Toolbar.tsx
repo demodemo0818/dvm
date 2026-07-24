@@ -1,40 +1,22 @@
-import { open } from '@tauri-apps/plugin-dialog';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useLibrary } from '../store';
-import type { SortKey } from '../types';
+import type { DurationBucket, SortKey } from '../types';
+import { SettingsModal } from './SettingsModal';
 
 export function Toolbar() {
-  const { text, setText, sort, setSort, scanning, seriesId } = useLibrary();
+  const {
+    text, setText, sort, setSort, scanning, seriesId,
+    minRating, setMinRating, durationBucket, setDurationBucket,
+  } = useLibrary();
   const [input, setInput] = useState(text);
   const [showSettings, setShowSettings] = useState(false);
-  const [playerPath, setPlayerPath] = useState('');
 
   // 入力から 300ms 落ち着いたら検索を反映
   useEffect(() => {
     const t = setTimeout(() => setText(input), 300);
     return () => clearTimeout(t);
   }, [input, setText]);
-
-  useEffect(() => {
-    if (showSettings) {
-      api.getSetting('player_path').then((v) => setPlayerPath(v ?? ''));
-    }
-  }, [showSettings]);
-
-  const browsePlayer = async () => {
-    const selected = await open({
-      multiple: false,
-      title: '外部プレイヤーの実行ファイルを選択',
-      filters: [{ name: '実行ファイル', extensions: ['exe'] }],
-    });
-    if (typeof selected === 'string') setPlayerPath(selected);
-  };
-
-  const saveSettings = async () => {
-    await api.setSetting('player_path', playerPath.trim());
-    setShowSettings(false);
-  };
 
   return (
     <div className="toolbar">
@@ -56,33 +38,35 @@ export function Toolbar() {
         <option value="viewed_desc">最近見た順</option>
         {seriesId !== null && <option value="series_asc">シリーズ順</option>}
       </select>
+      <select
+        value={minRating}
+        onChange={(e) => setMinRating(Number(e.target.value))}
+        title="レーティングで絞り込み"
+      >
+        <option value={0}>★ 指定なし</option>
+        <option value={1}>★1 以上</option>
+        <option value={2}>★2 以上</option>
+        <option value={3}>★3 以上</option>
+        <option value={4}>★4 以上</option>
+        <option value={5}>★5</option>
+      </select>
+      <select
+        value={durationBucket ?? ''}
+        onChange={(e) => setDurationBucket((e.target.value || null) as DurationBucket | null)}
+        title="長さで絞り込み"
+      >
+        <option value="">長さ指定なし</option>
+        <option value="lt5">5 分未満</option>
+        <option value="5to20">5〜20 分</option>
+        <option value="20to60">20〜60 分</option>
+        <option value="gt60">60 分以上</option>
+      </select>
       <button onClick={() => api.rescanAll()} disabled={scanning}>
         再スキャン
       </button>
       <button title="設定" onClick={() => setShowSettings(true)}>⚙</button>
 
-      {showSettings && (
-        <div className="modal-overlay" onClick={() => setShowSettings(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-title">設定</div>
-            <label className="modal-label">
-              外部プレイヤー(空欄なら Windows の既定のプレイヤーで開く)
-            </label>
-            <div className="modal-row">
-              <input
-                value={playerPath}
-                placeholder="例: C:\\Program Files\\mpv\\mpv.exe"
-                onChange={(e) => setPlayerPath(e.target.value)}
-              />
-              <button onClick={browsePlayer}>参照...</button>
-            </div>
-            <div className="modal-actions">
-              <button onClick={() => setShowSettings(false)}>キャンセル</button>
-              <button className="primary" onClick={saveSettings}>保存</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
     </div>
   );
 }

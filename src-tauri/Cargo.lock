@@ -3569,6 +3569,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
  "walkdir",
+ "windows-sys 0.60.2",
  "xxhash-rust",
 ]
 

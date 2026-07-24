@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Series, Tag, VideoQuery, VideoRow, WatchedFolder } from './types';
+import type { AppInfo, BackupInfo, Series, Tag, VideoQuery, VideoRow, WatchedFolder } from './types';
 
 export const api = {
   listWatchedFolders: () => invoke<WatchedFolder[]>('list_watched_folders'),
@@ -32,4 +32,11 @@ export const api = {
   seriesForVideos: (videoIds: number[]) => invoke<Series[]>('series_for_videos', { videoIds }),
   getSetting: (key: string) => invoke<string | null>('get_setting', { key }),
   setSetting: (key: string, value: string) => invoke<void>('set_setting', { key, value }),
+  getAppInfo: () => invoke<AppInfo>('get_app_info'),
+  backupDb: () => invoke<BackupInfo>('backup_db'),
+  listDbBackups: () => invoke<BackupInfo[]>('list_db_backups'),
+  openBackupsDir: () => invoke<void>('open_backups_dir'),
+  openDataDir: () => invoke<void>('open_data_dir'),
+  regenerateThumbnails: (onlyFailed: boolean) =>
+    invoke<number>('regenerate_thumbnails', { onlyFailed }),
 };

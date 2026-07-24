@@ -56,9 +56,10 @@ pub async fn add_watched_folder(app: AppHandle, path: String, recursive: Option<
     let id = {
         let state = app.state::<AppState>();
         let conn = state.db.lock().unwrap();
+        let serial = crate::core::volumes::volume_serial(&offline::root_of(&path));
         conn.execute(
-            "INSERT OR IGNORE INTO watched_folders (path, recursive) VALUES (?1, ?2)",
-            params![path, recursive.unwrap_or(true) as i64],
+            "INSERT OR IGNORE INTO watched_folders (path, recursive, volume_serial) VALUES (?1, ?2, ?3)",
+            params![path, recursive.unwrap_or(true) as i64, serial],
         )
         .map_err(|e| e.to_string())?;
         let id: i64 = conn

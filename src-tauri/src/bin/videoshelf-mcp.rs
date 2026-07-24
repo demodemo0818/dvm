@@ -105,6 +105,9 @@ fn tool_definitions() -> Value {
                     "tag": { "type": "string", "description": "タグ名(完全一致)。このタグが付いた動画に絞る" },
                     "series": { "type": "string", "description": "シリーズ名(完全一致)。指定時は登録順で返る" },
                     "missing": { "type": "boolean", "description": "true でファイルが見つからない動画のみ" },
+                    "min_rating": { "type": "integer", "minimum": 1, "maximum": 5, "description": "このレーティング以上の動画に絞る" },
+                    "min_duration_sec": { "type": "integer", "description": "尺の下限(秒)" },
+                    "max_duration_sec": { "type": "integer", "description": "尺の上限(秒)" },
                     "sort": { "type": "string", "enum": ["added_desc", "added_asc", "name_asc", "name_desc", "size_desc", "duration_desc", "rating_desc", "viewed_desc"], "description": "並び順(既定: added_desc)" },
                     "limit": { "type": "integer", "description": "最大件数(既定 50、最大 1000)" }
                 }
@@ -144,6 +147,9 @@ fn call_tool(conn: &rusqlite::Connection, name: &str, args: &Value) -> anyhow::R
                 text: args["text"].as_str().map(String::from),
                 sort: args["sort"].as_str().map(String::from),
                 missing: args["missing"].as_bool(),
+                min_rating: args["min_rating"].as_i64(),
+                min_duration_ms: args["min_duration_sec"].as_i64().map(|s| s * 1000),
+                max_duration_ms: args["max_duration_sec"].as_i64().map(|s| s * 1000),
                 ..Default::default()
             };
             if let Some(tag) = args["tag"].as_str() {

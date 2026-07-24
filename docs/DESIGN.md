@@ -62,8 +62,14 @@ Windows 向け動画管理ソフト(仮称: VideoShelf)。
 - `series_entries(series_id, video_id, position)` — position で並び順を保持
 
 ### watched_folders — 監視対象フォルダ
-- `watched_folders(id, path, recursive, enabled)`
+- `watched_folders(id, path, recursive, enabled, volume_serial)`
 - 起動時スキャン + notify クレートによるリアルタイム監視
+- `volume_serial`: ドライブのボリュームシリアル(8 桁 hex)。ドライブレター変動の再マッピングに使う(UNC は NULL)
+
+### スキーマ移行(v1.0 から)
+- `PRAGMA user_version` による簡易マイグレーション(`db.rs` の `MIGRATIONS` に v(N)→v(N+1) の差分 SQL を追記していく)
+- 新規 DB は最新スキーマを一括作成。既存 DB は差分を順次適用(ALTER と user_version 更新は同一トランザクション)
+- 新規/既存の判定は `sqlite_master` の videos テーブル有無(user_version 導入前の DB は 0 のため)
 
 ## ライブラリへの登録経路(2 種類)
 
@@ -96,7 +102,10 @@ Windows 向け動画管理ソフト(仮称: VideoShelf)。
   - offline でもサムネイルとメタデータはキャッシュから表示し、検索にもヒットさせる。一覧にはオフラインバッジを表示
   - ドライブ再接続後のスキャンで自動復帰
 - **missing 判定はルートがオンラインのときにのみ行う**。ドライブ未接続を「ファイルが消えた」と誤判定しないこと
-- 外付けドライブのレター変動(E: が F: になる等)対策: v0.4 の移動検出と同時期に、ボリュームシリアル番号を watched_folders に記録して再マッピングする
+- 外付けドライブのレター変動(E: が F: になる等)対策(v1.0 実装済み・`core/volumes.rs`):
+  - 監視フォルダ登録時・起動時にボリュームシリアル番号を `watched_folders.volume_serial` に記録(バックフィルあり)
+  - 起動時・再スキャン時、記録シリアルと現在のレターが食い違ったら、同シリアルの別レターを探して watched_folders / videos の path を一括書き換え(operations_log に `drive_remap` を記録)
+  - SUBST 等によるシリアル重複の偽陽性対策として、置換後のフォルダパスが実在する場合のみ再マッピングする。見つからなければ単なる未接続として何もしない
 
 ## サムネイル戦略
 
@@ -126,11 +135,19 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
 
 - 別バイナリ `videoshelf-mcp.exe`(stdio トランスポート)。アプリが起動していなくても動く
 - DB を**読み取り専用フラグで開く**ため、AI からライブラリを変更することは構造的に不可能
-- ツール: `search_videos`(構造化クエリ)/ `get_video` / `list_tags` / `list_series` / `library_stats`
+- ツール: `search_videos`(構造化クエリ。text / tag / series / missing / min_rating / min_duration_sec / max_duration_sec / sort / limit)/ `get_video` / `list_tags` / `list_series` / `library_stats`
 - ビルド: `cd src-tauri && cargo build --bin videoshelf-mcp`
 - Claude Code への登録例:
   `claude mcp add videoshelf -- <repo>\src-tauri\target\debug\videoshelf-mcp.exe`
 - DB の場所は既定(%APPDATA%\com.taiki.videoshelf\library.db)。環境変数 `VIDEOSHELF_DB` で上書き可
+
+## DB バックアップ(v1.0 実装済み)
+
+- 方式: `VACUUM INTO`(WAL 非依存の単一ファイルを出力。断片化も解消される)
+- 保存先: `%APPDATA%\com.taiki.videoshelf\backups\`
+- 起動時自動バックアップ: 前回から 24 時間以上経過していたら `auto-YYYYMMDD-HHMMSS.db` を作成し、auto は新しい順 5 世代だけ残す(manual は削除しない)
+- 手動バックアップ: 設定画面から `manual-...db` を作成。一覧表示・フォルダを開くも設定画面から
+- 復元: アプリ終了後に `library.db` をバックアップファイルで置き換える(アプリ内復元は将来検討)
 
 ## パフォーマンス原則(必守)
 
@@ -144,6 +161,6 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
 - **v0.1** ✅(2026-07-24 実装済み): フォルダ登録 → スキャン → ffprobe メタデータ取得 → サムネイル生成 → 仮想化グリッド表示。ファイルの個別登録(D&D / ダイアログ)。オフラインドライブ検出。検索・ソートも実装済み
 - **v0.2** ✅(2026-07-24 実装済み): タグ付け(選択+インスペクタパネル)・タグ絞り込み(複数 AND)・タグ削除。FTS5 は見送り LIKE で対応(前述)
 - **v0.3** ✅(2026-07-24 実装済み): シリーズ管理(登録順の並び保持)、星レーティング、外部プレイヤー設定(settings テーブル)、視聴履歴表示、レーティング/視聴日時ソート
-- **v0.4** ✅(2026-07-24 実装済み): ファイル監視(notify、1.5 秒デバウンスで自動取り込み)、missing 絞り込みとライブラリからの削除 UI、読み取り専用 MCP サーバー。※ドライブレター変動対策(ボリュームシリアル記録)は将来分に繰り越し
-- **v1.0**: 設定画面、DB バックアップ、磨き込み
+- **v0.4** ✅(2026-07-24 実装済み): ファイル監視(notify、1.5 秒デバウンスで自動取り込み)、missing 絞り込みとライブラリからの削除 UI、読み取り専用 MCP サーバー
+- **v1.0** ✅(2026-07-24 実装済み): 設定画面(外部プレイヤー・データ保存場所の表示・サムネイル一括再生成・バックアップ管理)、DB バックアップ(下記)、ドライブレター変動対策(ボリュームシリアル記録、v0.4 繰り越し分)、検索強化(レーティング下限・尺範囲フィルタを UI と MCP の両方に追加)、user_version による簡易マイグレーション機構
 - **将来**: 書き込み系 MCP(タグ・シリーズ・ファイル操作)、アプリ内 AI アシスタント(自然言語検索・自動タグ提案)、アプリ内再生(WebView2 → remux → トランスコード → libmpv)、mac/Linux 対応

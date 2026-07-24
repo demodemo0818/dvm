@@ -17,6 +17,11 @@ pub struct VideoQuery {
     pub series_id: Option<i64>,
     /// true: missing のみ / false: missing 以外
     pub missing: Option<bool>,
+    /// このレーティング以上に絞る(1〜5。0 / None は無条件)
+    pub min_rating: Option<i64>,
+    /// 尺の下限・上限(ミリ秒)。範囲指定時、duration_ms が NULL(プローブ未了・失敗)の動画は含まれない
+    pub min_duration_ms: Option<i64>,
+    pub max_duration_ms: Option<i64>,
 }
 
 /// 一覧表示用の 1 行(UI・MCP 共通)
@@ -73,6 +78,18 @@ impl VideoQuery {
         }
         if let Some(missing) = self.missing {
             conds.push(format!("is_missing = {}", if missing { 1 } else { 0 }));
+        }
+        if let Some(r) = self.min_rating {
+            let r = r.clamp(0, 5);
+            if r > 0 {
+                conds.push(format!("rating >= {r}"));
+            }
+        }
+        if let Some(ms) = self.min_duration_ms {
+            conds.push(format!("duration_ms >= {}", ms.max(0)));
+        }
+        if let Some(ms) = self.max_duration_ms {
+            conds.push(format!("duration_ms <= {}", ms.max(0)));
         }
 
         let sql = if conds.is_empty() {

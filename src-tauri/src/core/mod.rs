@@ -1,3 +1,4 @@
+pub mod backup;
 pub mod ffmpeg;
 pub mod library;
 pub mod metadata;
@@ -7,4 +8,5 @@ pub mod series;
 pub mod settings;
 pub mod tags;
 pub mod thumbs;
+pub mod volumes;
 pub mod watcher;

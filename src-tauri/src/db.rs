@@ -2,12 +2,47 @@ use anyhow::Result;
 use rusqlite::Connection;
 use std::path::Path;
 
+/// スキーマの現行バージョン。列追加などの変更時は MIGRATIONS に差分を足してここを上げる
+const LATEST_VERSION: i32 = 1;
+
+/// v(N) -> v(N+1) の差分 SQL。PRAGMA user_version の更新は migrate() 側で同一トランザクションに含める
+const MIGRATIONS: &[&str] = &[
+    // v0 -> v1: ドライブレター変動対策(ボリュームシリアル記録)
+    "ALTER TABLE watched_folders ADD COLUMN volume_serial TEXT;",
+];
+
 pub fn init(path: &Path) -> Result<Connection> {
     let conn = Connection::open(path)?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
-    conn.execute_batch(SCHEMA)?;
+    migrate(&conn)?;
     Ok(conn)
+}
+
+fn migrate(conn: &Connection) -> Result<()> {
+    // user_version 導入前(v0.4 以前)の DB は 0 のままなので、新規 DB かどうかは videos の有無で見分ける
+    let fresh: bool = conn.query_row(
+        "SELECT COUNT(*) = 0 FROM sqlite_master WHERE type = 'table' AND name = 'videos'",
+        [],
+        |r| r.get(0),
+    )?;
+    if fresh {
+        conn.execute_batch(SCHEMA)?;
+        conn.pragma_update(None, "user_version", LATEST_VERSION)?;
+        return Ok(());
+    }
+    // 既存 DB: 新テーブルの追加は IF NOT EXISTS の SCHEMA で拾い、列追加は差分を順次適用する
+    conn.execute_batch(SCHEMA)?;
+    let mut v: i32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    while v < LATEST_VERSION {
+        let body = MIGRATIONS[v as usize];
+        conn.execute_batch(&format!(
+            "BEGIN; {body} PRAGMA user_version = {}; COMMIT;",
+            v + 1
+        ))?;
+        v += 1;
+    }
+    Ok(())
 }
 
 const SCHEMA: &str = r#"
@@ -15,7 +50,8 @@ CREATE TABLE IF NOT EXISTS watched_folders (
   id INTEGER PRIMARY KEY,
   path TEXT NOT NULL UNIQUE,
   recursive INTEGER NOT NULL DEFAULT 1,
-  enabled INTEGER NOT NULL DEFAULT 1
+  enabled INTEGER NOT NULL DEFAULT 1,
+  volume_serial TEXT
 );
 
 CREATE TABLE IF NOT EXISTS videos (
