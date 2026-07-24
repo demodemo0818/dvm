@@ -416,6 +416,38 @@ body {
   line-height: 1.5;
 }
 
+/* ---- missing・削除 ---- */
+.side-item.warn {
+  color: #d9a05a;
+}
+
+.side-item.warn.active {
+  background: #7a4a1e;
+  color: #fff;
+}
+
+.inspector-footer {
+  margin-top: auto;
+  padding-top: 12px;
+}
+
+.inspector-footer .danger {
+  width: 100%;
+  background: #3a2226;
+  border: 1px solid #6b3038;
+  color: #e08a93;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.inspector-footer .danger:hover {
+  background: #55272e;
+  color: #fff;
+}
+
 /* ---- レーティング・設定モーダル ---- */
 .stars {
   display: flex;

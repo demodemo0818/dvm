@@ -120,7 +120,17 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
 3. **破壊的操作の安全装置**: ファイル削除は必ずごみ箱経由(trash クレート)。ファイル移動・リネーム系の操作は dry-run(実行内容のプレビュー)を返せる形で設計する
 4. **操作ログ**: `operations_log(id, timestamp, actor, action, payload)` にメタデータ変更・ファイル操作を記録する(actor = user / ai)。AI に操作を許すときの監査・巻き戻しの土台
 
-導入時期: 設計規律は v0.1 から。読み取り専用 MCP は v0.4、書き込み系 MCP とアプリ内アシスタントは v1.0 以降。
+導入時期: 設計規律は v0.1 から。読み取り専用 MCP は v0.4 で実装済み、書き込み系 MCP とアプリ内アシスタントは v1.0 以降。
+
+### MCP サーバー(実装済み・読み取り専用)
+
+- 別バイナリ `videoshelf-mcp.exe`(stdio トランスポート)。アプリが起動していなくても動く
+- DB を**読み取り専用フラグで開く**ため、AI からライブラリを変更することは構造的に不可能
+- ツール: `search_videos`(構造化クエリ)/ `get_video` / `list_tags` / `list_series` / `library_stats`
+- ビルド: `cd src-tauri && cargo build --bin videoshelf-mcp`
+- Claude Code への登録例:
+  `claude mcp add videoshelf -- <repo>\src-tauri\target\debug\videoshelf-mcp.exe`
+- DB の場所は既定(%APPDATA%\com.taiki.videoshelf\library.db)。環境変数 `VIDEOSHELF_DB` で上書き可
 
 ## パフォーマンス原則(必守)
 
@@ -134,6 +144,6 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
 - **v0.1** ✅(2026-07-24 実装済み): フォルダ登録 → スキャン → ffprobe メタデータ取得 → サムネイル生成 → 仮想化グリッド表示。ファイルの個別登録(D&D / ダイアログ)。オフラインドライブ検出。検索・ソートも実装済み
 - **v0.2** ✅(2026-07-24 実装済み): タグ付け(選択+インスペクタパネル)・タグ絞り込み(複数 AND)・タグ削除。FTS5 は見送り LIKE で対応(前述)
 - **v0.3** ✅(2026-07-24 実装済み): シリーズ管理(登録順の並び保持)、星レーティング、外部プレイヤー設定(settings テーブル)、視聴履歴表示、レーティング/視聴日時ソート
-- **v0.4**: ファイル監視(notify)、移動検出、missing 整理 UI、読み取り専用 MCP サーバー(検索・一覧・メタデータ取得)
+- **v0.4** ✅(2026-07-24 実装済み): ファイル監視(notify、1.5 秒デバウンスで自動取り込み)、missing 絞り込みとライブラリからの削除 UI、読み取り専用 MCP サーバー。※ドライブレター変動対策(ボリュームシリアル記録)は将来分に繰り越し
 - **v1.0**: 設定画面、DB バックアップ、磨き込み
 - **将来**: 書き込み系 MCP(タグ・シリーズ・ファイル操作)、アプリ内 AI アシスタント(自然言語検索・自動タグ提案)、アプリ内再生(WebView2 → remux → トランスコード → libmpv)、mac/Linux 対応

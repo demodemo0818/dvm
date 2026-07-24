@@ -67,26 +67,31 @@ pub async fn add_watched_folder(app: AppHandle, path: String, recursive: Option<
         db::log_op(&conn, "user", "add_watched_folder", &path);
         id
     };
+    crate::core::watcher::rebuild(&app);
     let app2 = app.clone();
     tauri::async_runtime::spawn_blocking(move || library::run_scan_folder(&app2, id));
     Ok(id)
 }
 
 #[tauri::command]
-pub fn remove_watched_folder(state: State<AppState>, id: i64, remove_videos: bool) -> Result<(), String> {
-    let conn = state.db.lock().unwrap();
-    if remove_videos {
-        conn.execute("DELETE FROM videos WHERE watched_folder_id=?1", params![id])
+pub fn remove_watched_folder(app: AppHandle, id: i64, remove_videos: bool) -> Result<(), String> {
+    {
+        let state = app.state::<AppState>();
+        let conn = state.db.lock().unwrap();
+        if remove_videos {
+            conn.execute("DELETE FROM videos WHERE watched_folder_id=?1", params![id])
+                .map_err(|e| e.to_string())?;
+        }
+        conn.execute("DELETE FROM watched_folders WHERE id=?1", params![id])
             .map_err(|e| e.to_string())?;
+        db::log_op(
+            &conn,
+            "user",
+            "remove_watched_folder",
+            &format!("id={id}, remove_videos={remove_videos}"),
+        );
     }
-    conn.execute("DELETE FROM watched_folders WHERE id=?1", params![id])
-        .map_err(|e| e.to_string())?;
-    db::log_op(
-        &conn,
-        "user",
-        "remove_watched_folder",
-        &format!("id={id}, remove_videos={remove_videos}"),
-    );
+    crate::core::watcher::rebuild(&app);
     Ok(())
 }
 

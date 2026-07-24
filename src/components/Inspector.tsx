@@ -1,3 +1,4 @@
+import { ask } from '@tauri-apps/plugin-dialog';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useLibrary } from '../store';
@@ -156,6 +157,24 @@ export function Inspector() {
       {!single && (
         <div className="inspector-note">変更は選択中の全動画に適用されます</div>
       )}
+
+      <div className="inspector-footer">
+        <button
+          className="danger"
+          onClick={async () => {
+            const yes = await ask(
+              `${selection.length} 件をライブラリから削除しますか?\n(登録とタグ情報が消えます。ファイル自体は削除されません)`,
+              { title: 'ライブラリから削除' },
+            );
+            if (!yes) return;
+            await api.removeVideos(ids);
+            clearSelection();
+            bumpVersion();
+          }}
+        >
+          ライブラリから削除
+        </button>
+      </div>
     </aside>
   );
 }

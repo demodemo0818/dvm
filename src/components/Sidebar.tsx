@@ -19,17 +19,20 @@ export function Sidebar() {
   const {
     folderId, setFolderId, version, bumpVersion,
     tagIds, toggleTagFilter, seriesId, toggleSeriesFilter,
+    missingOnly, toggleMissingOnly,
   } = useLibrary();
   const [folders, setFolders] = useState<WatchedFolder[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [seriesList, setSeriesList] = useState<Series[]>([]);
   const [totalCount, setTotalCount] = useState(0);
+  const [missingCount, setMissingCount] = useState(0);
 
   useEffect(() => {
     api.listWatchedFolders().then(setFolders);
     api.listTags().then(setTags);
     api.listSeries().then(setSeriesList);
     api.countVideos({}).then(setTotalCount);
+    api.countVideos({ missing: true }).then(setMissingCount);
   }, [version]);
 
   const removeSeries = async (s: Series) => {
@@ -93,11 +96,23 @@ export function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar-title">VideoShelf</div>
       <button
-        className={`side-item ${folderId === null ? 'active' : ''}`}
-        onClick={() => setFolderId(null)}
+        className={`side-item ${folderId === null && !missingOnly ? 'active' : ''}`}
+        onClick={() => {
+          if (missingOnly) toggleMissingOnly();
+          setFolderId(null);
+        }}
       >
         すべての動画 <span className="count">{totalCount}</span>
       </button>
+      {missingCount > 0 && (
+        <button
+          className={`side-item warn ${missingOnly ? 'active' : ''}`}
+          onClick={toggleMissingOnly}
+          title="ファイルが見つからない動画だけを表示(選択して「ライブラリから削除」で整理できます)"
+        >
+          ⚠ 見つからない <span className="count">{missingCount}</span>
+        </button>
+      )}
 
       <div className="side-section">監視フォルダ</div>
       {folders.map((f) => (

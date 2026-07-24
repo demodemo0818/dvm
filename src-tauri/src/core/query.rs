@@ -1,6 +1,10 @@
-use serde::Deserialize;
+use crate::core::offline::RootCache;
+use anyhow::Result;
+use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
+use std::path::Path;
 
-/// UI と将来の AI(MCP)が共有する構造化検索クエリ
+/// UI と AI(MCP)が共有する構造化検索クエリ
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct VideoQuery {
@@ -11,6 +15,30 @@ pub struct VideoQuery {
     pub tag_ids: Option<Vec<i64>>,
     /// シリーズで絞る
     pub series_id: Option<i64>,
+    /// true: missing のみ / false: missing 以外
+    pub missing: Option<bool>,
+}
+
+/// 一覧表示用の 1 行(UI・MCP 共通)
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoRow {
+    pub id: i64,
+    pub path: String,
+    pub filename: String,
+    pub title: Option<String>,
+    pub size: i64,
+    pub duration_ms: Option<i64>,
+    pub width: Option<i64>,
+    pub height: Option<i64>,
+    pub rating: i64,
+    pub view_count: i64,
+    pub last_viewed_at: Option<String>,
+    pub is_missing: bool,
+    pub is_offline: bool,
+    pub thumb_state: i64,
+    pub thumb_path: Option<String>,
+    pub added_at: String,
 }
 
 impl VideoQuery {
@@ -42,6 +70,9 @@ impl VideoQuery {
             conds.push(format!(
                 "id IN (SELECT video_id FROM series_entries WHERE series_id = {sid})"
             ));
+        }
+        if let Some(missing) = self.missing {
+            conds.push(format!("is_missing = {}", if missing { 1 } else { 0 }));
         }
 
         let sql = if conds.is_empty() {
@@ -76,4 +107,91 @@ impl VideoQuery {
         }
         .to_string()
     }
+}
+
+pub fn count(conn: &Connection, query: &VideoQuery) -> Result<i64> {
+    let (where_sql, like) = query.where_clause();
+    let sql = format!("SELECT COUNT(*) FROM videos {where_sql}");
+    let count = match &like {
+        Some(l) => conn.query_row(&sql, rusqlite::params![l], |r| r.get(0)),
+        None => conn.query_row(&sql, [], |r| r.get(0)),
+    }?;
+    Ok(count)
+}
+
+type RawRow = (
+    i64,            // id
+    String,         // path
+    String,         // filename
+    Option<String>, // title
+    i64,            // size
+    Option<i64>,    // duration_ms
+    Option<i64>,    // width
+    Option<i64>,    // height
+    i64,            // rating
+    i64,            // view_count
+    Option<String>, // last_viewed_at
+    i64,            // is_missing
+    i64,            // thumb_state
+    String,         // added_at
+);
+
+/// 検索を実行して一覧行を返す。thumbs_dir が None のときはサムネイルパスを解決しない(MCP 用)
+pub fn query_rows(
+    conn: &Connection,
+    thumbs_dir: Option<&Path>,
+    query: &VideoQuery,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<VideoRow>> {
+    let (where_sql, like) = query.where_clause();
+    let order = query.order_clause();
+    let limit = limit.clamp(1, 1000);
+    let offset = offset.max(0);
+    let sql = format!(
+        "SELECT id, path, filename, title, size, duration_ms, width, height, rating,
+                view_count, last_viewed_at, is_missing, thumb_state, added_at
+         FROM videos {where_sql} {order} LIMIT {limit} OFFSET {offset}"
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
+
+    fn map_row(r: &rusqlite::Row) -> rusqlite::Result<RawRow> {
+        Ok((
+            r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?,
+            r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?,
+        ))
+    }
+
+    let raw: Vec<RawRow> = match &like {
+        Some(l) => stmt.query_map(rusqlite::params![l], map_row),
+        None => stmt.query_map([], map_row),
+    }?
+    .filter_map(|r| r.ok())
+    .collect();
+
+    let mut roots = RootCache::default();
+    let rows = raw
+        .into_iter()
+        .map(|(id, path, filename, title, size, duration_ms, width, height, rating, view_count, last_viewed_at, is_missing, thumb_state, added_at)| {
+            let thumb_path = thumbs_dir.and_then(|dir| {
+                let thumb = dir.join(format!("{id}.jpg"));
+                if thumb_state == 1 && thumb.exists() {
+                    Some(thumb.to_string_lossy().to_string())
+                } else {
+                    None
+                }
+            });
+            VideoRow {
+                is_offline: !roots.is_online(&path),
+                thumb_path,
+                id, path, filename, title, size, duration_ms, width, height, rating,
+                view_count, last_viewed_at,
+                is_missing: is_missing != 0,
+                thumb_state,
+                added_at,
+            }
+        })
+        .collect();
+    Ok(rows)
 }

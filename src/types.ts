@@ -43,6 +43,7 @@ export interface VideoQuery {
   folderId?: number | null;
   tagIds?: number[];
   seriesId?: number | null;
+  missing?: boolean;
 }
 
 export interface Tag {

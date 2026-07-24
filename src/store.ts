@@ -9,6 +9,8 @@ interface LibraryState {
   tagIds: number[];
   /** 選択中のシリーズフィルタ */
   seriesId: number | null;
+  /** true のとき「見つからないファイル」だけを表示 */
+  missingOnly: boolean;
   /** ライブラリ内容の変更通知。増えると各所が再取得する */
   version: number;
   status: string;
@@ -21,6 +23,7 @@ interface LibraryState {
   toggleTagFilter: (tagId: number) => void;
   clearTagFilter: () => void;
   toggleSeriesFilter: (seriesId: number) => void;
+  toggleMissingOnly: () => void;
   bumpVersion: () => void;
   setStatus: (scanning: boolean, status: string) => void;
   selectOnly: (video: VideoRow) => void;
@@ -36,6 +39,7 @@ export const useLibrary = create<LibraryState>((set) => ({
   folderId: null,
   tagIds: [],
   seriesId: null,
+  missingOnly: false,
   version: 0,
   status: '',
   scanning: false,
@@ -51,6 +55,7 @@ export const useLibrary = create<LibraryState>((set) => ({
       selection: [],
     })),
   clearTagFilter: () => set({ tagIds: [], selection: [] }),
+  toggleMissingOnly: () => set((s) => ({ missingOnly: !s.missingOnly, selection: [] })),
   toggleSeriesFilter: (seriesId) =>
     set((s) => {
       const next = s.seriesId === seriesId ? null : seriesId;

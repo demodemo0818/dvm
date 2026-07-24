@@ -22,6 +22,7 @@ export const api = {
   tagsForVideos: (videoIds: number[]) => invoke<Tag[]>('tags_for_videos', { videoIds }),
   setRating: (videoIds: number[], rating: number) =>
     invoke<void>('set_rating', { videoIds, rating }),
+  removeVideos: (videoIds: number[]) => invoke<void>('remove_videos', { videoIds }),
   listSeries: () => invoke<Series[]>('list_series'),
   addToSeries: (videoIds: number[], name: string) =>
     invoke<number>('add_to_series', { videoIds, name }),

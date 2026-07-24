@@ -9,7 +9,8 @@ const CARD_W = 224; // カード幅 + ギャップの目安
 const CARD_H = 210; // 1 行の高さ
 
 export function VideoGrid() {
-  const { text, sort, folderId, tagIds, seriesId, version, clearSelection } = useLibrary();
+  const { text, sort, folderId, tagIds, seriesId, missingOnly, version, clearSelection } =
+    useLibrary();
   const query = useMemo<VideoQuery>(
     () => ({
       text: text || undefined,
@@ -17,8 +18,9 @@ export function VideoGrid() {
       folderId,
       tagIds: tagIds.length > 0 ? tagIds : undefined,
       seriesId,
+      missing: missingOnly ? true : undefined,
     }),
-    [text, sort, folderId, tagIds, seriesId],
+    [text, sort, folderId, tagIds, seriesId, missingOnly],
   );
   const { total, getVideo } = useVideos(query, version);
 

@@ -1,9 +1,10 @@
 mod commands;
-mod core;
-mod db;
+pub mod core;
+pub mod db;
 
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
+use std::sync::mpsc::Sender;
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -12,6 +13,8 @@ pub struct AppState {
     pub thumbs_dir: PathBuf,
     pub ffmpeg: crate::core::ffmpeg::FfmpegPaths,
     pub scanning: AtomicBool,
+    pub watcher: Mutex<Option<notify::RecommendedWatcher>>,
+    pub watch_tx: Mutex<Option<Sender<i64>>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -30,9 +33,12 @@ pub fn run() {
                 thumbs_dir,
                 ffmpeg: crate::core::ffmpeg::FfmpegPaths::resolve(),
                 scanning: AtomicBool::new(false),
+                watcher: Mutex::new(None),
+                watch_tx: Mutex::new(None),
             });
 
-            // 起動時に自動スキャン(バックグラウンド)
+            // ファイル監視を開始し、起動時の自動スキャンを回す(バックグラウンド)
+            crate::core::watcher::init(app.handle());
             let handle = app.handle().clone();
             tauri::async_runtime::spawn_blocking(move || crate::core::library::run_scan_all(&handle));
             Ok(())
@@ -47,6 +53,7 @@ pub fn run() {
             commands::videos::register_files,
             commands::videos::open_video,
             commands::videos::set_rating,
+            commands::videos::remove_videos,
             commands::tags::list_tags,
             commands::tags::tag_videos,
             commands::tags::untag_videos,

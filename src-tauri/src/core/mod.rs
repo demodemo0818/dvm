@@ -7,3 +7,4 @@ pub mod series;
 pub mod settings;
 pub mod tags;
 pub mod thumbs;
+pub mod watcher;
