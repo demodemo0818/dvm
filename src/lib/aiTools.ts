@@ -185,7 +185,7 @@ export function buildTools(notify: ToolNotify) {
       });
       // 適用後の件数を返す(グリッドと同じクエリ条件)
       const count = await api.countVideos(query);
-      notify(`🔍 グリッドを絞り込みました(${count} 件)`);
+      notify(`グリッドを絞り込みました(${count} 件)`);
       return `絞り込みを適用しました。該当 ${count} 件`;
     },
   });
@@ -204,7 +204,7 @@ export function buildTools(notify: ToolNotify) {
     run: async (input) => {
       await api.tagVideos(input.videoIds, input.tag, 'ai');
       useLibrary.getState().bumpVersion();
-      notify(`🏷 ${input.videoIds.length} 件にタグ「${input.tag}」を付けました`);
+      notify(`${input.videoIds.length} 件にタグ「${input.tag}」を付けました`);
       return `${input.videoIds.length} 件にタグ「${input.tag}」を付けました`;
     },
   });
@@ -223,7 +223,7 @@ export function buildTools(notify: ToolNotify) {
     run: async (input) => {
       await api.setRating(input.videoIds, input.rating, 'ai');
       useLibrary.getState().bumpVersion();
-      notify(`⭐ ${input.videoIds.length} 件のレーティングを ${input.rating} にしました`);
+      notify(`${input.videoIds.length} 件のレーティングを ★${input.rating} にしました`);
       return `${input.videoIds.length} 件のレーティングを ${input.rating} にしました`;
     },
   });
@@ -242,7 +242,7 @@ export function buildTools(notify: ToolNotify) {
     run: async (input) => {
       await api.addToSeries(input.videoIds, input.series, 'ai');
       useLibrary.getState().bumpVersion();
-      notify(`📚 ${input.videoIds.length} 件をシリーズ「${input.series}」に追加しました`);
+      notify(`${input.videoIds.length} 件をシリーズ「${input.series}」に追加しました`);
       return `${input.videoIds.length} 件をシリーズ「${input.series}」に追加しました`;
     },
   });

@@ -1,3 +1,13 @@
+import {
+  ChartColumn,
+  LayoutGrid,
+  List,
+  PanelRight,
+  RotateCcwClock,
+  Settings,
+  Shuffle,
+  Sparkles,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { advancedCount, buildQuery } from '../lib/query';
@@ -78,7 +88,9 @@ export function Toolbar() {
         {seriesId !== null && <option value="series_asc">シリーズ順</option>}
         {duplicatesOnly && <option value="dup">重複をまとめる</option>}
       </select>
-      <button title="並びをシャッフルする" onClick={reshuffle}>🔀</button>
+      <button title="並びをシャッフルする" onClick={reshuffle}>
+        <Shuffle />
+      </button>
       <select
         value={minRating}
         onChange={(e) => setMinRating(Number(e.target.value))}
@@ -113,7 +125,7 @@ export function Toolbar() {
           void api.setSetting('view_mode', next);
         }}
       >
-        {viewMode === 'grid' ? '☰' : '▦'}
+        {viewMode === 'grid' ? <List /> : <LayoutGrid />}
       </button>
       {viewMode === 'grid' && (
         <input
@@ -132,8 +144,12 @@ export function Toolbar() {
       <button onClick={() => api.rescanAll()} disabled={scanning}>
         再スキャン
       </button>
-      <button title="統計" onClick={() => setShowStats(true)}>📊</button>
-      <button title="操作履歴" onClick={() => setShowHistory(true)}>🕘</button>
+      <button title="統計" onClick={() => setShowStats(true)}>
+        <ChartColumn />
+      </button>
+      <button title="操作履歴" onClick={() => setShowHistory(true)}>
+        <RotateCcwClock />
+      </button>
       <button
         title={
           inspectorPinned
@@ -147,16 +163,18 @@ export function Toolbar() {
           void api.setSetting('inspector_pinned', next ? '1' : '0');
         }}
       >
-        📋
+        <PanelRight />
       </button>
       <button
         title="AI アシスタント"
         className={showAiPanel ? 'active' : ''}
         onClick={toggleAiPanel}
       >
-        ✨
+        <Sparkles />
       </button>
-      <button title="設定" onClick={() => setShowSettings(true)}>⚙</button>
+      <button title="設定" onClick={() => setShowSettings(true)}>
+        <Settings />
+      </button>
 
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
       {showHistory && <HistoryModal onClose={() => setShowHistory(false)} />}

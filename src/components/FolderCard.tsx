@@ -1,3 +1,4 @@
+import { Folder, FolderUp } from 'lucide-react';
 import type { FolderNode } from '../types';
 
 /**
@@ -50,7 +51,10 @@ export function FolderCard({
       onDoubleClick={() => onOpen(entry.path)}
     >
       <div className="folder-thumb">
-        <span className="folder-glyph">{entry.up ? '↰' : '📁'}</span>
+        {/* カードのサムネイル枠に合わせて大きく出すので、ここだけ size を明示する */}
+        <span className="folder-glyph">
+          {entry.up ? <FolderUp size={34} /> : <Folder size={34} />}
+        </span>
       </div>
       <div className="card-name">{entry.name}</div>
       <div className="card-sub">{subLabel(entry)}</div>
@@ -70,7 +74,9 @@ export function FolderListRow({
       onDoubleClick={() => onOpen(entry.path)}
     >
       <div className="list-thumb folder-thumb">
-        <span className="folder-glyph">{entry.up ? '↰' : '📁'}</span>
+        <span className="folder-glyph">
+          {entry.up ? <FolderUp size={18} /> : <Folder size={18} />}
+        </span>
       </div>
       <div className="list-name">{entry.name}</div>
       <div className="list-col folder-count">{subLabel(entry)}</div>

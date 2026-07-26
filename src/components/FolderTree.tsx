@@ -1,3 +1,4 @@
+import { ChevronDown, Folder } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useLibrary } from '../store';
 import type { FolderNode } from '../types';
@@ -83,8 +84,8 @@ export function FolderTree({ nodes }: { nodes: FolderNode[] }) {
                   toggleExpand(n.path);
                 }}
               >
-                {/* 開閉で字を変えず CSS で回す。別グリフだと字幅・線の太さが変わって見えるため */}
-                ▼
+                {/* 開閉でアイコンを変えず CSS で回す(形が変わると大きさが違って見える) */}
+                <ChevronDown />
               </button>
             ) : (
               <span className="tree-toggle spacer" />
@@ -92,7 +93,7 @@ export function FolderTree({ nodes }: { nodes: FolderNode[] }) {
             {n.watchedFolderId !== null ? (
               <span className={`dot ${n.online ? 'online' : 'offline'}`} />
             ) : (
-              <span className="tag-mark">📁</span>
+              <Folder className="tag-mark" />
             )}
             <span className="folder-name">{n.name}</span>
             {/* 直下に動画が無い中継ぎのフォルダは「0」を出さない(数字だらけになるため) */}

@@ -1,4 +1,5 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { command, listenEvents, setProperty } from 'tauri-plugin-libmpv-api';
 import { api } from '../../api';
@@ -192,7 +193,7 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
           {video.title ?? video.filename}
         </div>
         <button className="player-close" onClick={close} title="閉じる (Esc)">
-          ✕
+          <X />
         </button>
       </div>
       <PlayerControls

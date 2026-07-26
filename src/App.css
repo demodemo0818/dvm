@@ -437,9 +437,9 @@ body {
   border-color: #46506a;
 }
 
+/* アイコンの大きさは FolderCard.tsx 側で size に渡している(枠に合わせて大きく出す) */
 .card.folder-card .folder-glyph {
-  font-size: 34px;
-  line-height: 1;
+  display: flex;
 }
 
 .list-row.folder-row .folder-thumb {
@@ -450,8 +450,7 @@ body {
 }
 
 .list-row.folder-row .folder-glyph {
-  font-size: 17px;
-  line-height: 1;
+  display: flex;
 }
 
 /* 「上のフォルダ」は中身ではなく移動先なので少し控えめに */
@@ -488,8 +487,18 @@ body {
   color: #7da7f0;
 }
 
+/* サイドバー・ツリーの行頭アイコンを本文より控えめにする */
 .tag-mark {
   color: #8a8f9c;
+  flex-shrink: 0;
+}
+
+/* タグ色の丸。色未設定のタグは .tag-mark と同じ灰色にする(v1.13) */
+.tag-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #8a8f9c;
   flex-shrink: 0;
 }
 
@@ -1408,9 +1417,9 @@ html.mpv-active .app {
 
 /* ---- タグツリー (v1.7) ---- */
 /**
- * 開閉の三角。字は常に ▼ で、閉じているときだけ CSS で右向きに回す
- * (▶ と ▼ は別グリフなので、字を差し替えると大きさが変わって見える)。
- * 小さいと押しづらいので、当たり判定は字より大きめに取る
+ * 開閉の三角。アイコンは常に下向き(ChevronDown)で、閉じているときだけ CSS で
+ * 右向きに回す(形を差し替えると大きさが変わって見える)。
+ * 小さいと押しづらいので、当たり判定はアイコンより大きめに取る
  */
 .tree-toggle {
   display: flex;
@@ -1780,15 +1789,6 @@ button.stats-tile:hover {
   cursor: default;
 }
 
-/*
- * 「この位置をサムネイルにする」。下のボタン列に置いている(v1.11)。
- * 以前は上のバーで ✕ の隣にあり、閉じるつもりで押してしまう事故があった。
- * 見た目は .player-buttons button を継いだうえで、絵文字が少しだけ小さく見えるので詰める
- */
-.player-buttons .player-thumb-btn {
-  font-size: 15px;
-}
-
 /* ---- ファイル操作の確認ダイアログ (v1.9) ---- */
 .fileop-modal {
   width: 720px;
@@ -2016,6 +2016,35 @@ button.stats-tile:hover {
   border-color: #2f66d0;
 }
 
+/* ---- アイコン (v1.13) ---- */
+/*
+ * アイコンは Lucide の SVG。既定サイズと線の太さは main.tsx の LucideProvider で
+ * 決めていて、ここでは配置だけを面倒みる。
+ * - flex: none — flex 行(.side-item / .player-buttons)の中で潰れないように
+ * - display: block — inline の SVG は baseline に乗って 1〜2px 下がるため
+ * 色は stroke="currentColor" なので、既存の hover / .active の color がそのまま効く
+ */
+svg.lucide {
+  flex: none;
+  display: block;
+}
+
+/* アイコンだけのボタンは中央に置く(絵文字のときは font-size と行送りで揃っていた) */
+.toolbar button,
+.player-buttons button,
+.player-close,
+.ai-header button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ツリーの開閉三角。20×20px の当たり判定に対して字より少し小さめが収まりが良い */
+.tree-toggle svg.lucide {
+  width: 14px;
+  height: 14px;
+}
+
 /* ---- 表示サイズ・連続再生のトグル (v1.12) ---- */
 /*
  * ON 状態の見せ方。ツールバー(.toolbar button.active)は青の塗りつぶしだが、
@@ -2031,11 +2060,4 @@ button.stats-tile:hover {
 
 .player-buttons button.active:hover {
   color: #fff;
-}
-
-/* 「1:1」は絵文字ではなく字なので、16px だと隣のボタンより大きく見える。少し詰める */
-.player-buttons .player-scale-btn {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
 }

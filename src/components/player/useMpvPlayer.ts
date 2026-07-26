@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { command, observeProperties, setProperty } from 'tauri-plugin-libmpv-api';
+import { useLibrary } from '../../store';
 import { MPV_OBSERVED } from './mpv';
 import type { MpvTrackEntry } from './mpv';
 import {
@@ -61,6 +62,8 @@ export function useMpvPlayer(): VideoPlayer {
     bufferedEnd: 0,
   }));
   const [tracks, setTracks] = useState<MediaTrack[]>([]);
+  // リピートは engine をまたぐ設定なので store に置いている(v1.13)
+  const repeatOne = useLibrary((s) => s.repeatOne);
   // 表示サイズ(v1.12)。mpv 側は購読しない — 変更できるのはこの UI だけなので手元が真実
   const [unscaled, setUnscaled] = useState(savedUnscaled);
   // 操作コールバックから最新状態を読むための ref(stale closure 回避)
@@ -113,6 +116,15 @@ export function useMpvPlayer(): VideoPlayer {
   useEffect(() => {
     run(setProperty('video-unscaled', unscaledValue(savedUnscaled())));
   }, []);
+
+  /**
+   * リピート再生(v1.13)。loop-file も loadfile を跨いで残るグローバルなプロパティ
+   * なので、状態が変わるたびに押し込むだけでよい(mount 時にも走る)。
+   * 'inf' の間は EOF に到達しないので、連続再生の判定は自然に発動しない
+   */
+  useEffect(() => {
+    run(setProperty('loop-file', repeatOne ? 'inf' : 'no'));
+  }, [repeatOne]);
 
   const togglePlay = useCallback(() => run(command('cycle', ['pause'])), []);
   const seekTo = useCallback((sec: number) => run(command('seek', [sec, 'absolute'])), []);

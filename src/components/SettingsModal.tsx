@@ -198,13 +198,13 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             </button>
           </div>
           <div className="settings-note">
-            再生中に 🖼 ボタン(T キー)を押すと、その位置を個別にサムネイルにできます
+            再生中にカメラのボタン(T キー)を押すと、その位置を個別にサムネイルにできます
           </div>
         </div>
 
         <div className="settings-section">
           <div className="settings-heading">AI アシスタント</div>
-          <label className="modal-label">Anthropic API キー(✨ パネルで使用)</label>
+          <label className="modal-label">Anthropic API キー(AI アシスタントで使用)</label>
           <div className="modal-row">
             <input
               type="password"

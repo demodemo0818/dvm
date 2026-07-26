@@ -1,4 +1,5 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { TriangleAlert } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { fmtTime } from '../lib/format';
 import { useLibrary } from '../store';
@@ -52,7 +53,9 @@ export function VideoCard({ video, index, selected, focused, onPick, onPlay }: V
       >
         {/* 一覧クエリではサムネイルの実在確認をしていない(I/O 削減)。
             読めなかった img を隠して、下に敷いたプレースホルダを見せる */}
-        <div className="thumb-placeholder">{video.thumbState === 2 ? '⚠' : '…'}</div>
+        <div className="thumb-placeholder">
+          {video.thumbState === 2 ? <TriangleAlert size={22} /> : '…'}
+        </div>
         {video.thumbPath && (
           <img
             key={video.id}

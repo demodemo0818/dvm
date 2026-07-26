@@ -1,4 +1,5 @@
 import { ask } from '@tauri-apps/plugin-dialog';
+import { ChevronDown } from 'lucide-react';
 import { useState } from 'react';
 import { api } from '../api';
 import { useLibrary } from '../store';
@@ -173,18 +174,17 @@ export function TagTree({ tags }: { tags: Tag[] }) {
                   toggleCollapse(t.id);
                 }}
               >
-                {/* 開閉で字を変えず CSS で回す。別グリフだと字幅・線の太さが変わって見えるため */}
-                ▼
+                {/* 開閉でアイコンを変えず CSS で回す(形が変わると大きさが違って見える) */}
+                <ChevronDown />
               </button>
             ) : (
               <span className="tree-toggle spacer" />
             )}
+            {/* タグ色の丸。監視フォルダの接続状態(.dot)と同じ CSS の円にしている */}
             <span
-              className="tag-mark"
-              style={t.color ? { color: t.color } : undefined}
-            >
-              ●
-            </span>
+              className="tag-dot"
+              style={t.color ? { background: t.color } : undefined}
+            />
             <span className="folder-name">{t.name}</span>
             <span className="count">{t.videoCount}</span>
             <button

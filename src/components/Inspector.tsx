@@ -1,5 +1,6 @@
 import { ask, open } from '@tauri-apps/plugin-dialog';
 import { useEffect, useState } from 'react';
+import { ListOrdered } from 'lucide-react';
 import { api } from '../api';
 import { useLibrary } from '../store';
 import type { PlanItem, Series, Tag } from '../types';
@@ -153,7 +154,8 @@ export function Inspector() {
       <div className="chip-list">
         {commonSeries.map((s) => (
           <span key={s.id} className="chip">
-            ≡ {s.name}
+            <ListOrdered size={13} />
+            {s.name}
             <button
               onClick={() => api.removeFromSeries(ids, s.id).then(bumpVersion)}
               title="このシリーズから外す"

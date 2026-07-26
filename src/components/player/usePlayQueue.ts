@@ -70,3 +70,21 @@ export function useAutoplayToggle() {
 
   return { autoplayNext, toggle };
 }
+
+/**
+ * リピート再生(1 本を繰り返す)のトグル(v1.13)。ボタンと R キーで共用する。
+ * 実際のループは engine 側が持つ(mpv は loop-file、WebView2 は <video loop>)。
+ * 状態は store にだけ置き、settings には保存しない(理由は store の宣言部)。
+ * リピート中は EOF が来ないので連続再生は自然に発動しない — 排他制御は書かなくてよい
+ */
+export function useRepeatToggle() {
+  const repeatOne = useLibrary((s) => s.repeatOne);
+  const setRepeatOne = useLibrary((s) => s.setRepeatOne);
+
+  // 参照が毎回変わるとショートカットの effect が張り替わるので値は getState() から読む
+  const toggle = useCallback(() => {
+    setRepeatOne(!useLibrary.getState().repeatOne);
+  }, [setRepeatOne]);
+
+  return { repeatOne, toggle };
+}

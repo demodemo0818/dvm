@@ -1,4 +1,5 @@
 import { ask, open } from '@tauri-apps/plugin-dialog';
+import { Copy, FolderSearch, ListOrdered, TriangleAlert } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useLibrary } from '../store';
@@ -195,7 +196,8 @@ export function Sidebar() {
           onClick={toggleMissingOnly}
           title="ファイルが見つからない動画だけを表示(パスの再リンクか、ライブラリからの削除で整理できます)"
         >
-          ⚠ 見つからない <span className="count">{missingCount}</span>
+          <TriangleAlert />
+          見つからない <span className="count">{missingCount}</span>
         </button>
       )}
       {missingOnly && (
@@ -209,7 +211,8 @@ export function Sidebar() {
           onClick={toggleDuplicatesOnly}
           title="内容が同じ動画(サイズと先頭ハッシュが一致)だけを表示。同じものが隣り合って並びます"
         >
-          ⧉ 重複 <span className="count">{duplicateCount}</span>
+          <Copy />
+          重複 <span className="count">{duplicateCount}</span>
         </button>
       )}
 
@@ -243,7 +246,7 @@ export function Sidebar() {
               onClick={() => openSmartFolder(sf)}
               title={`${sf.name}(保存した検索条件を復元します)`}
             >
-              <span className="tag-mark">🔍</span>
+              <FolderSearch className="tag-mark" />
               <span className="folder-name">{sf.name}</span>
               <button
                 className="remove"
@@ -295,7 +298,7 @@ export function Sidebar() {
               onClick={() => toggleSeriesFilter(s.id)}
               title={`${s.name}(クリックで絞り込み。シリーズ内は登録順で表示)`}
             >
-              <span className="tag-mark">≡</span>
+              <ListOrdered className="tag-mark" />
               <span className="folder-name">{s.name}</span>
               <span className="count">{s.videoCount}</span>
               <button

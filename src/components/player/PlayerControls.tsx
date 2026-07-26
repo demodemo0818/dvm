@@ -1,8 +1,22 @@
+import {
+  Camera,
+  ListVideo,
+  Maximize,
+  Minimize,
+  Pause,
+  Play,
+  Repeat1,
+  Scaling,
+  SkipBack,
+  SkipForward,
+  Volume2,
+  VolumeX,
+} from 'lucide-react';
 import { useRef, useState } from 'react';
 import { fmtTime } from '../../lib/format';
 import { RATE_OPTIONS } from './types';
 import type { MediaTrack, VideoPlayer } from './types';
-import { useAutoplayToggle } from './usePlayQueue';
+import { useAutoplayToggle, useRepeatToggle } from './usePlayQueue';
 import type { PlayQueueControls } from './usePlayQueue';
 
 /** バッファ帯付きシークバー。ドラッグ中はプレビュー位置を表示し、離した時にシークする */
@@ -97,6 +111,7 @@ export function PlayerControls({
 }) {
   const { state } = player;
   const { autoplayNext, toggle: toggleAutoplay } = useAutoplayToggle();
+  const { repeatOne, toggle: toggleRepeat } = useRepeatToggle();
   // ボタンにフォーカスを残さない(スペース等のショートカットが二重発火しないように)
   const noFocus = (e: React.MouseEvent) => e.preventDefault();
 
@@ -111,7 +126,7 @@ export function PlayerControls({
             disabled={!queue.hasPrev}
             title="前の動画 (P)"
           >
-            ⏮
+            <SkipBack />
           </button>
         )}
         <button
@@ -119,7 +134,7 @@ export function PlayerControls({
           onClick={player.togglePlay}
           title={state.paused ? '再生 (Space)' : '一時停止 (Space)'}
         >
-          {state.paused ? '▶' : '❚❚'}
+          {state.paused ? <Play /> : <Pause />}
         </button>
         {queue && (
           <button
@@ -128,14 +143,16 @@ export function PlayerControls({
             disabled={!queue.hasNext}
             title="次の動画 (N)"
           >
-            ⏭
+            <SkipForward />
           </button>
         )}
         {/*
           連続再生の切替。設定 autoplay_next をその場で書き換える(engine 非依存なので
           両エンジンで出す)。単発再生でも隠さない — ⏮⏭ は「今のキューに前後があるか」
           という一時的な状態だから disabled にするが、こちらは永続設定なので
-          消えると設定の在り処が分からなくなる
+          消えると設定の在り処が分からなくなる。
+          アイコンはプレイリスト(ListVideo)。以前はループ記号を使っていて、
+          隣のリピートと見分けが付かなかった(v1.13)
         */}
         <button
           className={autoplayNext ? 'active' : ''}
@@ -147,7 +164,23 @@ export function PlayerControls({
               : '連続再生をオンにする(最後まで再生したら次の動画へ)(A)'
           }
         >
-          🔁
+          <ListVideo />
+        </button>
+        {/*
+          リピート再生(v1.13)。1 本を繰り返すので Repeat1(ループに 1 が入った形)。
+          リピート中は EOF が来ないので連続再生は発動しない = 排他制御は要らない
+        */}
+        <button
+          className={repeatOne ? 'active' : ''}
+          onMouseDown={noFocus}
+          onClick={toggleRepeat}
+          title={
+            repeatOne
+              ? 'リピート再生をオフにする (R)'
+              : 'リピート再生をオンにする(この動画を繰り返す)(R)'
+          }
+        >
+          <Repeat1 />
         </button>
         <span className="player-time">
           {fmtTime(state.currentTime)} / {fmtTime(state.duration)}
@@ -183,7 +216,7 @@ export function PlayerControls({
           ))}
         </select>
         <button onMouseDown={noFocus} onClick={player.toggleMute} title="ミュート (M)">
-          {state.muted || state.volume === 0 ? '🔇' : '🔊'}
+          {state.muted || state.volume === 0 ? <VolumeX /> : <Volume2 />}
         </button>
         <input
           className="player-volume"
@@ -195,25 +228,23 @@ export function PlayerControls({
           onChange={(e) => player.setVolume(Number(e.target.value))}
           title="音量 (↑↓)"
         />
+        {/*
+          「この位置をサムネイルにする」。上のバーに置くと閉じるボタンの誤爆が起きるので
+          こちら側に置いている(v1.11)
+        */}
         {onSetThumbnail && (
           <button
-            className="player-thumb-btn"
             onMouseDown={noFocus}
             onClick={onSetThumbnail}
             title="この位置をサムネイルにする (T)"
           >
-            🖼️
+            <Camera />
           </button>
         )}
-        {/*
-          表示サイズ(mpv のみ)。絵文字ではなく「1:1」の字にしているのは、
-          VLC / MPC-HC 系で等倍表示の定番表記で自己説明的なうえ、
-          Windows のフォント差で白黒グリフに落ちる事故が起きないため(🖼️ の教訓)。
-          両状態で字を変えないのでバーの幅も揺れない
-        */}
+        {/* 表示サイズ(mpv のみ)。両状態で同じアイコンを使うのでバーの幅が揺れない */}
         {player.toggleUnscaled && (
           <button
-            className={`player-scale-btn ${player.unscaled ? 'active' : ''}`}
+            className={player.unscaled ? 'active' : ''}
             onMouseDown={noFocus}
             onClick={player.toggleUnscaled}
             title={
@@ -222,11 +253,11 @@ export function PlayerControls({
                 : '元のサイズ(等倍)で表示する — 小さい動画を拡大しない (U)'
             }
           >
-            1:1
+            <Scaling />
           </button>
         )}
         <button onMouseDown={noFocus} onClick={onToggleFullscreen} title="フルスクリーン (F)">
-          {isFullscreen ? '🗗' : '⛶'}
+          {isFullscreen ? <Minimize /> : <Maximize />}
         </button>
       </div>
     </div>

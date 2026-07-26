@@ -1,11 +1,12 @@
 import { useEffect } from 'react';
 import type { VideoPlayer } from './types';
-import { useAutoplayToggle } from './usePlayQueue';
+import { useAutoplayToggle, useRepeatToggle } from './usePlayQueue';
 
 /**
  * プレイヤーのキーボードショートカット(両エンジン共用)。
  * Space/K=再生⇄停止、←→=±10秒、↑↓=音量±10%、M=ミュート、F=フルスクリーン、
- * < >=速度、A=連続再生の切替(v1.12)、U=表示サイズ 等倍⇄フィット(v1.12、mpv のみ)、
+ * < >=速度、A=連続再生の切替(v1.12)、R=リピート再生の切替(v1.13)、
+ * U=表示サイズ 等倍⇄フィット(v1.12、mpv のみ)、
  * Esc=onEscape(フルスクリーン解除か閉じるかは呼び出し側が決める)
  */
 export function usePlayerShortcuts(
@@ -24,8 +25,9 @@ export function usePlayerShortcuts(
 ) {
   const { togglePlay, seekBy, changeVolume, toggleMute, cycleRate, toggleUnscaled } = player;
   const { onEscape, toggleFullscreen, wake, onNext, onPrev, onSetThumbnail } = opts;
-  // 連続再生は engine ごとに実装が変わらない永続設定なので、opts を経由せず直接取る
+  // 連続再生・リピートは engine ごとに実装が変わらないので、opts を経由せず直接取る
   const { toggle: toggleAutoplay } = useAutoplayToggle();
+  const { toggle: toggleRepeat } = useRepeatToggle();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -85,8 +87,8 @@ export function usePlayerShortcuts(
         case 'T':
           onSetThumbnail?.();
           break;
-        // U / A は修飾キー付きを除ける(v1.12)。特に Ctrl+A(全選択)は手が覚えている
-        // ので、うっかり設定を書き換えてしまわないようにする
+        // U / A / R は修飾キー付きを除ける(v1.12)。特に Ctrl+A(全選択)や Ctrl+R
+        // (再読み込み)は手が覚えているので、うっかり設定を書き換えないようにする
         case 'u':
         case 'U':
           if (e.ctrlKey || e.altKey || e.metaKey) return;
@@ -98,6 +100,11 @@ export function usePlayerShortcuts(
           if (e.ctrlKey || e.altKey || e.metaKey) return;
           toggleAutoplay();
           break;
+        case 'r':
+        case 'R':
+          if (e.ctrlKey || e.altKey || e.metaKey) return;
+          toggleRepeat();
+          break;
         default:
           return;
       }
@@ -107,6 +114,6 @@ export function usePlayerShortcuts(
     return () => window.removeEventListener('keydown', onKey);
   }, [
     onEscape, toggleFullscreen, wake, togglePlay, seekBy, changeVolume, toggleMute, cycleRate,
-    onNext, onPrev, onSetThumbnail, toggleUnscaled, toggleAutoplay,
+    onNext, onPrev, onSetThumbnail, toggleUnscaled, toggleAutoplay, toggleRepeat,
   ]);
 }

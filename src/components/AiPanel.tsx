@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
+import { Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { buildSystemPrompt, buildTools } from '../lib/aiTools';
@@ -10,7 +11,7 @@ const DEFAULT_MODEL = 'claude-opus-4-8';
 interface ChatItem {
   role: 'user' | 'assistant';
   text: string;
-  /** ツール実行カード(「🏷 3 件にタグを付けました」など) */
+  /** ツール実行カード(「3 件にタグを付けました」など) */
   cards: string[];
 }
 
@@ -102,7 +103,7 @@ export function AiPanel() {
         : e instanceof Anthropic.APIError
           ? `API エラー (${e.status}): ${e.message}`
           : String(e);
-      addCard(`⚠ ${msg}`);
+      addCard(msg);
       // 失敗したターンは履歴から取り除く(次回リクエストを壊さない)
       if (history.current[history.current.length - 1]?.role === 'user') history.current.pop();
     } finally {
@@ -121,7 +122,7 @@ export function AiPanel() {
             history.current = [];
           }}
         >
-          🗑
+          <Trash2 />
         </button>
       </div>
       <div className="ai-messages" ref={scrollRef}>
@@ -149,7 +150,8 @@ export function AiPanel() {
       </div>
       {apiKey === '' ? (
         <div className="ai-setup">
-          API キーが未設定です。⚙ 設定の「AI アシスタント」で Anthropic API キーを保存してください
+          API キーが未設定です。ツールバーの設定ボタンから「AI アシスタント」で Anthropic API
+          キーを保存してください
         </div>
       ) : (
         <div className="ai-input-row">

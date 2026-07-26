@@ -71,6 +71,12 @@ interface LibraryState {
   inspectorWidth: number;
   /** 再生が終わったら次の動画へ進むか(設定に永続化) */
   autoplayNext: boolean;
+  /**
+   * 今見ている動画を繰り返すか(v1.13)。**永続化しない** —
+   * 短い動画をループさせたまま次のセッションに持ち越すと、連続再生が壊れたように
+   * 見えてしまうため。アプリを再起動すればオフに戻る
+   */
+  repeatOne: boolean;
   /** アプリ内プレイヤーで再生中の動画(null = 非表示) */
   playingVideo: VideoRow | null;
   /** 連続再生の位置(null = 単発再生。⏭ が無効になる) */
@@ -114,6 +120,7 @@ interface LibraryState {
   setSidebarWidth: (sidebarWidth: number) => void;
   setInspectorWidth: (inspectorWidth: number) => void;
   setAutoplayNext: (autoplayNext: boolean) => void;
+  setRepeatOne: (repeatOne: boolean) => void;
   setPlayerPath: (playerPath: string) => void;
   setPreviewOnHover: (previewOnHover: boolean) => void;
   toggleAiPanel: () => void;
@@ -169,6 +176,7 @@ export const useLibrary = create<LibraryState>((set) => ({
   sidebarWidth: SIDEBAR_WIDTH.default,
   inspectorWidth: INSPECTOR_WIDTH.default,
   autoplayNext: false,
+  repeatOne: false,
   playingVideo: null,
   playQueue: null,
   playerPath: '',
@@ -194,6 +202,7 @@ export const useLibrary = create<LibraryState>((set) => ({
   setSidebarWidth: (w) => set({ sidebarWidth: clamp(w, SIDEBAR_WIDTH) }),
   setInspectorWidth: (w) => set({ inspectorWidth: clamp(w, INSPECTOR_WIDTH) }),
   setAutoplayNext: (autoplayNext) => set({ autoplayNext }),
+  setRepeatOne: (repeatOne) => set({ repeatOne }),
   setPlayerPath: (playerPath) => set({ playerPath }),
   setPreviewOnHover: (previewOnHover) => set({ previewOnHover }),
   toggleAiPanel: () => set((s) => ({ showAiPanel: !s.showAiPanel })),

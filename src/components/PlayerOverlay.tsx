@@ -1,5 +1,6 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { decidePlayback } from '../lib/playback';
@@ -52,7 +53,7 @@ function PlayerView({ video }: { video: VideoRow }) {
  * ネイティブ再生に失敗したら transcode へ切り替え、それでも失敗したら外部プレイヤーへ。
  */
 function Html5PlayerView({ video }: { video: VideoRow }) {
-  const { setPlayingVideo, bumpVersion, autoplayNext, pushToast } = useLibrary();
+  const { setPlayingVideo, bumpVersion, autoplayNext, repeatOne, pushToast } = useLibrary();
   const queue = usePlayQueue();
   const videoRef = useRef<HTMLVideoElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
@@ -206,6 +207,9 @@ function Html5PlayerView({ video }: { video: VideoRow }) {
             ref={videoRef}
             src={src}
             autoPlay
+            // リピート再生(v1.13)。loop が付いている間は onEnded が発火しないので、
+            // 下の連続再生と自然に排他になる
+            loop={repeatOne}
             onClick={player.togglePlay}
             onDoubleClick={toggleFullscreen}
             onLoadedMetadata={(e) => {
@@ -254,7 +258,7 @@ function Html5PlayerView({ video }: { video: VideoRow }) {
             {video.title ?? video.filename}
           </div>
           <button className="player-close" onClick={close} title="閉じる (Esc)">
-            ✕
+            <X />
           </button>
         </div>
         {src != null && (
