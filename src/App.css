@@ -2015,3 +2015,27 @@ button.stats-tile:hover {
 .backup-restore:hover {
   border-color: #2f66d0;
 }
+
+/* ---- 表示サイズ・連続再生のトグル (v1.12) ---- */
+/*
+ * ON 状態の見せ方。ツールバー(.toolbar button.active)は青の塗りつぶしだが、
+ * プレイヤーのボタンは枠なし・字だけなので薄い下地 + 明るい字にする。
+ * .player-buttons button:hover と詳細度が同じ (0,2,1) で、こちらが後ろにあるため
+ * hover が打ち消される → active 時の hover を下で明示的に足している
+ */
+.player-buttons button.active {
+  color: #9dc0ff;
+  background: rgba(47, 102, 208, 0.3);
+  border-radius: 4px;
+}
+
+.player-buttons button.active:hover {
+  color: #fff;
+}
+
+/* 「1:1」は絵文字ではなく字なので、16px だと隣のボタンより大きく見える。少し詰める */
+.player-buttons .player-scale-btn {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}

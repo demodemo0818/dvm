@@ -3,6 +3,7 @@ export const RATE_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 const VOLUME_KEY = 'player_volume';
 const MUTED_KEY = 'player_muted';
+const UNSCALED_KEY = 'player_unscaled';
 
 /** エンジン(WebView2 <video> / mpv)共通のプレイヤー状態 */
 export interface PlayerState {
@@ -40,6 +41,12 @@ export interface VideoPlayer {
   tracks?: MediaTrack[];
   /** id に null を渡すとそのトラックを無効にする(字幕オフ) */
   setTrack?: (kind: 'audio' | 'sub', id: number | null) => void;
+  /**
+   * mpv のみ。true = 元のピクセルサイズで表示(ウィンドウが大きくても拡大しない)。
+   * ウィンドウより大きい動画は true でも従来どおり縮小して収める
+   */
+  unscaled?: boolean;
+  toggleUnscaled?: () => void;
 }
 
 export const clamp01 = (n: number) => Math.min(Math.max(n, 0), 1);
@@ -60,6 +67,18 @@ export function saveVolumePref(volume: number): void {
 
 export function saveMutedPref(muted: boolean): void {
   localStorage.setItem(MUTED_KEY, muted ? '1' : '0');
+}
+
+/**
+ * 前回の表示サイズモード(mpv のみ)。true = 元のピクセルサイズで表示し、
+ * ウィンドウが大きくても拡大しない。既定は false = 従来どおりウィンドウにフィット
+ */
+export function savedUnscaled(): boolean {
+  return localStorage.getItem(UNSCALED_KEY) === '1';
+}
+
+export function saveUnscaledPref(unscaled: boolean): void {
+  localStorage.setItem(UNSCALED_KEY, unscaled ? '1' : '0');
 }
 
 /**

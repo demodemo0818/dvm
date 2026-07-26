@@ -29,6 +29,10 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
 
   const stateRef = useRef(player.state);
   stateRef.current = player.state;
+  // 連続再生はプレイヤーからも切り替えられる(v1.12)。値を deps に入れると、終端で
+  // 止まったまま ON にした瞬間に下の effect が走って次へ飛ぶので ref 経由で読む
+  const autoplayRef = useRef(autoplayNext);
+  autoplayRef.current = autoplayNext;
 
   // 再生中だけ WebView を透過して背後の mpv を見せる(グリッドは非表示)
   useEffect(() => {
@@ -96,9 +100,11 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
     api.markViewed(video.id).then(() => bumpVersion());
   }, [player.state.currentTime, player.state.duration, video.id, bumpVersion]);
 
-  // 連続再生: 最後まで再生したら次へ(keep-open=yes なので EOF では pause 状態で止まる)
+  // 連続再生: 最後まで再生したら次へ(keep-open=yes なので EOF では pause 状態で止まる)。
+  // 設定は autoplayRef から読む(deps に入れない理由は ref の宣言部を参照)。
+  // 再生中は time-pos で走り続け、EOF では paused が変わるので判定機会は失われない
   useEffect(() => {
-    if (!autoplayNext || advanced.current) return;
+    if (!autoplayRef.current || advanced.current) return;
     const s = player.state;
     if (s.duration <= 0 || !s.paused) return;
     // 終端から 1 秒以内で停止 = 最後まで観た。手動の一時停止と区別する
@@ -106,7 +112,7 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
     if (!queue.hasNext) return;
     advanced.current = true;
     void queue.next();
-  }, [player.state.paused, player.state.currentTime, player.state.duration, autoplayNext, queue]);
+  }, [player.state.paused, player.state.currentTime, player.state.duration, queue]);
 
   // レジューム保存: 5 秒ごと + 一時停止遷移時(keep-open の EOF 停止もここで拾える)
   const lastSavedSec = useRef(0);

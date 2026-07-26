@@ -6,8 +6,10 @@ import {
   clamp01,
   RATE_OPTIONS,
   savedMuted,
+  savedUnscaled,
   savedVolume,
   saveMutedPref,
+  saveUnscaledPref,
   saveVolumePref,
 } from './types';
 import type { MediaTrack, PlayerState, VideoPlayer } from './types';
@@ -35,6 +37,14 @@ const run = (p: Promise<unknown>) => {
 };
 
 /**
+ * 表示サイズ → mpv の video-unscaled。
+ * フィット = 'no'、等倍 = 'downscale-big'(拡大はしないが、ウィンドウより大きい動画は
+ * 縮小して収める)。'yes' は「ウィンドウより大きい動画を切り取る」挙動なので使わない
+ * (4K を開くと画面外が切れる)
+ */
+const unscaledValue = (unscaled: boolean) => (unscaled ? 'downscale-big' : 'no');
+
+/**
  * mpv エンジン用の VideoPlayer 実装。
  * 状態は observeProperties のイベントで同期し、操作は mpv コマンドを送る。
  * 初期値は localStorage 由来(実値は MpvPlayerView が mount 時に setProperty で
@@ -51,9 +61,13 @@ export function useMpvPlayer(): VideoPlayer {
     bufferedEnd: 0,
   }));
   const [tracks, setTracks] = useState<MediaTrack[]>([]);
+  // 表示サイズ(v1.12)。mpv 側は購読しない — 変更できるのはこの UI だけなので手元が真実
+  const [unscaled, setUnscaled] = useState(savedUnscaled);
   // 操作コールバックから最新状態を読むための ref(stale closure 回避)
   const stateRef = useRef(state);
   stateRef.current = state;
+  const unscaledRef = useRef(unscaled);
+  unscaledRef.current = unscaled;
 
   useEffect(() => {
     const unlisten = observeProperties(MPV_OBSERVED, ({ name, data }) => {
@@ -88,6 +102,18 @@ export function useMpvPlayer(): VideoPlayer {
     };
   }, []);
 
+  /**
+   * video-unscaled は loadfile を跨いで残るが、セッション最初の再生では mpv の既定(no)
+   * なので、mount のたびに localStorage の値を流し込む(音量・ミュートと同じ考え方)。
+   * ファイルに依存しないオプションなので loadfile の前後は問わない。
+   * MpvPlayerView の再生開始 effect に await で混ぜないこと —
+   * あの chain の失敗は onFail() に繋がっており、表示オプションが古い libmpv で
+   * 通らなかっただけでファイルが WebView2 の再エンコード経路に落ちてしまう
+   */
+  useEffect(() => {
+    run(setProperty('video-unscaled', unscaledValue(savedUnscaled())));
+  }, []);
+
   const togglePlay = useCallback(() => run(command('cycle', ['pause'])), []);
   const seekTo = useCallback((sec: number) => run(command('seek', [sec, 'absolute'])), []);
   const seekBy = useCallback((delta: number) => run(command('seek', [delta, 'relative'])), []);
@@ -111,6 +137,13 @@ export function useMpvPlayer(): VideoPlayer {
     saveMutedPref(next);
   }, []);
 
+  const toggleUnscaled = useCallback(() => {
+    const next = !unscaledRef.current;
+    setUnscaled(next);
+    run(setProperty('video-unscaled', unscaledValue(next)));
+    saveUnscaledPref(next);
+  }, []);
+
   const setRate = useCallback((rate: number) => run(setProperty('speed', rate)), []);
 
   const cycleRate = useCallback((dir: 1 | -1) => {
@@ -132,6 +165,6 @@ export function useMpvPlayer(): VideoPlayer {
 
   return {
     state, togglePlay, seekTo, seekBy, setVolume, changeVolume, toggleMute, setRate, cycleRate,
-    tracks, setTrack,
+    tracks, setTrack, unscaled, toggleUnscaled,
   };
 }

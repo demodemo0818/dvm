@@ -51,3 +51,22 @@ export function usePlayQueue() {
 }
 
 export type PlayQueueControls = ReturnType<typeof usePlayQueue>;
+
+/**
+ * 連続再生設定のトグル(v1.12)。プレイヤーのボタンと A キーで共用する。
+ * 押した瞬間に settings へ書くので、次に設定モーダルを開いてもチェックが一致する
+ * (モーダルは開くたびに getSetting でロードする)
+ */
+export function useAutoplayToggle() {
+  const autoplayNext = useLibrary((s) => s.autoplayNext);
+  const setAutoplayNext = useLibrary((s) => s.setAutoplayNext);
+
+  // 参照が毎回変わるとショートカットの effect が張り替わるので値は getState() から読む
+  const toggle = useCallback(() => {
+    const next = !useLibrary.getState().autoplayNext;
+    setAutoplayNext(next);
+    void api.setSetting('autoplay_next', next ? '1' : '0');
+  }, [setAutoplayNext]);
+
+  return { autoplayNext, toggle };
+}

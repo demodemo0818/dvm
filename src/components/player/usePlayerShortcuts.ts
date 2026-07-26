@@ -1,10 +1,12 @@
 import { useEffect } from 'react';
 import type { VideoPlayer } from './types';
+import { useAutoplayToggle } from './usePlayQueue';
 
 /**
  * プレイヤーのキーボードショートカット(両エンジン共用)。
  * Space/K=再生⇄停止、←→=±10秒、↑↓=音量±10%、M=ミュート、F=フルスクリーン、
- * < >=速度、Esc=onEscape(フルスクリーン解除か閉じるかは呼び出し側が決める)
+ * < >=速度、A=連続再生の切替(v1.12)、U=表示サイズ 等倍⇄フィット(v1.12、mpv のみ)、
+ * Esc=onEscape(フルスクリーン解除か閉じるかは呼び出し側が決める)
  */
 export function usePlayerShortcuts(
   player: VideoPlayer,
@@ -20,8 +22,10 @@ export function usePlayerShortcuts(
     onSetThumbnail?: () => void;
   },
 ) {
-  const { togglePlay, seekBy, changeVolume, toggleMute, cycleRate } = player;
+  const { togglePlay, seekBy, changeVolume, toggleMute, cycleRate, toggleUnscaled } = player;
   const { onEscape, toggleFullscreen, wake, onNext, onPrev, onSetThumbnail } = opts;
+  // 連続再生は engine ごとに実装が変わらない永続設定なので、opts を経由せず直接取る
+  const { toggle: toggleAutoplay } = useAutoplayToggle();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -81,6 +85,19 @@ export function usePlayerShortcuts(
         case 'T':
           onSetThumbnail?.();
           break;
+        // U / A は修飾キー付きを除ける(v1.12)。特に Ctrl+A(全選択)は手が覚えている
+        // ので、うっかり設定を書き換えてしまわないようにする
+        case 'u':
+        case 'U':
+          if (e.ctrlKey || e.altKey || e.metaKey) return;
+          // mpv のみ。未対応エンジンでは undefined なので何も起きない
+          toggleUnscaled?.();
+          break;
+        case 'a':
+        case 'A':
+          if (e.ctrlKey || e.altKey || e.metaKey) return;
+          toggleAutoplay();
+          break;
         default:
           return;
       }
@@ -90,6 +107,6 @@ export function usePlayerShortcuts(
     return () => window.removeEventListener('keydown', onKey);
   }, [
     onEscape, toggleFullscreen, wake, togglePlay, seekBy, changeVolume, toggleMute, cycleRate,
-    onNext, onPrev, onSetThumbnail,
+    onNext, onPrev, onSetThumbnail, toggleUnscaled, toggleAutoplay,
   ]);
 }

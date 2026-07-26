@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { fmtTime } from '../../lib/format';
 import { RATE_OPTIONS } from './types';
 import type { MediaTrack, VideoPlayer } from './types';
+import { useAutoplayToggle } from './usePlayQueue';
 import type { PlayQueueControls } from './usePlayQueue';
 
 /** バッファ帯付きシークバー。ドラッグ中はプレビュー位置を表示し、離した時にシークする */
@@ -95,6 +96,7 @@ export function PlayerControls({
   queue?: PlayQueueControls;
 }) {
   const { state } = player;
+  const { autoplayNext, toggle: toggleAutoplay } = useAutoplayToggle();
   // ボタンにフォーカスを残さない(スペース等のショートカットが二重発火しないように)
   const noFocus = (e: React.MouseEvent) => e.preventDefault();
 
@@ -129,6 +131,24 @@ export function PlayerControls({
             ⏭
           </button>
         )}
+        {/*
+          連続再生の切替。設定 autoplay_next をその場で書き換える(engine 非依存なので
+          両エンジンで出す)。単発再生でも隠さない — ⏮⏭ は「今のキューに前後があるか」
+          という一時的な状態だから disabled にするが、こちらは永続設定なので
+          消えると設定の在り処が分からなくなる
+        */}
+        <button
+          className={autoplayNext ? 'active' : ''}
+          onMouseDown={noFocus}
+          onClick={toggleAutoplay}
+          title={
+            autoplayNext
+              ? '連続再生をオフにする (A)'
+              : '連続再生をオンにする(最後まで再生したら次の動画へ)(A)'
+          }
+        >
+          🔁
+        </button>
         <span className="player-time">
           {fmtTime(state.currentTime)} / {fmtTime(state.duration)}
         </span>
@@ -183,6 +203,26 @@ export function PlayerControls({
             title="この位置をサムネイルにする (T)"
           >
             🖼️
+          </button>
+        )}
+        {/*
+          表示サイズ(mpv のみ)。絵文字ではなく「1:1」の字にしているのは、
+          VLC / MPC-HC 系で等倍表示の定番表記で自己説明的なうえ、
+          Windows のフォント差で白黒グリフに落ちる事故が起きないため(🖼️ の教訓)。
+          両状態で字を変えないのでバーの幅も揺れない
+        */}
+        {player.toggleUnscaled && (
+          <button
+            className={`player-scale-btn ${player.unscaled ? 'active' : ''}`}
+            onMouseDown={noFocus}
+            onClick={player.toggleUnscaled}
+            title={
+              player.unscaled
+                ? 'ウィンドウにフィットさせる (U)'
+                : '元のサイズ(等倍)で表示する — 小さい動画を拡大しない (U)'
+            }
+          >
+            1:1
           </button>
         )}
         <button onMouseDown={noFocus} onClick={onToggleFullscreen} title="フルスクリーン (F)">
