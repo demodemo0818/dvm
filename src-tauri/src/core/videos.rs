@@ -53,6 +53,16 @@ pub fn remove_videos(conn: &Connection, actor: &str, video_ids: &[i64]) -> Resul
     Ok(())
 }
 
+/// アプリ内再生のレジューム位置を保存する(0 = 位置なし)。
+/// 数秒ごとに呼ばれるため operations_log には記録しない(mark_viewed と同格の扱い)
+pub fn set_resume(conn: &Connection, video_id: i64, resume_ms: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE videos SET resume_ms = ?1 WHERE id = ?2",
+        params![resume_ms.max(0), video_id],
+    )?;
+    Ok(())
+}
+
 /// 視聴カウントを進める(外部プレイヤー起動時・アプリ内再生開始時)
 pub fn mark_viewed(conn: &Connection, video_id: i64) -> Result<()> {
     conn.execute(

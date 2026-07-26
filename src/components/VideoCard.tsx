@@ -22,14 +22,6 @@ function fmtSize(bytes: number): string {
   return `${Math.round(bytes / 1024)} KB`;
 }
 
-/** WebView2 がネイティブ再生できる可能性が高いコンテナ */
-const PLAYABLE_EXTS = new Set(['mp4', 'm4v', 'mov', 'webm']);
-
-function canPlayInApp(path: string): boolean {
-  const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase();
-  return PLAYABLE_EXTS.has(ext);
-}
-
 export function VideoCard({ video }: { video?: VideoRow }) {
   const { selection, selectOnly, toggleSelect, playerPath, setPlayingVideo } = useLibrary();
   if (!video) return <div className="card card-loading" />;
@@ -39,8 +31,9 @@ export function VideoCard({ video }: { video?: VideoRow }) {
 
   const play = () => {
     if (!openable) return;
-    // 外部プレイヤー設定があれば従来通り外部。無ければ対応形式のみアプリ内再生
-    if (playerPath.trim() === '' && canPlayInApp(video.path)) {
+    // 外部プレイヤー設定があれば従来通り外部。無ければアプリ内再生
+    // (native はそのまま、remux/transcode は FFmpeg で変換してから再生)
+    if (playerPath.trim() === '') {
       setPlayingVideo(video);
     } else {
       api.openVideo(video.id);
@@ -65,6 +58,11 @@ export function VideoCard({ video }: { video?: VideoRow }) {
         {video.durationMs != null && (
           <span className="badge duration">{fmtDuration(video.durationMs)}</span>
         )}
+        {video.resumeMs > 0 && video.durationMs ? (
+          <div className="resume-bar">
+            <div style={{ width: `${Math.min((video.resumeMs / video.durationMs) * 100, 100)}%` }} />
+          </div>
+        ) : null}
         {video.isOffline && <span className="badge offline">オフライン</span>}
         {video.isMissing && !video.isOffline && (
           <span className="badge missing">見つかりません</span>

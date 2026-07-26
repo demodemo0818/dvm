@@ -39,6 +39,11 @@ pub struct VideoRow {
     pub rating: i64,
     pub view_count: i64,
     pub last_viewed_at: Option<String>,
+    /// アプリ内再生のレジューム位置(0 = 位置なし)
+    pub resume_ms: i64,
+    /// 再生方式(native/remux/transcode)の判定に使う(ffprobe 由来)
+    pub video_codec: Option<String>,
+    pub audio_codec: Option<String>,
     pub is_missing: bool,
     pub is_offline: bool,
     pub thumb_state: i64,
@@ -148,6 +153,9 @@ type RawRow = (
     i64,            // rating
     i64,            // view_count
     Option<String>, // last_viewed_at
+    i64,            // resume_ms
+    Option<String>, // video_codec
+    Option<String>, // audio_codec
     i64,            // is_missing
     i64,            // thumb_state
     String,         // added_at
@@ -167,7 +175,8 @@ pub fn query_rows(
     let offset = offset.max(0);
     let sql = format!(
         "SELECT id, path, filename, title, size, duration_ms, width, height, rating,
-                view_count, last_viewed_at, is_missing, thumb_state, added_at
+                view_count, last_viewed_at, resume_ms, video_codec, audio_codec,
+                is_missing, thumb_state, added_at
          FROM videos {where_sql} {order} LIMIT {limit} OFFSET {offset}"
     );
 
@@ -177,6 +186,7 @@ pub fn query_rows(
         Ok((
             r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?,
             r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?,
+            r.get(14)?, r.get(15)?, r.get(16)?,
         ))
     }
 
@@ -190,7 +200,7 @@ pub fn query_rows(
     let mut roots = RootCache::default();
     let rows = raw
         .into_iter()
-        .map(|(id, path, filename, title, size, duration_ms, width, height, rating, view_count, last_viewed_at, is_missing, thumb_state, added_at)| {
+        .map(|(id, path, filename, title, size, duration_ms, width, height, rating, view_count, last_viewed_at, resume_ms, video_codec, audio_codec, is_missing, thumb_state, added_at)| {
             let thumb_path = thumbs_dir.and_then(|dir| {
                 let thumb = dir.join(format!("{id}.jpg"));
                 if thumb_state == 1 && thumb.exists() {
@@ -203,7 +213,7 @@ pub fn query_rows(
                 is_offline: !roots.is_online(&path),
                 thumb_path,
                 id, path, filename, title, size, duration_ms, width, height, rating,
-                view_count, last_viewed_at,
+                view_count, last_viewed_at, resume_ms, video_codec, audio_codec,
                 is_missing: is_missing != 0,
                 thumb_state,
                 added_at,

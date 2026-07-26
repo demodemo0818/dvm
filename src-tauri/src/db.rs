@@ -3,12 +3,14 @@ use rusqlite::Connection;
 use std::path::Path;
 
 /// スキーマの現行バージョン。列追加などの変更時は MIGRATIONS に差分を足してここを上げる
-const LATEST_VERSION: i32 = 1;
+const LATEST_VERSION: i32 = 2;
 
 /// v(N) -> v(N+1) の差分 SQL。PRAGMA user_version の更新は migrate() 側で同一トランザクションに含める
 const MIGRATIONS: &[&str] = &[
     // v0 -> v1: ドライブレター変動対策(ボリュームシリアル記録)
     "ALTER TABLE watched_folders ADD COLUMN volume_serial TEXT;",
+    // v1 -> v2: アプリ内再生のレジューム位置
+    "ALTER TABLE videos ADD COLUMN resume_ms INTEGER NOT NULL DEFAULT 0;",
 ];
 
 pub fn init(path: &Path) -> Result<Connection> {
@@ -75,6 +77,7 @@ CREATE TABLE IF NOT EXISTS videos (
   rating INTEGER NOT NULL DEFAULT 0,
   view_count INTEGER NOT NULL DEFAULT 0,
   last_viewed_at TEXT,
+  resume_ms INTEGER NOT NULL DEFAULT 0,
   file_created_at TEXT,
   file_modified_at TEXT,
   added_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),

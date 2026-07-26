@@ -48,6 +48,7 @@ pub fn remove_videos(
     }
     for id in &video_ids {
         let _ = std::fs::remove_file(state.thumbs_dir.join(format!("{id}.jpg")));
+        crate::core::playback::remove_cache_for(&state.transcode_dir, *id);
     }
     Ok(())
 }
@@ -65,6 +66,13 @@ pub async fn register_files(app: AppHandle, paths: Vec<String>) -> Result<usize,
 pub fn mark_viewed(state: State<AppState>, id: i64) -> Result<(), String> {
     let conn = state.db.lock().unwrap();
     videos::mark_viewed(&conn, id).map_err(|e| e.to_string())
+}
+
+/// アプリ内再生のレジューム位置を保存する(再生中に数秒ごと + 閉じる時に呼ぶ)
+#[tauri::command]
+pub fn set_resume(state: State<AppState>, id: i64, resume_ms: i64) -> Result<(), String> {
+    let conn = state.db.lock().unwrap();
+    videos::set_resume(&conn, id, resume_ms).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

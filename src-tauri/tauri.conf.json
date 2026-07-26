@@ -14,7 +14,8 @@
       {
         "title": "VideoShelf",
         "width": 1280,
-        "height": 800
+        "height": 800,
+        "transparent": true
       }
     ],
     "security": {
@@ -28,7 +29,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "resources": ["binaries/ffmpeg.exe", "binaries/ffprobe.exe"],
+    "resources": ["binaries/ffmpeg.exe", "binaries/ffprobe.exe", "lib/**/*"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

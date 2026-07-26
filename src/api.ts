@@ -13,6 +13,11 @@ export const api = {
   registerFiles: (paths: string[]) => invoke<number>('register_files', { paths }),
   openVideo: (id: number) => invoke<void>('open_video', { id }),
   markViewed: (id: number) => invoke<void>('mark_viewed', { id }),
+  setResume: (id: number, resumeMs: number) => invoke<void>('set_resume', { id, resumeMs }),
+  /** 再生用変換(remux/transcode)。完了までブロックし、キャッシュ mp4 の絶対パスを返す */
+  prepareVideo: (id: number, mode: 'remux' | 'transcode') =>
+    invoke<string>('prepare_video', { id, mode }),
+  cancelPrepare: () => invoke<void>('cancel_prepare'),
   listTags: () => invoke<Tag[]>('list_tags'),
   tagVideos: (videoIds: number[], name: string, actor?: 'user' | 'ai') =>
     invoke<number>('tag_videos', { videoIds, name, actor }),

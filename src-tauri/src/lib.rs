@@ -13,10 +13,17 @@ pub struct AppState {
     pub data_dir: PathBuf,
     pub thumbs_dir: PathBuf,
     pub backups_dir: PathBuf,
+    /// 再生用変換(remux/transcode)のキャッシュ置き場
+    pub transcode_dir: PathBuf,
     pub ffmpeg: crate::core::ffmpeg::FfmpegPaths,
     pub scanning: AtomicBool,
     pub watcher: Mutex<Option<notify::RecommendedWatcher>>,
     pub watch_tx: Mutex<Option<Sender<i64>>>,
+    /// 進行中の再生用変換(同時 1 本)。アプリ終了時に必ず kill する
+    pub transcode_job: Mutex<Option<crate::core::playback::TranscodeJob>>,
+    /// prepare() 全体の直列化。同じ動画への同時変換(React StrictMode の
+    /// 二重実行など)が同じ tmp ファイルに重ね書きして壊すのを防ぐ
+    pub prepare_lock: Mutex<()>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -24,6 +31,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_libmpv::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
@@ -31,16 +39,21 @@ pub fn run() {
             std::fs::create_dir_all(&thumbs_dir)?;
             let backups_dir = data_dir.join("backups");
             std::fs::create_dir_all(&backups_dir)?;
+            let transcode_dir = data_dir.join("transcode");
+            std::fs::create_dir_all(&transcode_dir)?;
             let conn = db::init(&data_dir.join("library.db"))?;
             app.manage(AppState {
                 db: Mutex::new(conn),
                 data_dir,
                 thumbs_dir,
                 backups_dir,
+                transcode_dir,
                 ffmpeg: crate::core::ffmpeg::FfmpegPaths::resolve(),
                 scanning: AtomicBool::new(false),
                 watcher: Mutex::new(None),
                 watch_tx: Mutex::new(None),
+                transcode_job: Mutex::new(None),
+                prepare_lock: Mutex::new(()),
             });
 
             // 外部プロセス(MCP 等)からの DB 変更を検知して UI に反映する。
@@ -76,6 +89,8 @@ pub fn run() {
                         eprintln!("auto backup failed: {e}");
                     }
                 }
+                // 前回の書きかけ .tmp.mp4 掃除 + キャッシュ上限の適用
+                crate::core::playback::purge_cache(&handle, None);
                 crate::core::library::run_scan_all(&handle);
             });
             Ok(())
@@ -90,6 +105,7 @@ pub fn run() {
             commands::videos::register_files,
             commands::videos::open_video,
             commands::videos::mark_viewed,
+            commands::videos::set_resume,
             commands::videos::set_rating,
             commands::videos::remove_videos,
             commands::tags::list_tags,
@@ -111,7 +127,16 @@ pub fn run() {
             commands::maintenance::open_data_dir,
             commands::maintenance::get_app_info,
             commands::maintenance::regenerate_thumbnails,
+            commands::playback::prepare_video,
+            commands::playback::cancel_prepare,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app, event| {
+            // アプリ終了時に変換中の ffmpeg を残さない(書きかけ .tmp は次回起動時に掃除)
+            if let tauri::RunEvent::Exit = event {
+                let state = app.state::<AppState>();
+                crate::core::playback::kill_current(&state);
+            }
+        });
 }

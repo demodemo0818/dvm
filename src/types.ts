@@ -10,6 +10,11 @@ export interface VideoRow {
   rating: number;
   viewCount: number;
   lastViewedAt: string | null;
+  /** アプリ内再生のレジューム位置(0 = 位置なし) */
+  resumeMs: number;
+  /** 再生方式判定用(ffprobe 由来。未取得時 null) */
+  videoCodec: string | null;
+  audioCodec: string | null;
   isMissing: boolean;
   isOffline: boolean;
   thumbState: number;
@@ -65,6 +70,14 @@ export interface Series {
   id: number;
   name: string;
   videoCount: number;
+}
+
+/** transcode:progress イベントのペイロード */
+export interface TranscodeProgress {
+  videoId: number;
+  /** 0〜100。尺が不明なときは null(スピナー表示) */
+  percent: number | null;
+  message: string;
 }
 
 export interface AppInfo {

@@ -221,6 +221,21 @@ body {
   display: block;
 }
 
+/* 視聴進捗バー(レジューム位置) */
+.thumb .resume-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.thumb .resume-bar > div {
+  height: 100%;
+  background: #4c8dff;
+}
+
 .thumb-placeholder {
   width: 100%;
   height: 100%;
@@ -745,6 +760,39 @@ body {
   color: #fff;
 }
 
+/* ---- mpv エンジン(透過ウィンドウの背後に全面描画) ---- */
+/* 再生中だけ WebView を透過して背後の mpv を見せる。グリッドは非表示 */
+html.mpv-active,
+html.mpv-active body {
+  background: transparent;
+}
+
+html.mpv-active .app {
+  display: none;
+}
+
+.mpv-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+}
+
+.mpv-overlay.controls-hidden {
+  cursor: none;
+}
+
+.mpv-overlay.controls-hidden .player-controls,
+.mpv-overlay.controls-hidden .player-top {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* クリック(再生⇄停止)・ダブルクリック(フルスクリーン)の受け皿 */
+.mpv-stage {
+  position: absolute;
+  inset: 0;
+}
+
 /* ---- アプリ内プレイヤー ---- */
 .player-overlay {
   position: fixed;
@@ -759,44 +807,221 @@ body {
 .player-inner {
   position: relative;
   width: min(96vw, 1600px);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* コントロール非表示中はカーソルも隠す */
+.player-inner.controls-hidden {
+  cursor: none;
 }
 
 .player-inner video {
+  display: block;
   width: 100%;
   max-height: 86vh;
   background: #000;
-  border-radius: 8px;
   outline: none;
 }
 
+.player-inner:fullscreen {
+  width: 100vw;
+  border-radius: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.player-inner:fullscreen video {
+  max-height: 100vh;
+  width: 100%;
+}
+
+/* 上部バー(タイトル + 閉じる) */
+.player-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: linear-gradient(rgba(0, 0, 0, 0.7), transparent);
+  transition: opacity 0.2s;
+}
+
 .player-title {
+  flex: 1;
   color: #d8dbe2;
   font-size: 13px;
-  text-align: center;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .player-close {
-  position: absolute;
-  top: -14px;
-  right: -14px;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
+  flex: none;
   border-radius: 50%;
-  border: 1px solid #343945;
-  background: #1c1f26;
+  border: 1px solid #3a3f4a;
+  background: rgba(28, 31, 38, 0.8);
   color: #d8dbe2;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .player-close:hover {
   background: #2a2e37;
+}
+
+/* 変換の準備中パネル */
+.player-preparing {
+  aspect-ratio: 16 / 9;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: #c6cad2;
+  font-size: 13px;
+}
+
+.prepare-bar {
+  width: min(60%, 420px);
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.2);
+  overflow: hidden;
+}
+
+.prepare-bar > div {
+  height: 100%;
+  background: #4c8dff;
+  transition: width 0.4s linear;
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #4c8dff;
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 下部コントロールバー */
+.player-controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 8px 12px 10px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.75));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: opacity 0.2s;
+}
+
+.player-inner.controls-hidden .player-controls,
+.player-inner.controls-hidden .player-top {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.seekbar {
+  position: relative;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.seekbar-track {
+  position: relative;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.25);
+  overflow: hidden;
+  transition: height 0.1s;
+}
+
+.seekbar:hover .seekbar-track {
+  height: 6px;
+}
+
+.seekbar-buffered {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.seekbar-played {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: #4c8dff;
+}
+
+.player-buttons {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #d8dbe2;
+  font-size: 13px;
+}
+
+.player-buttons button {
+  background: none;
+  border: none;
+  color: #e8eaef;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 2px 4px;
+  line-height: 1;
+}
+
+.player-buttons button:hover {
+  color: #fff;
+}
+
+.player-time {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: #c6cad2;
+}
+
+.player-spacer {
+  flex: 1;
+}
+
+.player-volume {
+  width: 80px;
+  accent-color: #4c8dff;
+}
+
+.player-rate {
+  background: #1c1f26;
+  color: #d8dbe2;
+  border: 1px solid #3a3f4a;
+  border-radius: 4px;
+  font-size: 12px;
+  padding: 2px 4px;
 }
 
 /* ---- ステータスバー ---- */

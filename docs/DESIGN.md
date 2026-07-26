@@ -25,8 +25,8 @@ Windows 向け動画管理ソフト(仮称: VideoShelf)。
 | バックエンド | Rust (Tauri コマンド + 非同期ワーカー) |
 | DB | SQLite + FTS5(全文検索) |
 | メタデータ / サムネイル | FFmpeg / ffprobe(サイドカーバイナリとして同梱) |
-| 再生 (v1.2) | WebView2 ネイティブ再生(mp4/m4v/mov/webm、下記)。外部プレイヤー設定時は従来通り外部起動 |
-| 再生 (将来) | FFmpeg remux → トランスコード → libmpv 埋め込み |
+| 再生 (v1.5) | **libmpv 埋め込み**(ほぼ全フォーマットを変換なしで直接再生)。フォールバックは v1.4 の WebView2 + FFmpeg 変換。外部プレイヤー設定時は従来通り外部起動 |
+| 再生 (将来) | (フォールバック側の)長尺動画の HLS 追いかけ再生 |
 
 ## データモデル(SQLite)
 
@@ -47,6 +47,7 @@ Windows 向け動画管理ソフト(仮称: VideoShelf)。
 | rating | INTEGER | 0–5 |
 | view_count | INTEGER | |
 | last_viewed_at | TEXT | |
+| resume_ms | INTEGER | アプリ内再生のレジューム位置(0 = 位置なし。v2 マイグレーション) |
 | file_created_at / file_modified_at | TEXT | ファイルシステム由来 |
 | added_at | TEXT | ライブラリ登録日時 |
 | is_missing | INTEGER | ファイルが見つからない状態のフラグ(即削除しない) |
@@ -114,15 +115,97 @@ Windows 向け動画管理ソフト(仮称: VideoShelf)。
 - グリッド用 1 枚 + ホバー/詳細用の複数枚(等間隔 N 枚、ホワイトブラウザ方式)を段階的に生成
 - 表示時は動画に一切触らない。キャッシュ画像を読むだけ
 
-## アプリ内再生(v1.2 実装済み)
+## アプリ内再生(v1.2 実装、v1.4 で強化)
 
-- ダブルクリック時の分岐:
-  1. 外部プレイヤー設定(player_path)あり → 従来通り外部起動
-  2. 拡張子が mp4 / m4v / mov / webm → アプリ内オーバーレイ(`<video>` + asset protocol)
-  3. それ以外 → OS 既定プレイヤー
-- WebView2 が実際にデコードできない場合(HEVC 収録の mp4 等)は `<video>` の onError で OS 既定へ自動フォールバック。視聴カウントは再生成功時(onPlaying)にのみ +1 するため二重カウントしない
+### 再生方式の 3 段判定(`src/lib/playback.ts` の `decidePlayback`)
+
+外部プレイヤー設定(player_path)があれば従来通り常に外部起動。無ければダブルクリックで必ずアプリ内オーバーレイを開き、DB のコーデック情報(ffprobe 由来)で方式を決める:
+
+| 方式 | 条件 | 動作 |
+|---|---|---|
+| native | mp4/m4v/mov/webm かつ映像 h264/av1(HEVC は拡張検出時)かつ音声 aac/mp3 | asset protocol でそのまま再生 |
+| remux | 映像はそのまま使えるがコンテナ/音声だけ非対応(h264 in mkv 等) | ffmpeg `-c:v copy` で mp4 詰め替え(数秒〜数十秒) |
+| transcode | 上記以外(HEVC 拡張なし・vp9 in mkv・コーデック未取得の非対応拡張子等) | H.264 + AAC へ再エンコード |
+
+- Windows の「HEVC ビデオ拡張機能」は `canPlayType('video/mp4; codecs="hvc1..."')` で検出(WebView2 は OS デコーダを反映)。検出は不確実なため、**native の onError は外部ではなく transcode への切り替え**にしてアプリ内で完結させる。変換キャッシュの再生でも失敗したときだけ OS 既定プレイヤーへ(2 段フォールバック)。remux 失敗も transcode で再試行する
+- 視聴カウントは再生成功時(onPlaying)にのみ +1 するため二重カウントしない
+
+### 事前変換キャッシュ(`core/playback.rs`)
+
+- キャッシュ: `%APPDATA%\com.taiki.videoshelf\transcode\{video_id}.mp4`(ASCII 名なので日本語パスの影響なし)。書き込み中は `{id}.tmp.mp4` → 成功時 rename(部分ファイルを配信しない)。キャッシュの mtime ≥ 元ファイルの mtime なら再利用(再視聴は待ちゼロ)
+- ffmpeg 引数: `-map 0:v:0 -map 0:a:0?` で映像・音声 1 本に限定(字幕・複数音声の mp4 化エラー回避)、`-movflags +faststart`。remux は `-c:v copy`(hevc は `-tag:v hvc1`)+ 音声 aac/mp3 なら copy それ以外 AAC 化。transcode は `-pix_fmt yuv420p`(10bit 対応)+ AAC 192k
+- HW エンコーダ: 初回に 1 フレームのテストエンコードで nvenc → qsv → amf の順に実証し、settings `hw_encoder` に保存。実変換で失敗したら libx264 に書き換えて 1 回だけ再試行
+- 進捗: `-progress pipe:1` の `out_time_us` ÷ duration_ms を 500ms 間隔で `transcode:progress` イベント通知(尺不明時はスピナー)
+- プロセス管理: 同時変換は 1 本(AppState.transcode_job)。準備中にプレイヤーを閉じると `cancel_prepare` で kill、アプリ終了時(RunEvent::Exit)も kill。書きかけ `.tmp.mp4` は次回起動の purge で掃除
+- キャッシュ上限: settings `transcode_cache_limit_gb`(既定 20)。起動時と変換完了後に mtime の古い順に削除(直近生成分は除外)。動画のライブラリ削除時は対応キャッシュも削除
 - assetProtocol の scope は `"**"`(全パス許可)。動画は任意ドライブに置かれる前提のため。トレードオフ: 万一 webview で XSS が起きると任意ファイルを読まれ得る(ローカル個人用アプリとして許容。csp は元々 null)
-- Tauri 2 の asset protocol は HTTP Range 対応でシークも動く
+- Tauri 2 の asset protocol は HTTP Range 対応でシークも動く(キャッシュ mp4 も同じ経路)
+
+### プレイヤー UI(v1.4、`src/components/player/`)
+
+- 自前コントロール(素の React。外部プレイヤーライブラリ依存なし): シークバー(バッファ表示付き)・再生/停止・時刻・再生速度(0.5〜2x)・音量/ミュート(localStorage に記憶)・フルスクリーン(Web Fullscreen API)
+- ショートカット: Space/K=再生⇄停止、←→=±10 秒、↑↓=音量、M=ミュート、F=フルスクリーン、< >=速度、Esc=閉じる(フルスクリーン中は解除のみ)
+- コントロールはマウス静止 2.5 秒で自動非表示(一時停止中は常時表示)
+
+### レジューム(v1.4)
+
+- `videos.resume_ms` に保存。再生中 5 秒ごと + 一時停止・終了・閉じる時に更新
+- 位置が尺の 90% 以上または残り 30 秒未満になったら 0 にリセット(最後まで観た扱い)
+- 次回再生時は `loadedmetadata` で復元(終端 5 秒以内は最初から)。remux/transcode キャッシュでも尺は同じなのでそのまま効く
+- グリッドのカードにサムネイル下端の進捗バー(3px)で表示
+
+## アプリ内再生 v1.5: libmpv 埋め込み
+
+### エンジン 2 系統と選択フロー
+
+```
+ダブルクリック
+  ├─ 外部プレイヤー設定あり → 従来通り外部起動
+  └─ なし → アプリ内プレイヤー
+       ├─ mpv(優先): ensureMpv() 成功 → ほぼ全フォーマットを変換なしで直接再生
+       │    └─ ファイル再生エラー(end-file reason=error)→ その動画だけ WebView2 経路へ
+       └─ WebView2(フォールバック): mpv init 失敗(dll 欠落等)時。
+            v1.4 の 3 段判定(native / remux / transcode)+ FFmpeg 変換パイプラインがそのまま生きる
+```
+
+- mpv 経路では `decidePlayback` / `prepare_video`(変換)は一切通らない
+- mpv 利用可否は settings に永続化しない。dll を置けば次回起動で自動復活(自己修復)
+
+### 透過ウィンドウ方式
+
+- `tauri-plugin-libmpv` は **呼び出し元ウィンドウの全面**(WebView の背後)に映像を描画する
+- メインウィンドウは常時 `transparent: true`。ただし body の背景が不透明(#16181d)なので普段の見た目は不変
+- 再生中だけ `html.mpv-active` クラスを付け、html/body を透過 + `.app` を display:none → 背後の mpv が見える。
+  HTML のコントロール(PlayerControls)はその上に重なる
+- CSS ロード前の素通し防止に index.html へインライン背景 style を記述
+
+### mpv のライフサイクル(StrictMode 対策)
+
+- **アプリ生涯で 1 回だけ init するシングルトン**(`player/mpv.ts` の `ensureMpv`、Promise メモ化)。
+  destroy は呼ばず、再生開始/終了は loadfile / stop コマンドで行う(`idle=yes` で待機)
+- React StrictMode の effect 二重実行でも init の実体は 1 つ、loadfile/stop は mpv 側で直列処理されるため
+  競合しない(v1.4 の prepare_lock と同じ思想)
+
+### UI・機能の対応(`src/components/player/`)
+
+- `types.ts` の `VideoPlayer` インターフェイスを両エンジン(`useVideoPlayer` = WebView2 / `useMpvPlayer` = mpv)が
+  実装し、`PlayerControls` とショートカット(`usePlayerShortcuts`)を完全共用する
+- mpv の状態は `observeProperties`(pause / time-pos / duration / volume / mute / speed / demuxer-cache-time)で購読
+- レジューム: 復元は duration 初回観測時に 1 回 seek(loadfile の start オプションは mpv バージョン差があるため不使用)。
+  保存は time-pos 5 秒毎 + pause 遷移時(keep-open の EOF 停止もここで拾う)+ 閉じる時。閾値は共通関数 `resumeValueMs`
+- 視聴カウント: time-pos > 0 の初回観測で +1(実際にデコードが進んだときだけ)
+- フルスクリーン: **Tauri の `window.setFullscreen`**(capability `core:window:allow-set-fullscreen`)。
+  Web Fullscreen API は HTML しか全画面にできず背後の mpv に効かないため。閉じる時と unmount で必ず解除
+- 音量・ミュートは localStorage を両エンジンで共用(mpv は 0-100 ↔ 0-1 変換)
+
+### セットアップとライセンス
+
+- dll は `npx tauri-plugin-libmpv-api setup-lib` で `src-tauri/lib/` に取得
+  (`libmpv-wrapper.dll` + `libmpv-2.dll`、zhongfly/mpv-winbuild の LGPL ビルド)。**gitignore 対象**(ffmpeg と同方針)
+- 配布バンドルには tauri.conf.json の `bundle.resources: ["lib/**/*"]` で同梱
+- libmpv-2.dll は LGPLv2.1+(動的リンクなので同梱可)。公開配布時はライセンス表記とソース入手先
+  (github.com/zhongfly/mpv-winbuild)の明記が必要(FFmpeg 同梱と合わせて公開決定時に見直し)
+- 既知の癖: DevTools をドックすると mpv がドック領域の背後に見えることがある(デバッグ時はデタッチ推奨)
 
 ## AI 連携を見据えたアーキテクチャ(必守)
 
@@ -195,4 +278,6 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
 - **v1.1** ✅(2026-07-26 実装済み): 書き込み系 MCP(`VIDEOSHELF_ALLOW_WRITE=1` でオプトイン。タグ・シリーズ・レーティング・情報編集、登録削除、dry-run 付きごみ箱送り。actor='ai' で監査ログ)、data_version 監視による外部変更の UI 自動反映
 - **v1.2** ✅(2026-07-26 実装済み): アプリ内再生(WebView2 ネイティブ、非対応形式は onError で外部フォールバック、視聴カウントは再生成功時のみ)
 - **v1.3** ✅(2026-07-26 実装済み): アプリ内 AI アシスタント(✨ パネル。自然言語検索 → apply_filter でグリッド反映、タグ提案・付与、actor='ai' 監査ログ)
-- **将来**: アプリ内再生の高度化(remux → トランスコード → libmpv)、mac/Linux 対応
+- **v1.4** ✅(2026-07-26 実装済み): アプリ内再生の強化(3 段判定 + FFmpeg 事前変換キャッシュで mkv/HEVC 対応、自前プレイヤー UI + ショートカット、レジューム + カード進捗バー)
+- **v1.5** ✅(2026-07-26 実装済み): libmpv 埋め込み(tauri-plugin-libmpv、透過ウィンドウ方式でメインウィンドウに全面描画。ほぼ全フォーマット直接再生、v1.4 経路はフォールバックに)
+- **将来**: フォールバック側の HLS 追いかけ再生、mac/Linux 対応

@@ -15,6 +15,9 @@ dist-ssr
 # FFmpeg バイナリ(scripts/fetch-ffmpeg.ps1 で取得する)
 src-tauri/binaries/
 
+# libmpv の dll(npx tauri-plugin-libmpv-api setup-lib で取得する)
+src-tauri/lib/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

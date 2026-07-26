@@ -3,6 +3,7 @@ pub mod ffmpeg;
 pub mod library;
 pub mod metadata;
 pub mod offline;
+pub mod playback;
 pub mod query;
 pub mod series;
 pub mod settings;

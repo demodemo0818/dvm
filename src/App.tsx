@@ -19,9 +19,9 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       const s = useLibrary.getState();
-      // プレイヤー表示中は閉じるだけ(選択は維持)。それ以外は選択解除
-      if (s.playingVideo) s.setPlayingVideo(null);
-      else s.clearSelection();
+      // プレイヤー表示中のキー操作は PlayerOverlay 側で一元管理する
+      if (s.playingVideo) return;
+      s.clearSelection();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -56,16 +56,19 @@ export default function App() {
   }, [bumpVersion, setStatus]);
 
   return (
-    <div className="app">
-      <Sidebar />
-      <main className="main">
-        <Toolbar />
-        <VideoGrid />
-        <div className="statusbar">{scanning || status ? status : '準備完了'}</div>
-      </main>
-      <Inspector />
-      <AiPanel />
+    <>
+      {/* mpv 再生中は .app ごと非表示にするため、プレイヤーは .app の外に置く */}
+      <div className="app">
+        <Sidebar />
+        <main className="main">
+          <Toolbar />
+          <VideoGrid />
+          <div className="statusbar">{scanning || status ? status : '準備完了'}</div>
+        </main>
+        <Inspector />
+        <AiPanel />
+      </div>
       <PlayerOverlay />
-    </div>
+    </>
   );
 }
