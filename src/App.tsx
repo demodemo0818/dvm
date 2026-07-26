@@ -4,22 +4,32 @@ import { useEffect, useRef } from 'react';
 import './App.css';
 import { api } from './api';
 import { Inspector } from './components/Inspector';
+import { PlayerOverlay } from './components/PlayerOverlay';
 import { Sidebar } from './components/Sidebar';
 import { Toolbar } from './components/Toolbar';
 import { VideoGrid } from './components/VideoGrid';
 import { useLibrary } from './store';
 
 export default function App() {
-  const { bumpVersion, setStatus, status, scanning, clearSelection } = useLibrary();
+  const { bumpVersion, setStatus, status, scanning, setPlayerPath } = useLibrary();
   const debounceTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') clearSelection();
+      if (e.key !== 'Escape') return;
+      const s = useLibrary.getState();
+      // プレイヤー表示中は閉じるだけ(選択は維持)。それ以外は選択解除
+      if (s.playingVideo) s.setPlayingVideo(null);
+      else s.clearSelection();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [clearSelection]);
+  }, []);
+
+  // 外部プレイヤー設定をロード(再生分岐で使う)
+  useEffect(() => {
+    api.getSetting('player_path').then((v) => setPlayerPath(v ?? ''));
+  }, [setPlayerPath]);
 
   useEffect(() => {
     const unlisteners: Array<() => void> = [];
@@ -53,6 +63,7 @@ export default function App() {
         <div className="statusbar">{scanning || status ? status : '準備完了'}</div>
       </main>
       <Inspector />
+      <PlayerOverlay />
     </div>
   );
 }

@@ -21,6 +21,10 @@ interface LibraryState {
   scanning: boolean;
   /** グリッドで選択中の動画(行データごと保持) */
   selection: VideoRow[];
+  /** アプリ内プレイヤーで再生中の動画(null = 非表示) */
+  playingVideo: VideoRow | null;
+  /** 外部プレイヤーのパス設定(起動時ロード・設定保存時更新) */
+  playerPath: string;
   setText: (text: string) => void;
   setSort: (sort: SortKey) => void;
   setFolderId: (folderId: number | null) => void;
@@ -32,6 +36,8 @@ interface LibraryState {
   setDurationBucket: (durationBucket: DurationBucket | null) => void;
   bumpVersion: () => void;
   setStatus: (scanning: boolean, status: string) => void;
+  setPlayingVideo: (video: VideoRow | null) => void;
+  setPlayerPath: (playerPath: string) => void;
   selectOnly: (video: VideoRow) => void;
   toggleSelect: (video: VideoRow) => void;
   clearSelection: () => void;
@@ -52,6 +58,10 @@ export const useLibrary = create<LibraryState>((set) => ({
   status: '',
   scanning: false,
   selection: [],
+  playingVideo: null,
+  playerPath: '',
+  setPlayingVideo: (playingVideo) => set({ playingVideo }),
+  setPlayerPath: (playerPath) => set({ playerPath }),
   setText: (text) => set({ text, selection: [] }),
   setSort: (sort) => set({ sort, selection: [] }),
   setFolderId: (folderId) => set({ folderId, selection: [] }),

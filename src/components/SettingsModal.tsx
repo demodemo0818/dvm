@@ -1,6 +1,7 @@
 import { ask, message, open } from '@tauri-apps/plugin-dialog';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import { useLibrary } from '../store';
 import type { AppInfo, BackupInfo } from '../types';
 
 function fmtSize(bytes: number): string {
@@ -34,6 +35,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
 
   const savePlayer = async () => {
     await api.setSetting('player_path', playerPath.trim());
+    // 再生分岐(アプリ内 or 外部)が即座に切り替わるようストアにも反映
+    useLibrary.getState().setPlayerPath(playerPath.trim());
     onClose();
   };
 

@@ -607,6 +607,60 @@ body {
   color: #8a8f9c;
 }
 
+/* ---- アプリ内プレイヤー ---- */
+.player-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+.player-inner {
+  position: relative;
+  width: min(96vw, 1600px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.player-inner video {
+  width: 100%;
+  max-height: 86vh;
+  background: #000;
+  border-radius: 8px;
+  outline: none;
+}
+
+.player-title {
+  color: #d8dbe2;
+  font-size: 13px;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-close {
+  position: absolute;
+  top: -14px;
+  right: -14px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid #343945;
+  background: #1c1f26;
+  color: #d8dbe2;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.player-close:hover {
+  background: #2a2e37;
+}
+
 /* ---- ステータスバー ---- */
 .statusbar {
   height: 26px;

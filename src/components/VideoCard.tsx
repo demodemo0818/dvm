@@ -22,12 +22,30 @@ function fmtSize(bytes: number): string {
   return `${Math.round(bytes / 1024)} KB`;
 }
 
+/** WebView2 がネイティブ再生できる可能性が高いコンテナ */
+const PLAYABLE_EXTS = new Set(['mp4', 'm4v', 'mov', 'webm']);
+
+function canPlayInApp(path: string): boolean {
+  const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase();
+  return PLAYABLE_EXTS.has(ext);
+}
+
 export function VideoCard({ video }: { video?: VideoRow }) {
-  const { selection, selectOnly, toggleSelect } = useLibrary();
+  const { selection, selectOnly, toggleSelect, playerPath, setPlayingVideo } = useLibrary();
   if (!video) return <div className="card card-loading" />;
 
   const selected = selection.some((v) => v.id === video.id);
   const openable = !video.isMissing && !video.isOffline;
+
+  const play = () => {
+    if (!openable) return;
+    // 外部プレイヤー設定があれば従来通り外部。無ければ対応形式のみアプリ内再生
+    if (playerPath.trim() === '' && canPlayInApp(video.path)) {
+      setPlayingVideo(video);
+    } else {
+      api.openVideo(video.id);
+    }
+  };
   return (
     <div
       className={`card ${selected ? 'selected' : ''}`}
@@ -36,9 +54,7 @@ export function VideoCard({ video }: { video?: VideoRow }) {
         if (e.ctrlKey || e.metaKey) toggleSelect(video);
         else selectOnly(video);
       }}
-      onDoubleClick={() => {
-        if (openable) api.openVideo(video.id);
-      }}
+      onDoubleClick={play}
     >
       <div className="thumb">
         {video.thumbPath ? (
