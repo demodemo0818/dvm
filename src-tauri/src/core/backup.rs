@@ -95,6 +95,75 @@ fn format_local(unix_secs: i64) -> String {
         .unwrap_or_default()
 }
 
+/// 復元の予約ファイル名。ここに書いたパスを次回起動時に library.db へコピーする
+const PENDING_RESTORE: &str = "restore.pending";
+
+/// バックアップからの復元を**予約**する(v1.9)。
+///
+/// 起動中に library.db を差し替えると、開いているコネクション(書き込み用・読み取り用・
+/// data_version 監視スレッド)と競合して壊れる。そこで「次回起動時に適用」方式にする:
+/// ここでは中身を検証して予約ファイルを書くだけで、実際の差し替えは
+/// `apply_pending_restore` が db::init の**前**に行う。
+///
+/// 戻り値は退避した現行 DB のパス(取り違えたときの戻り先)
+pub fn request_restore(
+    conn: &Connection,
+    data_dir: &Path,
+    backups_dir: &Path,
+    backup_path: &Path,
+) -> Result<PathBuf> {
+    anyhow::ensure!(backup_path.is_file(), "バックアップファイルが見つかりません");
+
+    // 壊れたファイルを予約すると次回起動できなくなるので、ここで必ず開いて確かめる
+    {
+        let check = Connection::open_with_flags(
+            backup_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .map_err(|e| anyhow::anyhow!("バックアップを開けません: {e}"))?;
+        let has_videos: bool = check
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='videos'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(false);
+        anyhow::ensure!(has_videos, "VideoShelf のデータベースではないようです");
+    }
+
+    // 今の DB もバックアップとして残す(復元を取り違えても戻せるように)
+    let safety = backup_now(conn, backups_dir, "pre-restore")?;
+
+    std::fs::write(
+        data_dir.join(PENDING_RESTORE),
+        backup_path.to_string_lossy().as_bytes(),
+    )?;
+    Ok(safety)
+}
+
+/// 予約された復元を適用する。**db::init より前に呼ぶこと**(まだ誰も DB を開いていない状態)。
+/// 戻り値は適用したバックアップのパス
+pub fn apply_pending_restore(data_dir: &Path) -> Option<PathBuf> {
+    let pending = data_dir.join(PENDING_RESTORE);
+    let src = std::fs::read_to_string(&pending).ok()?;
+    let src = PathBuf::from(src.trim());
+    // 予約は成否にかかわらず消す(失敗したまま毎回試し続けないように)
+    let _ = std::fs::remove_file(&pending);
+    if !src.is_file() {
+        return None;
+    }
+
+    let db_path = data_dir.join("library.db");
+    if std::fs::copy(&src, &db_path).is_err() {
+        return None;
+    }
+    // 差し替え前の WAL / SHM が残っていると新しい本体と食い違う。
+    // VACUUM INTO の出力は単一ファイルなので消してよい
+    let _ = std::fs::remove_file(data_dir.join("library.db-wal"));
+    let _ = std::fs::remove_file(data_dir.join("library.db-shm"));
+    Some(src)
+}
+
 /// 起動時用: 前回の自動バックアップから 24 時間以上経過していたら実行し、世代を整理する
 pub fn auto_backup_if_due(conn: &Connection, backups_dir: &Path) -> Result<Option<PathBuf>> {
     if let Some(last) = settings::get(conn, LAST_AUTO_KEY)? {
@@ -116,4 +185,116 @@ pub fn auto_backup_if_due(conn: &Connection, backups_dir: &Path) -> Result<Optio
     settings::set(conn, LAST_AUTO_KEY, &now)?;
     prune_auto(backups_dir, AUTO_KEEP)?;
     Ok(Some(dest))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn workspace(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("videoshelf-test-backup-{name}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("backups")).unwrap();
+        dir
+    }
+
+    /// 予約 → 再起動相当(apply)→ 中身が入れ替わっていることを通しで見る
+    #[test]
+    fn restore_is_applied_on_next_startup() {
+        let dir = workspace("restore");
+        let db_path = dir.join("library.db");
+        let backups = dir.join("backups");
+
+        // 「昔の状態」を作ってバックアップを取る
+        let conn = crate::db::init(&db_path).unwrap();
+        conn.execute("INSERT INTO videos (id, path, filename) VALUES (1, 'C:\\a.mp4', 'a.mp4')", [])
+            .unwrap();
+        let snapshot = backup_now(&conn, &backups, "manual").unwrap();
+
+        // その後さらに動画を足す(復元で消えるはずの変更)
+        conn.execute("INSERT INTO videos (id, path, filename) VALUES (2, 'C:\\b.mp4', 'b.mp4')", [])
+            .unwrap();
+        assert_eq!(
+            conn.query_row::<i64, _, _>("SELECT COUNT(*) FROM videos", [], |r| r.get(0)).unwrap(),
+            2
+        );
+
+        let safety = request_restore(&conn, &dir, &backups, &snapshot).unwrap();
+        assert!(safety.exists(), "復元前の状態も退避しておくこと");
+        // 予約しただけの時点では現行 DB は変わっていない
+        assert_eq!(
+            conn.query_row::<i64, _, _>("SELECT COUNT(*) FROM videos", [], |r| r.get(0)).unwrap(),
+            2
+        );
+        drop(conn);
+
+        // 次回起動相当
+        assert!(apply_pending_restore(&dir).is_some());
+        assert!(!dir.join("restore.pending").exists(), "予約は消費すること");
+
+        let restored = crate::db::init(&db_path).unwrap();
+        assert_eq!(
+            restored.query_row::<i64, _, _>("SELECT COUNT(*) FROM videos", [], |r| r.get(0)).unwrap(),
+            1,
+            "バックアップ時点の状態に戻ること"
+        );
+
+        // 2 回目の起動では何も起きない
+        assert!(apply_pending_restore(&dir).is_none());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rejects_files_that_are_not_a_library() {
+        let dir = workspace("reject");
+        let db_path = dir.join("library.db");
+        let backups = dir.join("backups");
+        let conn = crate::db::init(&db_path).unwrap();
+
+        // ただのテキスト(SQLite ですらない)
+        let junk = dir.join("junk.db");
+        std::fs::write(&junk, b"not a database").unwrap();
+        assert!(request_restore(&conn, &dir, &backups, &junk).is_err());
+
+        // SQLite だが videos テーブルが無い
+        let other = dir.join("other.db");
+        Connection::open(&other)
+            .unwrap()
+            .execute_batch("CREATE TABLE t (x)")
+            .unwrap();
+        assert!(request_restore(&conn, &dir, &backups, &other).is_err());
+
+        assert!(!dir.join("restore.pending").exists(), "拒否したら予約を残さないこと");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn prune_keeps_manual_and_pre_restore_backups() {
+        let dir = workspace("prune");
+        let backups = dir.join("backups");
+        for name in [
+            "auto-20260101-000000.db",
+            "auto-20260102-000000.db",
+            "auto-20260103-000000.db",
+            "manual-20260101-000000.db",
+            "pre-restore-20260101-000000.db",
+        ] {
+            std::fs::write(backups.join(name), b"x").unwrap();
+        }
+        prune_auto(&backups, 2).unwrap();
+
+        let names: Vec<String> =
+            list_backups(&backups).unwrap().into_iter().map(|b| b.file_name).collect();
+        assert!(!names.iter().any(|n| n == "auto-20260101-000000.db"), "古い auto は消す");
+        assert_eq!(names.iter().filter(|n| n.starts_with("auto-")).count(), 2);
+        assert!(names.iter().any(|n| n.starts_with("manual-")), "manual は消さない");
+        assert!(
+            names.iter().any(|n| n.starts_with("pre-restore-")),
+            "復元前の退避は消さない(取り違えたときの戻り先なので)"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

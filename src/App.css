@@ -1616,3 +1616,230 @@ button.stats-tile:hover {
 .player-thumb-btn:hover {
   color: #fff;
 }
+
+/* ---- ファイル操作の確認ダイアログ (v1.9) ---- */
+.fileop-modal {
+  width: 720px;
+  max-height: 80vh;
+}
+
+.fileop-table {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 46vh;
+  overflow-y: auto;
+  padding: 6px;
+  background: #1a1d23;
+  border: 1px solid #2f3542;
+  border-radius: 6px;
+}
+
+.fileop-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.fileop-row.excluded {
+  opacity: 0.55;
+}
+
+.fileop-status {
+  flex-shrink: 0;
+  width: 118px;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.fileop-status.ok {
+  background: #23402b;
+  color: #a8e0b4;
+}
+
+.fileop-status.ng {
+  background: #3a2429;
+  color: #ffb3b3;
+}
+
+.fileop-paths {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fileop-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.fileop-path.from {
+  color: #8a8f9c;
+}
+
+.fileop-path.to {
+  color: #d8dbe2;
+}
+
+.fileop-note {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #d9a45a;
+}
+
+.fileop-skipped {
+  margin-left: 6px;
+  font-weight: 400;
+  font-size: 11px;
+  color: #8a8f9c;
+}
+
+.inspector-fileops {
+  display: flex;
+  gap: 6px;
+  padding: 0 10px;
+}
+
+.inspector-fileops button {
+  flex: 1;
+  background: #22252d;
+  border: 1px solid #343945;
+  color: #d8dbe2;
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.inspector-fileops button:hover {
+  border-color: #4a5162;
+}
+
+/* ---- 操作履歴 (v1.9) ---- */
+.history-modal {
+  width: 760px;
+  max-height: 82vh;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 56vh;
+  overflow-y: auto;
+  padding: 6px;
+  background: #1a1d23;
+  border: 1px solid #2f3542;
+  border-radius: 6px;
+}
+
+.history-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.history-row:hover {
+  background: #22252d;
+}
+
+.history-row.undone {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+.history-time {
+  flex-shrink: 0;
+  width: 130px;
+  color: #8a8f9c;
+  font-variant-numeric: tabular-nums;
+}
+
+.history-actor {
+  flex-shrink: 0;
+  width: 46px;
+  font-size: 10px;
+  text-align: center;
+  padding: 1px 0;
+  border-radius: 8px;
+  background: #2a3140;
+  color: #9bb4dd;
+}
+
+.history-actor.ai {
+  background: #3a2f4a;
+  color: #cfb0f0;
+}
+
+.history-actor.system {
+  background: #2b2e36;
+  color: #9aa0ad;
+}
+
+.history-action {
+  flex-shrink: 0;
+  width: 190px;
+  color: #d8dbe2;
+}
+
+.history-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #9aa0ad;
+}
+
+.history-undo {
+  flex-shrink: 0;
+  background: #22252d;
+  border: 1px solid #343945;
+  color: #d8dbe2;
+  padding: 2px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+}
+
+.history-undo:hover {
+  border-color: #2f66d0;
+}
+
+.history-reason {
+  flex-shrink: 0;
+  width: 76px;
+  text-align: right;
+  font-size: 11px;
+  color: #8a8f9c;
+}
+
+.backup-restore {
+  background: #22252d;
+  border: 1px solid #343945;
+  color: #d8dbe2;
+  padding: 2px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  margin-left: 8px;
+}
+
+.backup-restore:hover {
+  border-color: #2f66d0;
+}

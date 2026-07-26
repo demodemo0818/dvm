@@ -1,7 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useLibrary } from './store';
 import type {
-  AppInfo, BackupInfo, LibraryStats, Series, SmartFolder, Tag, VideoQuery, VideoRow, WatchedFolder,
+  AppInfo, BackupInfo, LibraryStats, OpEntry, OpResult, PlanItem, Series, SmartFolder, Tag,
+  VideoQuery, VideoRow, WatchedFolder,
 } from './types';
 
 /**
@@ -93,4 +94,25 @@ export const api = {
   setThumbTime: (id: number, atMs?: number) => call<void>('set_thumb_time', { id, atMs }),
   purgeOrphanThumbnails: () =>
     call<{ removed: number; freedBytes: number }>('purge_orphan_thumbnails'),
+  /** 復元の予約。実際の差し替えは次回起動時。戻り値は退避した現行 DB のファイル名 */
+  restoreBackup: (path: string) => call<string>('restore_backup', { path }),
+
+  // --- ファイル操作(plan_* は読むだけ。apply_* はユーザーが承認してから呼ぶ) ---
+  planRelink: (fromPrefix: string, toPrefix: string) =>
+    call<PlanItem[]>('plan_relink', { fromPrefix, toPrefix }),
+  applyRelink: (items: PlanItem[], actor?: 'user' | 'ai') =>
+    call<OpResult[]>('apply_relink', { items, actor }),
+  planMove: (videoIds: number[], destDir: string) =>
+    call<PlanItem[]>('plan_move', { videoIds, destDir }),
+  planRename: (videoId: number, newName: string) =>
+    call<PlanItem>('plan_rename', { videoId, newName }),
+  applyMove: (items: PlanItem[], action: 'move_file' | 'rename_file', actor?: 'user' | 'ai') =>
+    call<OpResult[]>('apply_move', { items, action, actor }),
+  classifyPaths: (paths: string[]) =>
+    call<{ dirs: string[]; files: string[] }>('classify_paths', { paths }),
+
+  // --- 操作履歴 ---
+  listOperations: (limit: number, offset: number) =>
+    call<OpEntry[]>('list_operations', { limit, offset }),
+  undoOperation: (opId: number) => call<string>('undo_operation', { opId }),
 };

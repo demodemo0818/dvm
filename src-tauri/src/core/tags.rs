@@ -45,43 +45,82 @@ pub fn ensure_tag(conn: &Connection, name: &str) -> Result<i64> {
 
 pub fn tag_videos(conn: &Connection, actor: &str, video_ids: &[i64], tag_name: &str) -> Result<i64> {
     let tag_id = ensure_tag(conn, tag_name)?;
+    // 取り消しのために「実際に付いた動画」だけを記録する。
+    // 元から付いていたものまで記録すると、取り消しでそれも外れてしまう
+    let mut added = Vec::new();
     conn.execute_batch("BEGIN")?;
     for vid in video_ids {
-        conn.execute(
+        let n = conn.execute(
             "INSERT OR IGNORE INTO video_tags (video_id, tag_id) VALUES (?1, ?2)",
             params![vid, tag_id],
         )?;
+        if n > 0 {
+            added.push(*vid);
+        }
     }
     conn.execute_batch("COMMIT")?;
-    db::log_op(conn, actor, "tag_videos", &format!("tag={tag_name} videos={video_ids:?}"));
+    db::log_op(
+        conn,
+        actor,
+        "tag_videos",
+        &serde_json::json!({ "tagId": tag_id, "tag": tag_name, "added": added }).to_string(),
+    );
     Ok(tag_id)
 }
 
 pub fn untag_videos(conn: &Connection, actor: &str, video_ids: &[i64], tag_id: i64) -> Result<()> {
+    let name: String = conn
+        .query_row("SELECT name FROM tags WHERE id = ?1", params![tag_id], |r| r.get(0))
+        .unwrap_or_default();
+    let mut removed = Vec::new();
     conn.execute_batch("BEGIN")?;
     for vid in video_ids {
-        conn.execute(
+        let n = conn.execute(
             "DELETE FROM video_tags WHERE video_id = ?1 AND tag_id = ?2",
             params![vid, tag_id],
         )?;
+        if n > 0 {
+            removed.push(*vid);
+        }
     }
     conn.execute_batch("COMMIT")?;
-    db::log_op(conn, actor, "untag_videos", &format!("tag_id={tag_id} videos={video_ids:?}"));
+    db::log_op(
+        conn,
+        actor,
+        "untag_videos",
+        &serde_json::json!({ "tagId": tag_id, "tag": name, "removed": removed }).to_string(),
+    );
     Ok(())
 }
 
 pub fn rename_tag(conn: &Connection, actor: &str, tag_id: i64, new_name: &str) -> Result<()> {
     let new_name = new_name.trim();
     anyhow::ensure!(!new_name.is_empty(), "タグ名が空です");
+    let before: String = conn
+        .query_row("SELECT name FROM tags WHERE id = ?1", params![tag_id], |r| r.get(0))
+        .unwrap_or_default();
     conn.execute("UPDATE tags SET name = ?1 WHERE id = ?2", params![new_name, tag_id])?;
-    db::log_op(conn, actor, "rename_tag", &format!("tag_id={tag_id} new_name={new_name}"));
+    db::log_op(
+        conn,
+        actor,
+        "rename_tag",
+        &serde_json::json!({ "tagId": tag_id, "before": before, "after": new_name }).to_string(),
+    );
     Ok(())
 }
 
 pub fn delete_tag(conn: &Connection, actor: &str, tag_id: i64) -> Result<()> {
+    let name: String = conn
+        .query_row("SELECT name FROM tags WHERE id = ?1", params![tag_id], |r| r.get(0))
+        .unwrap_or_default();
     // video_tags は ON DELETE CASCADE で一緒に消える
     conn.execute("DELETE FROM tags WHERE id = ?1", params![tag_id])?;
-    db::log_op(conn, actor, "delete_tag", &format!("tag_id={tag_id}"));
+    db::log_op(
+        conn,
+        actor,
+        "delete_tag",
+        &serde_json::json!({ "tagId": tag_id, "tag": name }).to_string(),
+    );
     Ok(())
 }
 
@@ -127,7 +166,7 @@ pub fn set_tag_color(conn: &Connection, actor: &str, tag_id: i64, color: Option<
         conn,
         actor,
         "set_tag_color",
-        &format!("tag_id={tag_id} color={}", color.unwrap_or("(なし)")),
+        &serde_json::json!({ "tagId": tag_id, "color": color }).to_string(),
     );
     Ok(())
 }
@@ -166,7 +205,7 @@ pub fn set_tag_parent(
         conn,
         actor,
         "set_tag_parent",
-        &format!("tag_id={tag_id} parent_id={parent_id:?}"),
+        &serde_json::json!({ "tagId": tag_id, "parentId": parent_id }).to_string(),
     );
     Ok(())
 }

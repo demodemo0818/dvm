@@ -4,7 +4,7 @@ use std::path::Path;
 
 /// スキーマの現行バージョン。列追加などの変更時は MIGRATIONS に差分を足してここを上げる。
 /// **新テーブルの追加では上げない**(SCHEMA の CREATE TABLE IF NOT EXISTS が既存 DB にも流れるため)
-const LATEST_VERSION: i32 = 3;
+const LATEST_VERSION: i32 = 4;
 
 /// v(N) -> v(N+1) の差分 SQL。PRAGMA user_version の更新は migrate() 側で同一トランザクションに含める
 const MIGRATIONS: &[&str] = &[
@@ -14,6 +14,8 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE videos ADD COLUMN resume_ms INTEGER NOT NULL DEFAULT 0;",
     // v2 -> v3: サムネイルのコマ位置(NULL = 自動選択)
     "ALTER TABLE videos ADD COLUMN thumb_time_ms INTEGER;",
+    // v3 -> v4: 操作履歴の取り消し済みフラグ
+    "ALTER TABLE operations_log ADD COLUMN undone_at TEXT;",
 ];
 
 pub fn init(path: &Path) -> Result<Connection> {
@@ -155,7 +157,8 @@ CREATE TABLE IF NOT EXISTS operations_log (
   timestamp TEXT NOT NULL DEFAULT (datetime('now','localtime')),
   actor TEXT NOT NULL DEFAULT 'user',
   action TEXT NOT NULL,
-  payload TEXT
+  payload TEXT,
+  undone_at TEXT
 );
 "#;
 

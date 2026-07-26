@@ -1,5 +1,7 @@
 pub mod backup;
 pub mod ffmpeg;
+pub mod fileops;
+pub mod history;
 pub mod library;
 pub mod metadata;
 pub mod offline;

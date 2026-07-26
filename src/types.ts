@@ -197,3 +197,44 @@ export interface BackupInfo {
   size: number;
   createdAt: string;
 }
+
+/** ファイル操作の dry-run で 1 件ごとに付く状態 */
+export type PlanStatus = 'ok' | 'conflict' | 'sourceMissing' | 'offline' | 'unchanged';
+
+/** dry-run の 1 行。この表を見せて承認をもらってから apply する */
+export interface PlanItem {
+  videoId: number;
+  from: string;
+  to: string;
+  status: PlanStatus;
+  note: string | null;
+}
+
+export interface OpResult {
+  videoId: number;
+  from: string;
+  to: string;
+  ok: boolean;
+  error: string | null;
+}
+
+/** fileop:progress イベントのペイロード */
+export interface FileOpProgress {
+  done: number;
+  total: number;
+  current: string;
+}
+
+/** 操作履歴の 1 行 */
+export interface OpEntry {
+  id: number;
+  timestamp: string;
+  /** "user" / "ai" / "system" */
+  actor: string;
+  action: string;
+  payload: string | null;
+  undoable: boolean;
+  /** 取り消せない理由 */
+  reason: string | null;
+  undoneAt: string | null;
+}

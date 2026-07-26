@@ -1,8 +1,10 @@
-import { ask } from '@tauri-apps/plugin-dialog';
+import { ask, open } from '@tauri-apps/plugin-dialog';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useLibrary } from '../store';
-import type { Series, Tag } from '../types';
+import type { PlanItem, Series, Tag } from '../types';
+import { FileOpDialog } from './FileOpDialog';
+import type { FileOpKind } from './FileOpDialog';
 
 /** 選択中の動画の詳細とタグ・シリーズ・レーティング編集を行う右パネル */
 export function Inspector() {
@@ -14,6 +16,8 @@ export function Inspector() {
   const [tagInput, setTagInput] = useState('');
   const [seriesInput, setSeriesInput] = useState('');
   const [rating, setRatingLocal] = useState(0);
+  /** dry-run の結果。null の間はダイアログを出さない(プレビューなしに実行させない) */
+  const [fileOp, setFileOp] = useState<{ kind: FileOpKind; plan: PlanItem[] } | null>(null);
 
   const ids = selection.map((v) => v.id);
   const idsKey = ids.join(',');
@@ -163,6 +167,32 @@ export function Inspector() {
         <div className="inspector-note">変更は選択中の全動画に適用されます</div>
       )}
 
+      <div className="side-section">ファイル操作</div>
+      <div className="inspector-fileops">
+        {single && (
+          <button
+            onClick={async () => {
+              const name = window.prompt('新しいファイル名', single.filename);
+              if (name === null || name.trim() === '' || name === single.filename) return;
+              const item = await api.planRename(single.id, name.trim());
+              setFileOp({ kind: 'rename', plan: [item] });
+            }}
+          >
+            名前を変更...
+          </button>
+        )}
+        <button
+          onClick={async () => {
+            const dest = await open({ directory: true, multiple: false, title: '移動先フォルダ' });
+            if (typeof dest !== 'string') return;
+            const plan = await api.planMove(ids, dest);
+            setFileOp({ kind: 'move', plan });
+          }}
+        >
+          移動...
+        </button>
+      </div>
+
       <div className="inspector-footer">
         <button
           className="danger"
@@ -180,6 +210,10 @@ export function Inspector() {
           ライブラリから削除
         </button>
       </div>
+
+      {fileOp && (
+        <FileOpDialog kind={fileOp.kind} plan={fileOp.plan} onClose={() => setFileOp(null)} />
+      )}
     </aside>
   );
 }

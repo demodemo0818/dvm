@@ -391,7 +391,7 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
 1. **コアサービス層**: 検索・登録・タグ・シリーズ・ファイル操作などの本体ロジックは、UI に依存しない純粋な Rust 関数(型付き入出力)として `core/` に実装する。Tauri コマンドはその薄いラッパーに徹する。将来の MCP ツールも同じ関数を包むだけにする
 2. **構造化クエリ**: 検索条件は構造化オブジェクト(テキスト / タグ / レーティング / 期間 / 尺 / 視聴状態 などの組み合わせ)で表現する。UI のフィルタも AI の検索も同じクエリ型を使う
 3. **破壊的操作の安全装置**: ファイル削除は必ずごみ箱経由(trash クレート)。ファイル移動・リネーム系の操作は dry-run(実行内容のプレビュー)を返せる形で設計する
-4. **操作ログ**: `operations_log(id, timestamp, actor, action, payload)` にメタデータ変更・ファイル操作を記録する(actor = user / ai)。AI に操作を許すときの監査・巻き戻しの土台
+4. **操作ログ**: `operations_log(id, timestamp, actor, action, payload, undone_at)` にメタデータ変更・ファイル操作を記録する(actor = user / ai)。**payload は構造化 JSON で、逆操作に必要な変更前の値を持たせる**(v1.9。詳細は「操作履歴と取り消し」)
 
 導入時期: 設計規律は v0.1 から。読み取り専用 MCP は v0.4、書き込み系 MCP は v1.1、アプリ内アシスタントは v1.3 で実装済み。
 
@@ -399,6 +399,8 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
 
 - 別バイナリ `videoshelf-mcp.exe`(stdio トランスポート)。アプリが起動していなくても動く
 - **既定は読み取り専用**: DB を読み取り専用フラグで開くため、AI からライブラリを変更することは構造的に不可能
+- **ファイル操作系(リネーム・移動・再リンク)は MCP に公開していない**。dry-run のプレビューを
+  人が承認する前提の機能なので、AI から直接呼べる形にはしない(v1.9)
 - 読み取りツール: `search_videos`(構造化クエリ。text / search_path / tag / series / missing / untagged / unwatched / duplicates_only / min_rating / min_duration_sec / max_duration_sec / min_width / min_height / video_codecs / added_after / added_before / sort / limit)/ `get_video` / `list_tags` / `list_series` / `library_stats`
 - **書き込みモード(v1.1)**: 環境変数 `VIDEOSHELF_ALLOW_WRITE=1` を付けて起動したときだけ、DB を読み書きで開き(`foreign_keys=ON`・`busy_timeout 5s`)、次のツールを追加公開する:
   - `tag_videos` / `untag_videos` / `add_to_series` / `remove_from_series` / `set_rating` / `set_video_info`(タイトル・コメント)
@@ -424,13 +426,75 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
   (書き込みを許可する場合は `claude mcp add videoshelf -e VIDEOSHELF_ALLOW_WRITE=1 -- ...`)
 - DB の場所は既定(%APPDATA%\com.taiki.videoshelf\library.db)。環境変数 `VIDEOSHELF_DB` で上書き可
 
+## ファイル操作(v1.9)
+
+**実行前に必ず dry-run の結果を表で見せ、ユーザーが承認して初めて実行する。**
+プレビューを飛ばして実行できる導線は作らない。`core/fileops.rs` に集約し、
+既存の `videos::plan_trash` / `trash_files` と同じ二段構えにしている。
+
+| 状態 | 意味 |
+|---|---|
+| `Ok` | 実行できる(これだけが実行対象) |
+| `Conflict` | 変更後の場所に別のファイルがある(上書きしない) |
+| `SourceMissing` | 変更前のファイルが無い / 移動先フォルダが無い |
+| `Offline` | ドライブ未接続(消えたのか未接続なのか区別できないので触らない) |
+| `Unchanged` | 変更前後が同じ |
+
+### 再リンク(#5)
+
+- **DB の path を書き換えるだけでファイルには触らない**(最も安全なので先に実装した)
+- 対象は「指定プレフィックスで始まる path」。Windows のパスは大文字小文字を区別せず、
+  `/` と `\` の揺れも吸収する。無関係なパスを巻き込まないよう境界(`\`)まで見る
+- 変更後の場所に実体があるものだけ `Ok`。適用後は実在確認で `is_missing` を張り直す
+- 導線: サイドバーの「⚠ 見つからない」を開くと「パスを再リンク...」が出る
+
+### リネーム / 移動(#6)
+
+- 同一ボリュームなら `std::fs::rename`、別ボリュームなら copy + remove。
+  コピー後に元が消せなかったらコピーを取り消して「失敗」に倒す(2 か所に残さない)
+- **1 件ずつコミットする**。全体を 1 トランザクションにすると途中失敗で実ファイルと DB がずれる。
+  失敗は個別に報告して残りは続ける
+- 実行の直前にもう一度衝突を確認する(プレビューを見ている間に状況が変わりうる)
+- 移動先が監視フォルダ配下なら `watched_folder_id` を張り替える。
+  notify が同時に発火しても `library.rs` の移動検出が冪等なので二重登録にはならない
+- 進捗は `fileop:progress` イベント(大きいファイルの別ドライブ移動は時間がかかる)
+
+## 操作履歴と取り消し(v1.9)
+
+- `operations_log.payload` を **構造化 JSON に統一**した。逆操作に必要な変更前の値を持たせるため
+  (v1.9 より前の自由文字列は「古い形式」として取り消し不可にする)
+- `operations_log.undone_at`(v3→v4 マイグレーション)で取り消し済みを記録。二重取り消しを拒否する
+- **取り消せるのは可逆なメタデータ操作だけ**:
+  `tag_videos` / `untag_videos` / `add_to_series` / `remove_from_series` / `set_rating` /
+  `set_video_info` / `rename_tag` / `relink`
+  - タグ・シリーズ追加は**実際に変化した組だけ**を payload に記録する。
+    元から付いていたものまで記録すると、取り消しでそれも外れてしまう
+  - `set_rating` は動画ごとの変更前の値を対応表で持つ(一律の値にする操作なので「1 つ前」では戻せない)
+  - `remove_from_series` は position ごと控えて並び順まで戻す
+- **取り消せない**(UI に理由を出す): `trash_file`(ごみ箱から手動で戻す)/ `remove_videos` /
+  `move_file` / `rename_file`(逆向きの操作を実行してもらう)/ `drive_remap` / スキャン系
+- UI はツールバーの 🕘(`HistoryModal.tsx`)。actor(user / ai / system)バッジ付き
+
 ## DB バックアップ(v1.0 実装済み)
 
 - 方式: `VACUUM INTO`(WAL 非依存の単一ファイルを出力。断片化も解消される)
 - 保存先: `%APPDATA%\com.taiki.videoshelf\backups\`
 - 起動時自動バックアップ: 前回から 24 時間以上経過していたら `auto-YYYYMMDD-HHMMSS.db` を作成し、auto は新しい順 5 世代だけ残す(manual は削除しない)
 - 手動バックアップ: 設定画面から `manual-...db` を作成。一覧表示・フォルダを開くも設定画面から
-- 復元: アプリ終了後に `library.db` をバックアップファイルで置き換える(アプリ内復元は将来検討)
+
+### アプリ内復元(v1.9)— 次回起動時に適用する方式
+
+起動中に `library.db` を差し替えると、開いているコネクション(書き込み用・読み取り用・
+`data_version` 監視スレッド)と競合して壊れる。そこで**予約 → 次回起動時に適用**にした:
+
+1. `restore_backup`: バックアップを読み取り専用で開いて検証(SQLite として開けるか +
+   videos テーブルがあるか)。壊れたファイルを予約すると次回起動できなくなるため必須
+2. 現行 DB を `pre-restore-YYYYMMDD-HHMMSS.db` として退避(取り違えても戻せる。
+   `prune_auto` は `auto-` だけを消すのでこれと manual は残る)
+3. データディレクトリに `restore.pending`(適用したいパス)を書いて再起動を促す
+4. 次回起動時、`lib.rs` の setup が **`db::init` より前**に `apply_pending_restore` を呼んで
+   差し替える。予約は成否にかかわらず消す(失敗したまま毎回試し続けないため)。
+   古い `-wal` / `-shm` も消す(新しい本体と食い違うため)
 
 ## パフォーマンス原則(必守)
 
@@ -491,16 +555,16 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
   (⏭ / N・自動送り設定)、mpv の音声・字幕トラック切替、サムネイルのコマ選び
   (`thumbnail` フィルタで暗転回避 + 再生位置からの手動指定)、視聴カウント条件の見直し、
   孤児サムネイルの掃除
+- **v1.9** ✅(2026-07-26 実装済み): ファイル操作と履歴。dry-run 必須の確認ダイアログを共通基盤に、
+  missing の再リンク(DB のパス一括置換)とファイルのリネーム / 移動、操作履歴 UI と取り消し
+  (payload を構造化 JSON に統一)、バックアップのアプリ内復元(次回起動時に適用)、
+  D&D でフォルダを落としたときに監視フォルダか個別登録かを尋ねる
 - **将来**: フォールバック側の HLS 追いかけ再生、mac/Linux 対応
 
-## 今後のタスク(未着手・優先度順)
+## 今後のタスク
 
-1. **missing の再リンク** — フォルダ単位のパス一括置換(dry-run 付き)。今は「削除」しか出口がない
-2. **ファイルのリネーム / 移動** — dry-run 設計は宣言済みだが機能自体が未実装
+当初の backlog(v1.6 時点の 11 件 + 細かい改善)は v1.7〜v1.9 ですべて消化した。
+残っているのは次の 1 件のみ:
 
-その他(細かい改善):
-
-- 操作履歴 UI と取り消し(`operations_log` に貯めているのに閲覧手段がない)
-- バックアップのアプリ内復元
-- API キーの暗号化(現状は `library.db` に平文。Windows DPAPI)
-- D&D でフォルダを落としたとき、監視フォルダにするか個別登録かを尋ねる
+- **API キーの暗号化** — 現状は `library.db` に平文。Windows DPAPI で保護する
+  (ローカル個人用アプリとして許容中。バックアップにも平文で含まれる点に注意)

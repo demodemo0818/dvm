@@ -45,6 +45,11 @@ pub fn run() {
             let transcode_dir = data_dir.join("transcode");
             std::fs::create_dir_all(&transcode_dir)?;
             let db_path = data_dir.join("library.db");
+            // 復元の予約があればここで差し替える。**db::init より前**であることが重要
+            // (まだ誰も DB を開いていないので、コネクションと競合しない)
+            if let Some(src) = crate::core::backup::apply_pending_restore(&data_dir) {
+                eprintln!("バックアップから復元しました: {}", src.display());
+            }
             let conn = db::init(&db_path)?;
             // マイグレーション後に開く(スキーマが揃った状態を読ませる)
             let conn_read = db::open_read(&db_path)?;
@@ -146,6 +151,15 @@ pub fn run() {
             commands::maintenance::get_app_info,
             commands::maintenance::regenerate_thumbnails,
             commands::maintenance::purge_orphan_thumbnails,
+            commands::maintenance::restore_backup,
+            commands::fileops::plan_relink,
+            commands::fileops::apply_relink,
+            commands::fileops::plan_move,
+            commands::fileops::plan_rename,
+            commands::fileops::apply_move,
+            commands::fileops::classify_paths,
+            commands::history::list_operations,
+            commands::history::undo_operation,
             commands::playback::prepare_video,
             commands::playback::cancel_prepare,
         ])

@@ -1,6 +1,7 @@
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { useEffect, useRef } from 'react';
+import { ask } from '@tauri-apps/plugin-dialog';
+import { useCallback, useEffect, useRef } from 'react';
 import './App.css';
 import { api } from './api';
 import { AiPanel } from './components/AiPanel';
@@ -47,6 +48,33 @@ export default function App() {
     api.getSetting('autoplay_next').then((v) => setAutoplayNext(v === '1'));
   }, [setPlayerPath, setPreviewOnHover, setViewMode, setCardWidth, setAutoplayNext]);
 
+  /**
+   * ドロップされたパスを取り込む。フォルダが混ざっていたら扱いを尋ねる(v1.9)。
+   * 「監視フォルダ」にすると以後の追加も自動で拾うが、フォルダごと登録したくない
+   * ケース(一度きりの取り込み)もあるので選ばせる
+   */
+  const handleDrop = useCallback(
+    async (paths: string[]) => {
+      const { dirs, files } = await api.classifyPaths(paths);
+      if (files.length > 0) await api.registerFiles(files);
+
+      if (dirs.length > 0) {
+        const watch = await ask(
+          `フォルダが ${dirs.length} 件あります。監視フォルダとして登録しますか?\n\n` +
+            'はい = 監視フォルダにする(以後の追加も自動で取り込みます)\n' +
+            'いいえ = 中の動画を個別登録する(このときの分だけ)',
+          { title: 'フォルダの扱い' },
+        );
+        for (const dir of dirs) {
+          if (watch) await api.addWatchedFolder(dir);
+          else await api.registerFiles([dir]);
+        }
+      }
+      bumpVersion();
+    },
+    [bumpVersion],
+  );
+
   useEffect(() => {
     const unlisteners: Array<() => void> = [];
 
@@ -62,13 +90,13 @@ export default function App() {
     getCurrentWebview()
       .onDragDropEvent((e) => {
         if (e.payload.type === 'drop' && e.payload.paths.length > 0) {
-          api.registerFiles(e.payload.paths);
+          void handleDrop(e.payload.paths);
         }
       })
       .then((u) => unlisteners.push(u));
 
     return () => unlisteners.forEach((u) => u());
-  }, [bumpVersion, setStatus]);
+  }, [bumpVersion, setStatus, handleDrop]);
 
   return (
     <>

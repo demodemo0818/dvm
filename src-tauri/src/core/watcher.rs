@@ -1,9 +1,9 @@
 use crate::core::library;
 use crate::core::offline;
 use crate::AppState;
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{RecursiveMode, Watcher};
 use std::collections::HashSet;
-use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
 

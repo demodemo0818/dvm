@@ -41,6 +41,25 @@ pub fn list_db_backups(state: State<AppState>) -> Result<Vec<BackupInfo>, String
     backup::list_backups(&state.backups_dir).map_err(|e| e.to_string())
 }
 
+/// バックアップからの復元を予約する(実際の差し替えは次回起動時)。
+/// 起動中に library.db を差し替えると開いているコネクションと競合するため
+#[tauri::command]
+pub fn restore_backup(state: State<AppState>, path: String) -> Result<String, String> {
+    let conn = state.db.lock().unwrap();
+    let safety = backup::request_restore(
+        &conn,
+        &state.data_dir,
+        &state.backups_dir,
+        std::path::Path::new(&path),
+    )
+    .map_err(|e| e.to_string())?;
+    db::log_op(&conn, "user", "request_restore", &format!("{{\"from\":{path:?}}}"));
+    Ok(safety
+        .file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_default())
+}
+
 #[tauri::command]
 pub fn open_backups_dir(state: State<AppState>) -> Result<(), String> {
     std::fs::create_dir_all(&state.backups_dir).map_err(|e| e.to_string())?;

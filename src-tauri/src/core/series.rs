@@ -47,42 +47,77 @@ pub fn ensure_series(conn: &Connection, name: &str) -> Result<i64> {
 /// 動画をシリーズに追加(末尾に追加。既に入っていれば何もしない)
 pub fn add_videos_to_series(conn: &Connection, actor: &str, video_ids: &[i64], name: &str) -> Result<i64> {
     let series_id = ensure_series(conn, name)?;
+    // 取り消しのために「実際に増えた組」だけを記録する。
+    // 既に入っていた動画まで記録すると、取り消しで元から入っていたものまで外れてしまう
+    let mut added = Vec::new();
     conn.execute_batch("BEGIN")?;
     for vid in video_ids {
-        conn.execute(
+        let n = conn.execute(
             "INSERT OR IGNORE INTO series_entries (series_id, video_id, position)
              VALUES (?1, ?2,
                      (SELECT COALESCE(MAX(position), 0) + 1 FROM series_entries WHERE series_id = ?1))",
             params![series_id, vid],
         )?;
+        if n > 0 {
+            added.push(*vid);
+        }
     }
     conn.execute_batch("COMMIT")?;
-    db::log_op(conn, actor, "add_to_series", &format!("series={name} videos={video_ids:?}"));
+    db::log_op(
+        conn,
+        actor,
+        "add_to_series",
+        &serde_json::json!({ "seriesId": series_id, "series": name, "added": added }).to_string(),
+    );
     Ok(series_id)
 }
 
 pub fn remove_videos_from_series(conn: &Connection, actor: &str, video_ids: &[i64], series_id: i64) -> Result<()> {
+    let name: String = conn
+        .query_row("SELECT name FROM series WHERE id = ?1", params![series_id], |r| r.get(0))
+        .unwrap_or_default();
+    // 取り消しで並び順まで戻せるよう position ごと控えておく
+    let mut removed = Vec::new();
     conn.execute_batch("BEGIN")?;
     for vid in video_ids {
-        conn.execute(
+        let position: Option<i64> = conn
+            .query_row(
+                "SELECT position FROM series_entries WHERE series_id = ?1 AND video_id = ?2",
+                params![series_id, vid],
+                |r| r.get(0),
+            )
+            .ok();
+        let n = conn.execute(
             "DELETE FROM series_entries WHERE series_id = ?1 AND video_id = ?2",
             params![series_id, vid],
         )?;
+        if n > 0 {
+            removed.push(serde_json::json!({ "id": vid, "position": position.unwrap_or(0) }));
+        }
     }
     conn.execute_batch("COMMIT")?;
     db::log_op(
         conn,
         actor,
         "remove_from_series",
-        &format!("series_id={series_id} videos={video_ids:?}"),
+        &serde_json::json!({ "seriesId": series_id, "series": name, "removed": removed })
+            .to_string(),
     );
     Ok(())
 }
 
 pub fn delete_series(conn: &Connection, actor: &str, series_id: i64) -> Result<()> {
+    let name: String = conn
+        .query_row("SELECT name FROM series WHERE id = ?1", params![series_id], |r| r.get(0))
+        .unwrap_or_default();
     // series_entries は ON DELETE CASCADE
     conn.execute("DELETE FROM series WHERE id = ?1", params![series_id])?;
-    db::log_op(conn, actor, "delete_series", &format!("series_id={series_id}"));
+    db::log_op(
+        conn,
+        actor,
+        "delete_series",
+        &serde_json::json!({ "seriesId": series_id, "series": name }).to_string(),
+    );
     Ok(())
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "tauri-app"
-version = "1.8.0"
+version = "1.9.0"
 description = "VideoShelf — Windows 向け動画管理ソフト"
 authors = ["taiki"]
 edition = "2021"

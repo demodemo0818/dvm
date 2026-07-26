@@ -2,7 +2,8 @@ import { ask, open } from '@tauri-apps/plugin-dialog';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useLibrary } from '../store';
-import type { Series, SmartFolder, Tag, VideoQuery, WatchedFolder } from '../types';
+import type { PlanItem, Series, SmartFolder, Tag, VideoQuery, WatchedFolder } from '../types';
+import { FileOpDialog } from './FileOpDialog';
 import { TagTree } from './TagTree';
 
 const VIDEO_EXTENSIONS = [
@@ -30,6 +31,7 @@ export function Sidebar() {
   const [totalCount, setTotalCount] = useState(0);
   const [missingCount, setMissingCount] = useState(0);
   const [duplicateCount, setDuplicateCount] = useState(0);
+  const [relinkPlan, setRelinkPlan] = useState<PlanItem[] | null>(null);
 
   useEffect(() => {
     api.listWatchedFolders().then(setFolders);
@@ -68,6 +70,26 @@ export function Sidebar() {
         addedBefore: q.addedBefore ?? '',
       },
     });
+  };
+
+  /**
+   * フォルダごと動かした動画の再リンク。
+   * 変更前は文字入力(消えたフォルダはダイアログで選べない)、変更後はフォルダ選択にする
+   */
+  const startRelink = async () => {
+    const fromPrefix = window.prompt(
+      '変更前のフォルダパスを入力してください\n(このパスで始まる動画が対象になります)',
+      '',
+    );
+    if (fromPrefix === null || fromPrefix.trim() === '') return;
+    const dest = await open({ directory: true, multiple: false, title: '変更後のフォルダ' });
+    if (typeof dest !== 'string') return;
+    const plan = await api.planRelink(fromPrefix.trim(), dest);
+    if (plan.length === 0) {
+      pushToast('そのパスで始まる動画はありませんでした', 'info');
+      return;
+    }
+    setRelinkPlan(plan);
   };
 
   const removeSmartFolder = async (sf: SmartFolder) => {
@@ -141,9 +163,14 @@ export function Sidebar() {
         <button
           className={`side-item warn ${missingOnly ? 'active' : ''}`}
           onClick={toggleMissingOnly}
-          title="ファイルが見つからない動画だけを表示(選択して「ライブラリから削除」で整理できます)"
+          title="ファイルが見つからない動画だけを表示(パスの再リンクか、ライブラリからの削除で整理できます)"
         >
           ⚠ 見つからない <span className="count">{missingCount}</span>
+        </button>
+      )}
+      {missingOnly && (
+        <button className="side-action" onClick={startRelink}>
+          パスを再リンク...
         </button>
       )}
       {duplicateCount > 0 && (
@@ -232,6 +259,10 @@ export function Sidebar() {
 
       {tags.length > 0 && <div className="side-section">タグ</div>}
       <TagTree tags={tags} />
+
+      {relinkPlan && (
+        <FileOpDialog kind="relink" plan={relinkPlan} onClose={() => setRelinkPlan(null)} />
+      )}
     </aside>
   );
 }

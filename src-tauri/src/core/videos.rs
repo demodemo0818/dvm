@@ -16,11 +16,31 @@ fn ids_csv(video_ids: &[i64]) -> String {
 
 pub fn set_rating(conn: &Connection, actor: &str, video_ids: &[i64], rating: i64) -> Result<()> {
     let rating = rating.clamp(0, 5);
+    // 取り消し用に変更前の値を控える(動画ごとに違う値だったのを一律にする操作なので、
+    // 「1 つ前の値」ではなく id ごとの対応表が要る)
+    let before: Vec<serde_json::Value> = {
+        let mut stmt = conn.prepare(&format!(
+            "SELECT id, rating FROM videos WHERE id IN ({})",
+            ids_csv(video_ids)
+        ))?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(serde_json::json!({ "id": r.get::<_, i64>(0)?, "rating": r.get::<_, i64>(1)? }))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        rows
+    };
     conn.execute(
         &format!("UPDATE videos SET rating = {rating} WHERE id IN ({})", ids_csv(video_ids)),
         [],
     )?;
-    db::log_op(conn, actor, "set_rating", &format!("rating={rating} videos={video_ids:?}"));
+    db::log_op(
+        conn,
+        actor,
+        "set_rating",
+        &serde_json::json!({ "rating": rating, "before": before }).to_string(),
+    );
     Ok(())
 }
 
@@ -31,6 +51,11 @@ pub fn set_video_info(
     title: Option<&str>,
     comment: Option<&str>,
 ) -> Result<()> {
+    let (old_title, old_comment): (Option<String>, Option<String>) = conn.query_row(
+        "SELECT title, comment FROM videos WHERE id = ?1",
+        params![video_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
     if let Some(t) = title {
         conn.execute("UPDATE videos SET title = ?1 WHERE id = ?2", params![t, video_id])?;
     }
@@ -41,7 +66,15 @@ pub fn set_video_info(
         conn,
         actor,
         "set_video_info",
-        &format!("id={video_id} title={} comment={}", title.is_some(), comment.is_some()),
+        &serde_json::json!({
+            "id": video_id,
+            // 変更した項目だけ before に載せる(取り消しで触っていない項目を上書きしないため)
+            "before": {
+                "title": title.map(|_| old_title.clone()),
+                "comment": comment.map(|_| old_comment.clone()),
+            },
+        })
+        .to_string(),
     );
     Ok(())
 }
@@ -49,7 +82,12 @@ pub fn set_video_info(
 /// ライブラリから登録を削除する(ファイル自体は消さない)
 pub fn remove_videos(conn: &Connection, actor: &str, video_ids: &[i64]) -> Result<()> {
     conn.execute(&format!("DELETE FROM videos WHERE id IN ({})", ids_csv(video_ids)), [])?;
-    db::log_op(conn, actor, "remove_videos", &format!("videos={video_ids:?}"));
+    db::log_op(
+        conn,
+        actor,
+        "remove_videos",
+        &serde_json::json!({ "videos": video_ids }).to_string(),
+    );
     Ok(())
 }
 
@@ -147,7 +185,12 @@ pub fn trash_files(conn: &Connection, actor: &str, video_ids: &[i64]) -> Result<
         match trash::delete(&path) {
             Ok(()) => {
                 let _ = conn.execute("UPDATE videos SET is_missing = 1 WHERE id = ?1", params![id]);
-                db::log_op(conn, actor, "trash_file", &path);
+                db::log_op(
+                    conn,
+                    actor,
+                    "trash_file",
+                    &serde_json::json!({ "id": id, "path": path }).to_string(),
+                );
                 results.push(TrashResult { id, path, trashed: true, error: None });
             }
             Err(e) => {

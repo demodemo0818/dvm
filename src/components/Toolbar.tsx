@@ -4,6 +4,7 @@ import { advancedCount, buildQuery } from '../lib/query';
 import { CARD_WIDTH_MAX, CARD_WIDTH_MIN, useLibrary } from '../store';
 import type { DurationBucket, SortKey } from '../types';
 import { AdvancedSearch } from './AdvancedSearch';
+import { HistoryModal } from './HistoryModal';
 import { SettingsModal } from './SettingsModal';
 import { StatsModal } from './StatsModal';
 
@@ -18,6 +19,7 @@ export function Toolbar() {
   const [input, setInput] = useState(text);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   // 入力から 300ms 落ち着いたら検索を反映
   useEffect(() => {
@@ -130,6 +132,7 @@ export function Toolbar() {
         再スキャン
       </button>
       <button title="統計" onClick={() => setShowStats(true)}>📊</button>
+      <button title="操作履歴" onClick={() => setShowHistory(true)}>🕘</button>
       <button
         title="AI アシスタント"
         className={showAiPanel ? 'active' : ''}
@@ -140,6 +143,7 @@ export function Toolbar() {
       <button title="設定" onClick={() => setShowSettings(true)}>⚙</button>
 
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showHistory && <HistoryModal onClose={() => setShowHistory(false)} />}
       <StatsModal />
     </div>
   );

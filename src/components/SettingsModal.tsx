@@ -88,6 +88,30 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     }
   };
 
+  /** 復元を予約する。実際の差し替えは次回起動時 */
+  const restore = async (b: BackupInfo) => {
+    const yes = await ask(
+      `「${b.fileName}」(${b.createdAt})から復元しますか?\n\n` +
+        '現在のライブラリ(タグ・レーティング・視聴履歴を含む)はこのバックアップの内容で置き換わります。\n' +
+        '動画ファイル自体には影響しません。\n\n' +
+        '復元はアプリを再起動したときに適用されます。',
+      { title: 'バックアップから復元' },
+    );
+    if (!yes) return;
+    setBusy(true);
+    try {
+      const safety = await api.restoreBackup(b.path);
+      await message(
+        `復元を予約しました。アプリを再起動すると適用されます。\n\n` +
+          `現在のデータは ${safety} として保存しました。`,
+        { title: 'バックアップから復元' },
+      );
+      setBackups(await api.listDbBackups());
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const backupNow = async () => {
     setBusy(true);
     try {
@@ -218,12 +242,16 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                   <span>
                     {fmtSize(b.size)} ・ {b.createdAt}
                   </span>
+                  <button className="backup-restore" onClick={() => restore(b)}>
+                    復元
+                  </button>
                 </div>
               ))}
             </div>
           )}
           <div className="settings-note">
-            復元するには、アプリを終了してから library.db をバックアップファイルで置き換えてください
+            復元はアプリの再起動時に適用されます(起動中に library.db を差し替えると壊れるため)。
+            復元の直前に現在のデータも pre-restore-... として自動でバックアップします
           </div>
         </div>
 
