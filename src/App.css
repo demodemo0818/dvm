@@ -128,6 +128,46 @@ body {
   margin-top: 6px;
   background: #22252d;
   border: 1px dashed #3a3f4b;
+/* ライブラリ / フォルダー の切り替え。サイドバーの下半分だけを入れ替える */
+.sidebar-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 10px 0 2px;
+  padding: 2px;
+  background: #171a20;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.sidebar-tab {
+  flex: 1;
+  background: none;
+  border: none;
+  color: #8a8f9c;
+  padding: 6px 4px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.sidebar-tab:hover {
+  color: #d8dbe2;
+}
+
+.sidebar-tab.active {
+  background: #2a2e37;
+  color: #fff;
+}
+
+/* タブの中身が空のときの案内 */
+.side-empty {
+  font-size: 12px;
+  color: #8a8f9c;
+  line-height: 1.6;
+  padding: 10px;
+}
+
   color: #aab0bd;
   padding: 7px 10px;
   border-radius: 6px;
@@ -375,6 +415,57 @@ body {
   color: #9aa0ad;
   cursor: pointer;
   font-size: 15px;
+/* ---- 一覧の先頭に出すフォルダ(ダブルクリックで開く) ---- */
+.folder-card,
+.folder-row {
+  cursor: pointer;
+}
+
+.card.folder-card .folder-thumb {
+  aspect-ratio: 16 / 9;
+  background: #23262f;
+  border: 1px solid #333846;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card.folder-card:hover .folder-thumb,
+.list-row.folder-row:hover {
+  background: #2b303b;
+  border-color: #46506a;
+}
+
+.card.folder-card .folder-glyph {
+  font-size: 34px;
+  line-height: 1;
+}
+
+.list-row.folder-row .folder-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #23262f;
+}
+
+.list-row.folder-row .folder-glyph {
+  font-size: 17px;
+  line-height: 1;
+}
+
+/* 「上のフォルダ」は中身ではなく移動先なので少し控えめに */
+.folder-card.up .folder-glyph,
+.folder-row.up .folder-glyph {
+  color: #8a8f9c;
+}
+
+.folder-count {
+  color: #8a8f9c;
+  flex-shrink: 0;
+  padding-right: 8px;
+}
+
 }
 
 .inspector-head .close:hover {

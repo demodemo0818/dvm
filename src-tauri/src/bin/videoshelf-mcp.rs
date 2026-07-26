@@ -125,6 +125,7 @@ fn read_tool_definitions() -> Value {
                 "properties": {
                     "text": { "type": "string", "description": "ファイル名・タイトルの部分一致検索。空白区切りで複数語すべてを含むものに絞る" },
                     "search_path": { "type": "boolean", "description": "true で text の検索対象にフルパスも含める" },
+                    "dir_path": { "type": "string", "description": "このフォルダ直下にある動画だけに絞る(サブフォルダは含まない)。絶対パスで指定する" },
                     "tag": { "type": "string", "description": "タグ名(完全一致)。このタグが付いた動画に絞る。子タグが付いた動画も含む" },
                     "series": { "type": "string", "description": "シリーズ名(完全一致)。指定時は登録順で返る" },
                     "missing": { "type": "boolean", "description": "true でファイルが見つからない動画のみ" },
@@ -306,6 +307,7 @@ fn call_tool(
                 min_duration_ms: args["min_duration_sec"].as_i64().map(|s| s * 1000),
                 max_duration_ms: args["max_duration_sec"].as_i64().map(|s| s * 1000),
                 search_path: args["search_path"].as_bool(),
+                dir_path: args["dir_path"].as_str().map(String::from),
                 untagged: args["untagged"].as_bool(),
                 unwatched: args["unwatched"].as_bool(),
                 duplicates_only: args["duplicates_only"].as_bool(),

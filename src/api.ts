@@ -1,8 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useLibrary } from './store';
 import type {
-  AppInfo, BackupInfo, LibraryStats, OpEntry, OpResult, PlanItem, Series, SmartFolder, Tag,
-  VideoQuery, VideoRow, WatchedFolder,
+  AppInfo, BackupInfo, FolderNode, LibraryStats, OpEntry, OpResult, PlanItem, Series, SmartFolder,
+  SubfolderView, Tag, VideoQuery, VideoRow, WatchedFolder,
 } from './types';
 
 /**
@@ -24,6 +24,10 @@ async function call<T>(cmd: string, args?: Record<string, unknown>, silent = fal
 
 export const api = {
   listWatchedFolders: () => call<WatchedFolder[]>('list_watched_folders'),
+  /** サイドバー「フォルダー」タブのツリー。DB のパスから組み立てるだけでディスクは触らない */
+  listFolderTree: () => call<FolderNode[]>('list_folder_tree'),
+  /** メインビューに出すサブフォルダ(そのフォルダの中しか見ないのでツリーより軽い) */
+  listSubfolders: (dirPath: string) => call<SubfolderView>('list_subfolders', { dirPath }),
   addWatchedFolder: (path: string) => call<number>('add_watched_folder', { path }),
   removeWatchedFolder: (id: number, removeVideos: boolean) =>
     call<void>('remove_watched_folder', { id, removeVideos }),

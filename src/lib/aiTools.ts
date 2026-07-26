@@ -16,6 +16,7 @@ const SORT_ENUM = [
 const FILTER_PROPS = {
   text: { type: 'string', description: 'ファイル名・タイトルの部分一致。空白区切りで複数語すべてを含むものに絞る' },
   searchPath: { type: 'boolean', description: 'text の検索対象にフォルダのパスも含める' },
+  dirPath: { type: 'string', description: 'このフォルダ直下にある動画だけに絞る(サブフォルダは含まない)。絶対パスで指定する' },
   tag: { type: 'string', description: 'タグ名(完全一致)。子タグが付いた動画も含まれる' },
   series: { type: 'string', description: 'シリーズ名(完全一致)' },
   minRating: { type: 'integer', minimum: 1, maximum: 5 },
@@ -34,6 +35,7 @@ const FILTER_PROPS = {
 interface FilterInput {
   text?: string;
   searchPath?: boolean;
+  dirPath?: string;
   tag?: string;
   series?: string;
   minRating?: number;
@@ -64,6 +66,7 @@ async function toQuery(input: FilterInput): Promise<VideoQuery> {
     maxDurationMs: range?.max,
     missing: input.missingOnly ? true : undefined,
     searchPath: input.searchPath || undefined,
+    dirPath: input.dirPath || undefined,
     untagged: input.untagged || undefined,
     unwatched: input.unwatched || undefined,
     duplicatesOnly: input.duplicatesOnly || undefined,
@@ -170,6 +173,7 @@ export function buildTools(notify: ToolNotify) {
       const query = await toQuery(input);
       useLibrary.getState().applyFilter({
         text: input.text,
+        dirPath: input.dirPath,
         tagIds: query.tagIds,
         seriesId: query.seriesId,
         minRating: input.minRating,

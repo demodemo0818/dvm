@@ -92,17 +92,25 @@ fn upsert_file(
         .optional()?;
 
     if let Some((id, old_size, thumb_state)) = existing {
+        // 所属も張り直す。監視フォルダを解除すると ON DELETE SET NULL で watched_folder_id が
+        // NULL になるので、同じフォルダを登録し直したときにここで拾わないと件数が 0 のままになる。
+        // COALESCE なので個別登録(folder_id = None)では既存の所属を消さない
         if old_size != size as i64 {
             // 中身が変わっている → 再プローブ対象
             let hash = partial_hash(path, size);
             conn.execute(
                 "UPDATE videos SET size=?1, partial_hash=?2, is_missing=0, thumb_state=0,
+                 watched_folder_id=COALESCE(?5, watched_folder_id),
                  file_modified_at=datetime(?3,'unixepoch','localtime') WHERE id=?4",
-                params![size as i64, hash, mtime, id],
+                params![size as i64, hash, mtime, id, folder_id],
             )?;
             return Ok(Some(id));
         }
-        conn.execute("UPDATE videos SET is_missing=0 WHERE id=?1", params![id])?;
+        conn.execute(
+            "UPDATE videos SET is_missing=0, watched_folder_id=COALESCE(?1, watched_folder_id)
+             WHERE id=?2",
+            params![folder_id, id],
+        )?;
         return Ok(if thumb_state == 0 { Some(id) } else { None });
     }
 
@@ -153,6 +161,35 @@ fn upsert_file(
     Ok(Some(conn.last_insert_rowid()))
 }
 
+/// 監視フォルダの一覧(id, 比較用に小文字化・区切りを揃えたパス)
+fn watched_folder_index(conn: &Connection) -> Vec<(i64, String)> {
+    let Ok(mut stmt) = conn.prepare("SELECT id, path FROM watched_folders") else {
+        return Vec::new();
+    };
+    let Ok(rows) = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))) else {
+        return Vec::new();
+    };
+    rows.filter_map(|r| r.ok())
+        .map(|(id, p)| {
+            (id, p.to_lowercase().replace('/', "\\").trim_end_matches('\\').to_string())
+        })
+        .collect()
+}
+
+/// path を含む監視フォルダのうち**最も深い**ものの id。
+///
+/// 親フォルダを後から監視フォルダに追加しても、既に登録されている子フォルダの動画を
+/// 親が奪わないようにするため。watcher.rs のイベント振り分けと
+/// fileops.rs の owning_folder も同じ「最も深いものを採る」判定にそろえている
+fn deepest_owner(index: &[(i64, String)], path: &str) -> Option<i64> {
+    let lower = path.to_lowercase().replace('/', "\\");
+    index
+        .iter()
+        .filter(|(_, f)| lower.starts_with(&format!("{f}\\")))
+        .max_by_key(|(_, f)| f.len())
+        .map(|(id, _)| *id)
+}
+
 /// 監視フォルダを 1 つスキャンし、メタデータ取得が必要な video id 一覧を返す
 pub fn scan_folder(app: &AppHandle, folder_id: i64) -> Result<Vec<i64>> {
     let state = app.state::<AppState>();
@@ -186,10 +223,15 @@ pub fn scan_folder(app: &AppHandle, folder_id: i64) -> Result<Vec<i64>> {
     let mut seen: HashSet<String> = HashSet::new();
     {
         let conn = state.db.lock().unwrap();
+        // 入れ子の監視フォルダがあり得るので、所属は「このフォルダ」ではなく
+        // パスを含む最も深い監視フォルダに決める
+        let index = watched_folder_index(&conn);
         conn.execute_batch("BEGIN")?;
         for entry in &files {
-            seen.insert(entry.path().to_string_lossy().to_string());
-            if let Ok(Some(id)) = upsert_file(&conn, &mut roots, entry.path(), Some(folder_id)) {
+            let path_str = entry.path().to_string_lossy().to_string();
+            let owner = deepest_owner(&index, &path_str).or(Some(folder_id));
+            seen.insert(path_str);
+            if let Ok(Some(id)) = upsert_file(&conn, &mut roots, entry.path(), owner) {
                 pending.push(id);
             }
         }
@@ -517,6 +559,85 @@ mod tests {
         assert_eq!(video_count(&conn), 1);
         assert_eq!(path, new.to_string_lossy());
         assert_eq!(missing, 0, "復帰したのに missing のまま");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 監視フォルダを解除して同じフォルダを登録し直したとき、
+    /// 既存レコードの所属が張り直されて件数が 0 にならないこと。
+    /// 解除時は ON DELETE SET NULL で watched_folder_id が NULL になるため、
+    /// 再スキャンで拾わないと「動画はあるのに件数 0」になる
+    #[test]
+    fn re_registering_a_watched_folder_reattaches_its_videos() {
+        let (dir, conn) = setup("re-register");
+        let file = dir.join("A").join("動画.mp4");
+        write_video(&file, b"videoshelf-test-content");
+
+        let mut roots = offline::RootCache::default();
+        upsert_file(&conn, &mut roots, &file, Some(1)).unwrap();
+
+        // 監視フォルダを解除(動画は残す)。FK の ON DELETE SET NULL が効く
+        conn.execute("DELETE FROM watched_folders WHERE id = 1", []).unwrap();
+        let orphan: Option<i64> = conn
+            .query_row("SELECT watched_folder_id FROM videos", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(orphan, None, "解除で所属が外れる前提が崩れている");
+
+        // 同じフォルダを登録し直す(id は新しくなる)
+        conn.execute(
+            "INSERT INTO watched_folders (id, path) VALUES (9, ?1)",
+            params![dir.join("A").to_string_lossy()],
+        )
+        .unwrap();
+        upsert_file(&conn, &mut roots, &file, Some(9)).unwrap();
+
+        let folder: Option<i64> = conn
+            .query_row("SELECT watched_folder_id FROM videos", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(video_count(&conn), 1);
+        assert_eq!(folder, Some(9), "再登録したフォルダに所属が戻っていない");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 個別登録(folder_id = None)で既存の所属を消さないこと
+    #[test]
+    fn individual_registration_keeps_existing_ownership() {
+        let (dir, conn) = setup("individual");
+        let file = dir.join("A").join("動画.mp4");
+        write_video(&file, b"videoshelf-test-content");
+
+        let mut roots = offline::RootCache::default();
+        upsert_file(&conn, &mut roots, &file, Some(1)).unwrap();
+        upsert_file(&conn, &mut roots, &file, None).unwrap();
+
+        let folder: Option<i64> = conn
+            .query_row("SELECT watched_folder_id FROM videos", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(folder, Some(1), "個別登録で監視フォルダの所属が外れている");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 親フォルダを後から監視フォルダに追加しても、既に子フォルダに所属している
+    /// 動画を親が奪わないこと(常に最も深い監視フォルダに所属させる)
+    #[test]
+    fn nested_watched_folder_keeps_the_deeper_owner() {
+        let (dir, conn) = setup("nested-owner");
+        // A = 子(id 1)、その親(id 3)を後から追加した状況を作る
+        conn.execute(
+            "INSERT INTO watched_folders (id, path) VALUES (3, ?1)",
+            params![dir.to_string_lossy()],
+        )
+        .unwrap();
+        let index = watched_folder_index(&conn);
+
+        let inside = dir.join("A").join("子の動画.mp4").to_string_lossy().to_string();
+        assert_eq!(deepest_owner(&index, &inside), Some(1), "深い方(A)に所属させるはず");
+
+        let outside = dir.join("直下の動画.mp4").to_string_lossy().to_string();
+        assert_eq!(deepest_owner(&index, &outside), Some(3), "親フォルダ直下は親に所属");
+
+        // 大文字小文字と区切りの揺れも吸収する
+        let messy = inside.to_uppercase().replace('\\', "/");
+        assert_eq!(deepest_owner(&index, &messy), Some(1));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

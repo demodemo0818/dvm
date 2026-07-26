@@ -30,7 +30,10 @@ interface LibraryState {
   seriesId: number | null;
   /** true のとき「見つからないファイル」だけを表示 */
   missingOnly: boolean;
+  /** 監視フォルダで絞る(配下すべて)。サイドバー「ライブラリ」タブの監視フォルダ一覧から */
   /** このレーティング以上に絞る(0 = 絞らない) */
+  /** フォルダ直下だけで絞る(サブフォルダは含まない)。サイドバー「フォルダー」タブのツリーから */
+  dirPath: string | null;
   minRating: number;
   /** 尺フィルタのプリセット(null = 絞らない) */
   durationBucket: DurationBucket | null;
@@ -87,6 +90,8 @@ interface LibraryState {
   /** ランダムソートに切り替える / すでにランダムなら並びを引き直す */
   reshuffle: () => void;
   bumpVersion: () => void;
+  /** 同じフォルダをもう一度渡すと解除する。null で明示的に解除 */
+  toggleDirPath: (dirPath: string | null) => void;
   setStatus: (scanning: boolean, status: string) => void;
   setPlayingVideo: (video: VideoRow | null) => void;
   /** 一覧から再生を始める(⏭ で次へ進めるようにキュー情報も持つ) */
@@ -127,6 +132,8 @@ interface LibraryState {
 export const useLibrary = create<LibraryState>((set) => ({
   text: '',
   sort: 'added_desc',
+    folderId?: number | null;
+    dirPath?: string | null;
   folderId: null,
   tagIds: [],
   seriesId: null,
@@ -143,6 +150,7 @@ export const useLibrary = create<LibraryState>((set) => ({
   viewMode: 'grid',
   cardWidth: CARD_WIDTH_DEFAULT,
   autoplayNext: false,
+  dirPath: null,
   playingVideo: null,
   playQueue: null,
   playerPath: '',
@@ -180,12 +188,24 @@ export const useLibrary = create<LibraryState>((set) => ({
       duplicatesOnly: f.duplicatesOnly ?? false,
       advanced: { ...EMPTY_ADVANCED, ...f.advanced },
       sort: f.sort ?? (f.seriesId != null ? 'series_asc' : s.sort === 'series_asc' ? 'added_desc' : s.sort),
-      folderId: null,
+      folderId: f.folderId ?? null,
+      dirPath: f.dirPath ?? null,
       ...CLEARED,
     })),
   setText: (text) => set({ text, ...CLEARED }),
   setSort: (sort) => set({ sort, ...CLEARED }),
-  setFolderId: (folderId) => set({ folderId, ...CLEARED }),
+  // フォルダの 2 系統(監視フォルダ配下すべて / フォルダ直下だけ)は同時に使わない。
+  // 片方を選んだらもう片方を外す(AND で 0 件になるのを避ける)
+  setFolderId: (folderId) => set({ folderId, dirPath: null, ...CLEARED }),
+  toggleDirPath: (dirPath) =>
+    set((s) => ({
+      // Windows のパスは大文字小文字を区別しない。保存した条件から復元したときも
+      // 同じフォルダなら 2 回目のクリックで外れるようにする
+      dirPath:
+        dirPath !== null && s.dirPath?.toLowerCase() === dirPath.toLowerCase() ? null : dirPath,
+      folderId: null,
+      ...CLEARED,
+    })),
   toggleTagFilter: (tagId) =>
     set((s) => ({
       tagIds: s.tagIds.includes(tagId)

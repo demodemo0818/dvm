@@ -50,6 +50,12 @@ pub struct VideoQuery {
     pub include_child_tags: Option<bool>,
     /// sort = "random" のときのシャッフル種。同じ種なら順序が変わらない(ページングのため必須)
     pub random_seed: Option<i64>,
+
+    // --- v1.10 で追加した条件 ---
+    /// このフォルダ**直下**にある動画だけ(サブフォルダは含まない)。
+    /// Windows のパスは大文字小文字を区別せず、'/' と '\' の揺れも吸収する。
+    /// folder_id(監視フォルダ配下すべて)とは別物で、併用もできる
+    pub dir_path: Option<String>,
 }
 
 /// 一覧表示用の 1 行(UI・MCP 共通)
@@ -108,6 +114,24 @@ impl VideoQuery {
         }
         if let Some(fid) = self.folder_id {
             conds.push(format!("watched_folder_id = {fid}"));
+        }
+        if let Some(dir) = self.dir_path.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
+            // 末尾に区切りを 1 つ付けて「このフォルダの中」を表す。
+            // LIKE は使わない(パス中の % や _ をエスケープする必要が出るため。core/volumes.rs と同じ方針)。
+            // 大文字小文字は SQLite の lower() に合わせて **ASCII のみ**畳む
+            // (SQLite の lower は ICU 無しだと ASCII しか変換しない。to_lowercase() だと非 ASCII で食い違う)
+            let prefix = format!(
+                "{}\\",
+                dir.trim_end_matches(['\\', '/']).to_ascii_lowercase().replace('/', "\\")
+            );
+            let n = prefix.chars().count();
+            params.push(prefix);
+            let k = params.len();
+            // 前半 = そのフォルダで始まる / 後半 = 残りに区切りが無い(= 直下のファイル)
+            conds.push(format!(
+                "(lower(replace(substr(path, 1, {n}), '/', '\\')) = ?{k}
+                  AND instr(replace(substr(path, {n} + 1), '/', '\\'), '\\') = 0)"
+            ));
         }
         if let Some(tag_ids) = &self.tag_ids {
             // i64 なので直接埋め込んでも安全。タグごとに IN 条件を重ねて AND にする
@@ -504,5 +528,75 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(ids(&conn, &q), vec![1]);
+    }
+
+    /// dir_path 用の別データ。サブフォルダ・区切りの揺れ・LIKE で誤爆する名前を混ぜてある
+    fn setup_dirs() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::apply_schema(&conn).unwrap();
+        conn.execute_batch(
+            r#"
+            INSERT INTO videos (id, path, filename, size, added_at) VALUES
+              (10, 'C:\動画\a.mp4',                'a.mp4', 1, '2026-01-01 00:00:00'),
+              (11, 'C:\動画\アニメ\b.mp4',          'b.mp4', 1, '2026-01-01 00:00:00'),
+              (12, 'C:\動画\アニメ\2024\c.mp4',     'c.mp4', 1, '2026-01-01 00:00:00'),
+              (13, 'c:\動画\d.mp4',                'd.mp4', 1, '2026-01-01 00:00:00'),
+              (14, 'C:/動画/e.mp4',                'e.mp4', 1, '2026-01-01 00:00:00'),
+              (15, 'C:\動画\100%_test\f.mp4',      'f.mp4', 1, '2026-01-01 00:00:00'),
+              (16, 'C:\動画\100XX-test\g.mp4',     'g.mp4', 1, '2026-01-01 00:00:00');
+            "#,
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn dir_path_matches_direct_children_only() {
+        let conn = setup_dirs();
+        let q = VideoQuery { dir_path: Some(r"C:\動画".into()), ..Default::default() };
+        // 直下の 3 件だけ。サブフォルダ(11/12/15/16)は入らない
+        let mut got = ids(&conn, &q);
+        got.sort();
+        assert_eq!(got, vec![10, 13, 14]);
+
+        let sub = VideoQuery { dir_path: Some(r"C:\動画\アニメ".into()), ..Default::default() };
+        assert_eq!(ids(&conn, &sub), vec![11], "孫(2024\\c.mp4)を含めてはいけない");
+    }
+
+    #[test]
+    fn dir_path_ignores_case_and_separator_style() {
+        let conn = setup_dirs();
+        // 小文字 + '/' 区切り + 末尾の区切りあり、でも同じ結果になること
+        let q = VideoQuery { dir_path: Some("c:/動画/".into()), ..Default::default() };
+        let mut got = ids(&conn, &q);
+        got.sort();
+        assert_eq!(got, vec![10, 13, 14]);
+    }
+
+    #[test]
+    fn dir_path_does_not_treat_wildcards_as_patterns() {
+        let conn = setup_dirs();
+        // LIKE で組むと '100%_test' が '100XX-test' にもマッチしてしまう
+        let q = VideoQuery { dir_path: Some(r"C:\動画\100%_test".into()), ..Default::default() };
+        assert_eq!(ids(&conn, &q), vec![15]);
+    }
+
+    #[test]
+    fn blank_dir_path_is_ignored() {
+        let conn = setup_dirs();
+        let q = VideoQuery { dir_path: Some("   ".into()), ..Default::default() };
+        assert_eq!(q.where_clause().0, "", "空文字は条件にしない");
+        assert_eq!(count(&conn, &q).unwrap(), 7);
+    }
+
+    #[test]
+    fn dir_path_combines_with_other_conditions() {
+        let conn = setup_dirs();
+        let q = VideoQuery {
+            dir_path: Some(r"C:\動画".into()),
+            text: Some("a.mp4".into()),
+            ..Default::default()
+        };
+        assert_eq!(ids(&conn, &q), vec![10]);
     }
 }

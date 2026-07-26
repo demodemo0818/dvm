@@ -111,6 +111,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::folders::list_watched_folders,
+            commands::folders::list_folder_tree,
+            commands::folders::list_subfolders,
             commands::folders::add_watched_folder,
             commands::folders::remove_watched_folder,
             commands::folders::rescan_all,

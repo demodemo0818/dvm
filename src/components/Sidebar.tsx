@@ -2,8 +2,11 @@ import { ask, open } from '@tauri-apps/plugin-dialog';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useLibrary } from '../store';
-import type { PlanItem, Series, SmartFolder, Tag, VideoQuery, WatchedFolder } from '../types';
+import type {
+  FolderNode, PlanItem, Series, SidebarTab, SmartFolder, Tag, VideoQuery, WatchedFolder,
+} from '../types';
 import { FileOpDialog } from './FileOpDialog';
+import { FolderTree } from './FolderTree';
 import { TagTree } from './TagTree';
 
 const VIDEO_EXTENSIONS = [
@@ -19,11 +22,13 @@ function folderName(path: string): string {
 
 export function Sidebar() {
   const {
-    folderId, setFolderId, version, bumpVersion,
+    folderId, setFolderId, dirPath, version, bumpVersion,
     seriesId, toggleSeriesFilter,
     missingOnly, toggleMissingOnly,
     duplicatesOnly, toggleDuplicatesOnly, applyFilter, pushToast,
   } = useLibrary();
+  const [tab, setTab] = useState<SidebarTab>('library');
+  const [folderTree, setFolderTree] = useState<FolderNode[]>([]);
   const [folders, setFolders] = useState<WatchedFolder[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [seriesList, setSeriesList] = useState<Series[]>([]);
@@ -43,6 +48,27 @@ export function Sidebar() {
     api.countVideos({ duplicatesOnly: true }).then(setDuplicateCount);
   }, [version]);
 
+  // 前回開いていたタブを復元する(view_mode / card_width と同じく settings に持つ)
+  useEffect(() => {
+    api.getSetting('sidebar_tab').then((v) => {
+      if (v === 'folders' || v === 'library') setTab(v);
+    });
+  }, []);
+
+  /**
+   * ツリーは全動画のパスを 1 回読んで組み立てるので、
+   * 「フォルダー」タブを開いているときだけ取りに行く
+   */
+  useEffect(() => {
+    if (tab !== 'folders') return;
+    api.listFolderTree().then(setFolderTree);
+  }, [tab, version]);
+
+  const selectTab = (next: SidebarTab) => {
+    setTab(next);
+    api.setSetting('sidebar_tab', next);
+  };
+
   /** 保存した検索条件を復元する。壊れた JSON は握り潰さずトーストで知らせる */
   const openSmartFolder = (sf: SmartFolder) => {
     let q: VideoQuery;
@@ -54,6 +80,8 @@ export function Sidebar() {
     }
     applyFilter({
       text: q.text,
+      folderId: q.folderId,
+      dirPath: q.dirPath,
       tagIds: q.tagIds,
       seriesId: q.seriesId,
       minRating: q.minRating,
@@ -151,10 +179,11 @@ export function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar-title">VideoShelf</div>
       <button
-        className={`side-item ${folderId === null && !missingOnly ? 'active' : ''}`}
+        className={`side-item ${folderId === null && dirPath === null && !missingOnly ? 'active' : ''}`}
         onClick={() => {
           if (missingOnly) toggleMissingOnly();
           setFolderId(null);
+          // setFolderId は dirPath(フォルダーツリーの絞り込み)も一緒に外す
         }}
       >
         すべての動画 <span className="count">{totalCount}</span>
@@ -183,82 +212,108 @@ export function Sidebar() {
         </button>
       )}
 
-      {smartFolders.length > 0 && <div className="side-section">スマートフォルダ</div>}
-      {smartFolders.map((sf) => (
-        <div
-          key={sf.id}
-          className="side-item folder"
-          onClick={() => openSmartFolder(sf)}
-          title={`${sf.name}(保存した検索条件を復元します)`}
+      {/* ここから下だけをタブで入れ替える。上の 3 行はどちらのタブでも解除できるように残す */}
+      <div className="sidebar-tabs">
+        <button
+          className={`sidebar-tab ${tab === 'library' ? 'active' : ''}`}
+          onClick={() => selectTab('library')}
+          title="スマートフォルダ・監視フォルダ・シリーズ・タグ"
         >
-          <span className="tag-mark">🔍</span>
-          <span className="folder-name">{sf.name}</span>
-          <button
-            className="remove"
-            title="スマートフォルダを削除"
-            onClick={(e) => {
-              e.stopPropagation();
-              removeSmartFolder(sf);
-            }}
-          >
-            ×
-          </button>
-        </div>
-      ))}
-
-      <div className="side-section">監視フォルダ</div>
-      {folders.map((f) => (
-        <div
-          key={f.id}
-          className={`side-item folder ${folderId === f.id ? 'active' : ''}`}
-          onClick={() => setFolderId(f.id)}
-          title={f.path}
+          ライブラリ
+        </button>
+        <button
+          className={`sidebar-tab ${tab === 'folders' ? 'active' : ''}`}
+          onClick={() => selectTab('folders')}
+          title="フォルダの階層で絞り込む(そのフォルダ直下の動画だけを表示)"
         >
-          <span className={`dot ${f.online ? 'online' : 'offline'}`} />
-          <span className="folder-name">{folderName(f.path)}</span>
-          <span className="count">{f.videoCount}</span>
-          <button
-            className="remove"
-            title="監視対象から外す"
-            onClick={(e) => {
-              e.stopPropagation();
-              removeFolder(f);
-            }}
-          >
-            ×
-          </button>
-        </div>
-      ))}
+          フォルダー
+        </button>
+      </div>
 
-      <button className="side-action" onClick={addFolder}>+ フォルダを追加</button>
-      <button className="side-action" onClick={addFiles}>+ ファイルを追加</button>
+      {tab === 'folders' && <FolderTree nodes={folderTree} />}
 
-      {seriesList.length > 0 && <div className="side-section">シリーズ</div>}
-      {seriesList.map((s) => (
-        <div
-          key={s.id}
-          className={`side-item folder ${seriesId === s.id ? 'active' : ''}`}
-          onClick={() => toggleSeriesFilter(s.id)}
-          title={`${s.name}(クリックで絞り込み。シリーズ内は登録順で表示)`}
-        >
-          <span className="tag-mark">≡</span>
-          <span className="folder-name">{s.name}</span>
-          <span className="count">{s.videoCount}</span>
-          <button
-            className="remove"
-            title="シリーズを削除"
-            onClick={(e) => {
-              e.stopPropagation();
-              removeSeries(s);
-            }}
-          >
-            ×
-          </button>
-        </div>
-      ))}
+      {tab === 'library' && (
+        <>
+          {smartFolders.length > 0 && <div className="side-section">スマートフォルダ</div>}
+          {smartFolders.map((sf) => (
+            <div
+              key={sf.id}
+              className="side-item folder"
+              onClick={() => openSmartFolder(sf)}
+              title={`${sf.name}(保存した検索条件を復元します)`}
+            >
+              <span className="tag-mark">🔍</span>
+              <span className="folder-name">{sf.name}</span>
+              <button
+                className="remove"
+                title="スマートフォルダを削除"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeSmartFolder(sf);
+                }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
 
-      {tags.length > 0 && <div className="side-section">タグ</div>}
-      <TagTree tags={tags} />
+          <div className="side-section" title="クリックするとそのフォルダ配下の動画をまとめて表示します">
+            監視フォルダ
+          </div>
+          {folders.map((f) => (
+            <div
+              key={f.id}
+              className={`side-item folder ${folderId === f.id ? 'active' : ''}`}
+              onClick={() => setFolderId(f.id)}
+              title={`${f.path}\nクリックでこのフォルダ配下すべてを表示(サブフォルダ単位で絞るなら「フォルダー」タブ)`}
+            >
+              <span className={`dot ${f.online ? 'online' : 'offline'}`} />
+              <span className="folder-name">{folderName(f.path)}</span>
+              <span className="count">{f.videoCount}</span>
+              <button
+                className="remove"
+                title="監視対象から外す"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeFolder(f);
+                }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+
+          <button className="side-action" onClick={addFolder}>+ フォルダを追加</button>
+          <button className="side-action" onClick={addFiles}>+ ファイルを追加</button>
+
+          {seriesList.length > 0 && <div className="side-section">シリーズ</div>}
+          {seriesList.map((s) => (
+            <div
+              key={s.id}
+              className={`side-item folder ${seriesId === s.id ? 'active' : ''}`}
+              onClick={() => toggleSeriesFilter(s.id)}
+              title={`${s.name}(クリックで絞り込み。シリーズ内は登録順で表示)`}
+            >
+              <span className="tag-mark">≡</span>
+              <span className="folder-name">{s.name}</span>
+              <span className="count">{s.videoCount}</span>
+              <button
+                className="remove"
+                title="シリーズを削除"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeSeries(s);
+                }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+
+          {tags.length > 0 && <div className="side-section">タグ</div>}
+          <TagTree tags={tags} />
+        </>
+      )}
 
       {relinkPlan && (
         <FileOpDialog kind="relink" plan={relinkPlan} onClose={() => setRelinkPlan(null)} />

@@ -31,6 +31,36 @@ export interface WatchedFolder {
   videoCount: number;
 }
 
+/**
+ * フォルダーツリーの 1 ノード(サイドバーの「フォルダー」タブ)。
+ * Rust 側が videos.path から組み立てたものをそのまま受け取る
+ */
+export interface FolderNode {
+  /** 正規化した絶対パス。ツリーの識別子 */
+  path: string;
+  /** 親ノードの path。ルート(監視フォルダ / 監視フォルダ外の置き場)は null */
+  parent: string | null;
+  /** 表示名。ルートはフルパス、それ以外は末尾セグメント */
+  name: string;
+  /** このフォルダ直下の動画数(= クリックしたときに出る件数) */
+  directCount: number;
+  /** 配下すべての動画数(自分を含む) */
+  totalCount: number;
+  /** 監視フォルダのルートなら その id */
+  watchedFolderId: number | null;
+  online: boolean;
+}
+
+/** メインビューの先頭に出すサブフォルダ(フォルダカード) */
+export interface SubfolderView {
+  /** 「上のフォルダ」。監視フォルダの外に出るときは null */
+  parent: string | null;
+  children: FolderNode[];
+}
+
+/** サイドバー下半分の表示切り替え */
+export type SidebarTab = 'library' | 'folders';
+
 export type SortKey =
   | 'added_desc'
   | 'added_asc'
@@ -50,7 +80,10 @@ export interface VideoQuery {
   /** 空白区切りで AND 検索(全角スペースも区切り) */
   text?: string;
   sort?: SortKey;
+  /** 監視フォルダ由来の動画すべて(配下のサブフォルダも含む) */
   folderId?: number | null;
+  /** このフォルダ**直下**の動画だけ(サブフォルダは含まない)。folderId とは別物 */
+  dirPath?: string | null;
   tagIds?: number[];
   seriesId?: number | null;
   missing?: boolean;

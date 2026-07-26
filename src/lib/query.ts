@@ -26,6 +26,7 @@ export interface FilterState {
   text: string;
   sort: SortKey;
   folderId: number | null;
+  dirPath: string | null;
   tagIds: number[];
   seriesId: number | null;
   missingOnly: boolean;
@@ -48,6 +49,7 @@ export function buildQuery(s: FilterState): VideoQuery {
     text: s.text || undefined,
     sort: s.sort,
     folderId: s.folderId,
+    dirPath: s.dirPath ?? undefined,
     tagIds: s.tagIds.length > 0 ? s.tagIds : undefined,
     seriesId: s.seriesId,
     missing: s.missingOnly ? true : undefined,

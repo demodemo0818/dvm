@@ -1,4 +1,4 @@
-use crate::core::{library, offline};
+use crate::core::{self, library, offline};
 use crate::db;
 use crate::AppState;
 use rusqlite::params;
@@ -49,6 +49,23 @@ pub fn list_watched_folders(state: State<AppState>) -> Result<Vec<WatchedFolder>
         })
         .collect();
     Ok(rows)
+}
+
+/// サイドバー「フォルダー」タブ用のツリー。ディスクは走査せず DB のパスから組み立てる
+#[tauri::command]
+pub fn list_folder_tree(state: State<AppState>) -> Result<Vec<core::folders::FolderNode>, String> {
+    let conn = state.db_read.lock().unwrap();
+    core::folders::folder_tree(&conn).map_err(|e| e.to_string())
+}
+
+/// メインビューに出すサブフォルダ(フォルダカード)。ツリー全体は組み直さない
+#[tauri::command]
+pub fn list_subfolders(
+    state: State<AppState>,
+    dir_path: String,
+) -> Result<core::folders::SubfolderView, String> {
+    let conn = state.db_read.lock().unwrap();
+    core::folders::subfolders(&conn, &dir_path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

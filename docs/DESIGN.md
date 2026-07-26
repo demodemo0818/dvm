@@ -85,6 +85,18 @@ Windows 向け動画管理ソフト(仮称: VideoShelf)。
 
 区別が効く場面: 監視フォルダを解除したとき、そのフォルダ由来の動画をまとめて外す(または残すか確認する)ことができる一方、個別登録したファイルは影響を受けない。missing 検出(起動時の存在チェック・移動検出)はどちらの経路でも同じように働く。
 
+### 所属(watched_folder_id)の決め方(v1.10 で整理)
+
+- **常に「そのパスを含む最も深い監視フォルダ」に所属させる**(`library.rs` の `deepest_owner`)。
+  スキャン中のフォルダの id を無条件に振らない。親フォルダを後から監視フォルダに追加しても、
+  既に子フォルダに所属している動画を親が奪わない。
+  watcher.rs のイベント振り分けと fileops.rs の `owning_folder` も同じ判定
+- **既にパスが登録済みのレコードでも所属を張り直す**(`COALESCE(?, watched_folder_id)`)。
+  監視フォルダを解除すると FK の `ON DELETE SET NULL` で `watched_folder_id` が NULL になるため、
+  同じフォルダを登録し直したときにここで拾わないと**「動画はあるのに件数 0」**になる(v1.10 修正)。
+  COALESCE なので個別登録(folder_id = None)経路では既存の所属を消さない
+- 壊れている既存 DB は、起動時の `run_scan_all` か監視フォルダの再登録で自動的に直る
+
 ### 全文検索について
 - テキスト検索は filename / title への LIKE 部分一致(日本語の部分一致はこれで正しく動く)。
   v1.7 から**空白区切りで AND**(全角スペースも区切り)。設定で path も対象に含められる
@@ -108,6 +120,7 @@ UI・MCP・AI アシスタントが共有する唯一の検索条件型(`core/qu
 | duplicatesOnly | size + partial_hash の重複のみ |
 | includeChildTags | 親タグ選択時に子孫も含む(既定 true) |
 | randomSeed | ランダムソートの種 |
+| dirPath | このフォルダ**直下**の動画だけ(v1.10。サブフォルダは含まない) |
 
 - `where_clause()` は `(SQL, Vec<String>)` を返す。複数語 LIKE とコーデック・日付をバインドするため
   (i64 の条件は従来どおり直接埋め込む。文字列だけをパラメータにする)
@@ -117,6 +130,73 @@ UI・MCP・AI アシスタントが共有する唯一の検索条件型(`core/qu
 - タグ階層は再帰 CTE(`WITH RECURSIVE`)を `IN` の中に置く。親タグを選ぶと子孫タグ付きの動画も出る
 - 重複判定は `(size, partial_hash) IN (... GROUP BY ... HAVING COUNT(*) > 1)`。
   `partial_hash IS NULL`(未算出)は「不明」であって重複ではないので除く
+
+### フォルダーツリー(v1.10)
+
+サイドバーを **「ライブラリ」/「フォルダー」のタブ切り替え**にした。上部の全体行
+(すべての動画 / ⚠ 見つからない / ⧉ 重複)はタブの外に残し、どちらのタブでも絞り込みを解除できる。
+選択中のタブは settings の `sidebar_tab` に永続化する。
+
+**フォルダで絞る手段は 2 系統あり、意図的に併存させている**:
+
+| | 条件 | UI | 範囲 |
+|---|---|---|---|
+| 監視フォルダ | `folderId`(= `watched_folder_id`) | 「ライブラリ」タブの監視フォルダ一覧(従来どおり) | その監視フォルダ由来の動画**すべて**(サブフォルダ含む) |
+| フォルダーツリー | `dirPath` | 「フォルダー」タブのツリー(v1.10) | そのフォルダ**直下**だけ(エクスプローラーと同じ) |
+
+store 側では排他にしている(`setFolderId` / `toggleDirPath` が互いを null にする)。
+AND で重ねると 0 件になりやすく、ユーザーの意図としても「どちらか一方」だから。
+
+#### DB に階層を持たない
+
+`videos` にはフルパス 1 本しか持たず、`dir_path` 列も `folders` テーブルも足していない。
+列を足すと `upsert_file` / 移動 / 再リンク / `drive_remap` の全書き込み経路を更新することになり、
+得られる速度に見合わないため。代わりに `core/folders.rs` の `folder_tree()` が
+**`SELECT path FROM videos` を 1 回読んで Rust 側で畳み込む**(5 万件で数十 ms)。
+
+- **ディスクを走査しない**。外付け HDD / NAS が未接続でもツリーは即座に出る
+  (オフライン判定だけルート単位で `RootCache`)。動画が 1 本も無いフォルダは出ない
+- ルートは監視フォルダ。どの監視フォルダにも属さないパスは、その動画の親ディレクトリ自体を
+  ルートにして「その他の場所」にまとめる
+- ルート判定に `videos.watched_folder_id` は使わず**パスだけ**を見る。
+  D&D で個別登録したファイルも、監視フォルダ配下にあればそのツリーに出る
+- **他の監視フォルダの中にある監視フォルダはルートにしない**(v1.10)。
+  親フォルダを後から登録したときにトップレベルへ同じ階層が 2 つ並ぶのを防ぐため、
+  入れ子の監視フォルダは親のツリーの中の 1 ノードとして出す(監視フォルダの印は残す)。
+  こうすると親の `totalCount` に子の中身も乗るので件数の辻褄も合う
+- ノードのキーは小文字化した正規パス。大文字小文字や `/` `\` の揺れでノードを割らない
+- 呼ぶのは「フォルダー」タブを開いているときの `version` 変化時だけ
+- 件数は**直下の件数**(= クリックすると出る件数)を出す。0 のときは数字を出さない
+  (中継ぎのフォルダが「0」だらけになるため)。配下の合計はツールチップに出す
+
+#### メインビューのフォルダカード
+
+`dirPath` で絞っているときだけ、**一覧の先頭にサブフォルダをカードとして並べる**
+(`FolderCard.tsx`。ダブルクリックで開く = その `dirPath` に切り替える)。
+先頭には「↰ 上のフォルダ」を置く。ライブラリの外(監視フォルダより上)へは登らせない。
+
+- データは `core/folders::subfolders()` /コマンド `list_subfolders`。
+  **ツリー全体は組み直さず、そのフォルダ配下の動画だけを読む**ので、潜るたびに呼んでも軽い
+- 返すパスは `canonical_dir()` で **DB に入っている表記に直してから**返す。
+  そのまま次の絞り込み条件になるので、呼び出し側の大文字小文字に引きずられないようにする
+- **フォルダは動画とは別の行に置く**(1 行の中で混ざらない)。
+  こうしておけば選択・範囲選択・キーボード移動は従来どおり動画の通し番号だけで考えられる
+  (`scrollToIndex` にフォルダ行数を足すだけで済む)。フォルダは選択の対象にしない
+- グリッド / 詳細リストのどちらでも同じ仮想化に乗る(行高は動画カードと同じ)
+- 一覧側で潜ったときはサイドバーのツリーも祖先を自動展開して追従する
+
+#### `dirPath` の SQL に LIKE を使わない
+
+パスには `%` `_` が普通に含まれる(`100%_test` のようなフォルダ名)ので、LIKE だと
+エスケープ漏れで無関係なフォルダを巻き込む。`core/volumes.rs` と同じく `substr` 比較にした:
+
+```sql
+lower(replace(substr(path, 1, N), '/', '\')) = ?k       -- そのフォルダで始まる
+AND instr(replace(substr(path, N + 1), '/', '\'), '\') = 0  -- 残りに区切りが無い = 直下
+```
+
+大文字小文字の畳み方は **ASCII のみ**にして SQLite の `lower()` に合わせる
+(Rust の `to_lowercase()` は非 ASCII も畳むので、ICU 無しの SQLite と食い違う)。
 
 ### スマートフォルダ(v1.7)
 
@@ -227,13 +307,14 @@ UI・MCP・AI アシスタントが共有する唯一の検索条件型(`core/qu
 
 ## テスト(v1.7 で整備)
 
-- **Rust**: `cargo test`。`core/query.rs`(検索条件・ランダムソートの安定性・LIKE エスケープ)、
+- **Rust**: `cargo test`。`core/query.rs`(検索条件・ランダムソートの安定性・LIKE エスケープ・
+  dirPath の直下判定)、`core/folders.rs`(フォルダーツリーの構築)、
   `core/tags.rs`(タグ階層の循環拒否・色の形式)、`core/smart_folders.rs`、`core/stats.rs`、
   `core/library.rs`(移動検出)、`db.rs`(読み書きコネクション分離)。
   SQL は文字列比較ではなく**インメモリ DB に本物のスキーマを流して実行結果で検証する**
   (`db::apply_schema` をテストから呼べるように公開している)
 - **フロント**: `npm run test`(vitest + jsdom)。純関数のみを対象にする —
-  `decidePlayback` / `resumeValueMs` / `fmtTime`
+  `decidePlayback` / `resumeValueMs` / `fmtTime` / `buildQuery`
 - **既存 DB でのマイグレーション確認**: `cargo run --example dbtool -- <db> check`。
   本番と同じ `db::init` を通して user_version・テーブル一覧・統計を出す(DB をコピーして試すこと)
 
@@ -401,7 +482,7 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
 - **既定は読み取り専用**: DB を読み取り専用フラグで開くため、AI からライブラリを変更することは構造的に不可能
 - **ファイル操作系(リネーム・移動・再リンク)は MCP に公開していない**。dry-run のプレビューを
   人が承認する前提の機能なので、AI から直接呼べる形にはしない(v1.9)
-- 読み取りツール: `search_videos`(構造化クエリ。text / search_path / tag / series / missing / untagged / unwatched / duplicates_only / min_rating / min_duration_sec / max_duration_sec / min_width / min_height / video_codecs / added_after / added_before / sort / limit)/ `get_video` / `list_tags` / `list_series` / `library_stats`
+- 読み取りツール: `search_videos`(構造化クエリ。text / search_path / dir_path / tag / series / missing / untagged / unwatched / duplicates_only / min_rating / min_duration_sec / max_duration_sec / min_width / min_height / video_codecs / added_after / added_before / sort / limit)/ `get_video` / `list_tags` / `list_series` / `library_stats`
 - **書き込みモード(v1.1)**: 環境変数 `VIDEOSHELF_ALLOW_WRITE=1` を付けて起動したときだけ、DB を読み書きで開き(`foreign_keys=ON`・`busy_timeout 5s`)、次のツールを追加公開する:
   - `tag_videos` / `untag_videos` / `add_to_series` / `remove_from_series` / `set_rating` / `set_video_info`(タイトル・コメント)
   - `remove_from_library`(登録削除。ファイルは残す)
@@ -568,3 +649,8 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
 
 - **API キーの暗号化** — 現状は `library.db` に平文。Windows DPAPI で保護する
   (ローカル個人用アプリとして許容中。バックアップにも平文で含まれる点に注意)
+- **v1.10** ✅(2026-07-26 実装済み): フォルダーツリーによる絞り込み。サイドバーを
+  「ライブラリ」/「フォルダー」のタブ切り替えにし、`videos.path` から組み立てたフォルダ階層で
+  **直下だけ**に絞れるようにした(`VideoQuery.dirPath`)。一覧の先頭にサブフォルダのカードを出し、
+  ダブルクリックでエクスプローラーのように潜れる。従来の「監視フォルダ = 配下すべて」は
+  そのまま併存。DB スキーマは変更なし(前述「フォルダーツリー」節)
