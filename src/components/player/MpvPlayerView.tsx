@@ -5,9 +5,10 @@ import { api } from '../../api';
 import { useLibrary } from '../../store';
 import type { VideoRow } from '../../types';
 import { PlayerControls } from './PlayerControls';
-import { resumeValueMs, savedMuted, savedVolume } from './types';
+import { resumeValueMs, savedMuted, savedVolume, shouldCountView } from './types';
 import { useMpvPlayer } from './useMpvPlayer';
 import { usePlayerShortcuts } from './usePlayerShortcuts';
+import { usePlayQueue } from './usePlayQueue';
 
 /**
  * mpv エンジンのプレイヤービュー。
@@ -16,10 +17,12 @@ import { usePlayerShortcuts } from './usePlayerShortcuts';
  * ファイルが再生できない(end-file reason=error)ときは onFail で WebView2 経路へ。
  */
 export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () => void }) {
-  const { setPlayingVideo, bumpVersion } = useLibrary();
+  const { setPlayingVideo, bumpVersion, autoplayNext, pushToast } = useLibrary();
   const player = useMpvPlayer();
+  const queue = usePlayQueue();
   const counted = useRef(false);
   const restored = useRef(false);
+  const advanced = useRef(false);
   const hideTimer = useRef<number | undefined>(undefined);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
@@ -84,13 +87,26 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
     if (video.resumeMs > 0 && sec < d - 5) void command('seek', [sec, 'absolute']).catch(() => {});
   }, [player.state.duration, video.resumeMs]);
 
-  // 視聴カウント: 実際に再生が進んだ(time-pos > 0)初回のみ
+  // 視聴カウント: 尺の 5% 以上 or 30 秒以上まで観たら 1 回だけ(v1.8。
+  // それまでは「開いてすぐ閉じた」扱いで数えない)
   useEffect(() => {
-    if (!counted.current && player.state.currentTime > 0) {
-      counted.current = true;
-      api.markViewed(video.id).then(() => bumpVersion());
-    }
-  }, [player.state.currentTime, video.id, bumpVersion]);
+    if (counted.current) return;
+    if (!shouldCountView(player.state.currentTime, player.state.duration)) return;
+    counted.current = true;
+    api.markViewed(video.id).then(() => bumpVersion());
+  }, [player.state.currentTime, player.state.duration, video.id, bumpVersion]);
+
+  // 連続再生: 最後まで再生したら次へ(keep-open=yes なので EOF では pause 状態で止まる)
+  useEffect(() => {
+    if (!autoplayNext || advanced.current) return;
+    const s = player.state;
+    if (s.duration <= 0 || !s.paused) return;
+    // 終端から 1 秒以内で停止 = 最後まで観た。手動の一時停止と区別する
+    if (s.duration - s.currentTime > 1) return;
+    if (!queue.hasNext) return;
+    advanced.current = true;
+    void queue.next();
+  }, [player.state.paused, player.state.currentTime, player.state.duration, autoplayNext, queue]);
 
   // レジューム保存: 5 秒ごと + 一時停止遷移時(keep-open の EOF 停止もここで拾える)
   const lastSavedSec = useRef(0);
@@ -142,7 +158,23 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
     else close();
   }, [isFullscreen, toggleFullscreen, close]);
 
-  usePlayerShortcuts(player, { onEscape, toggleFullscreen, wake });
+  // 今見ているコマをサムネイルにする(10% 固定で暗転を引いたときの手当て)
+  const setThumbnail = useCallback(() => {
+    const ms = Math.floor(stateRef.current.currentTime * 1000);
+    api.setThumbTime(video.id, ms).then(() => {
+      pushToast('この位置をサムネイルにしました', 'info');
+      bumpVersion();
+    });
+  }, [video.id, pushToast, bumpVersion]);
+
+  usePlayerShortcuts(player, {
+    onEscape,
+    toggleFullscreen,
+    wake,
+    onNext: queue.next,
+    onPrev: queue.prev,
+    onSetThumbnail: setThumbnail,
+  });
 
   const visible = controlsVisible || player.state.paused;
 
@@ -153,11 +185,19 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
         <div className="player-title" title={video.path}>
           {video.title ?? video.filename}
         </div>
+        <button className="player-thumb-btn" onClick={setThumbnail} title="この位置をサムネイルにする (T)">
+          🖼
+        </button>
         <button className="player-close" onClick={close} title="閉じる (Esc)">
           ✕
         </button>
       </div>
-      <PlayerControls player={player} isFullscreen={isFullscreen} onToggleFullscreen={toggleFullscreen} />
+      <PlayerControls
+        player={player}
+        isFullscreen={isFullscreen}
+        onToggleFullscreen={toggleFullscreen}
+        queue={queue}
+      />
     </div>
   );
 }

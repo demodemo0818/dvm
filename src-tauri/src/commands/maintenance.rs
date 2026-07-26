@@ -1,9 +1,28 @@
 use crate::core::backup::{self, BackupInfo};
-use crate::core::{library, offline};
+use crate::core::{library, offline, thumbs};
 use crate::db;
 use crate::AppState;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PurgeResult {
+    pub removed: usize,
+    pub freed_bytes: u64,
+}
+
+/// videos に対応しない孤児サムネイルを掃除する
+#[tauri::command]
+pub fn purge_orphan_thumbnails(state: State<AppState>) -> Result<PurgeResult, String> {
+    let conn = state.db.lock().unwrap();
+    let (removed, freed_bytes) =
+        thumbs::purge_orphans(&conn, &state.thumbs_dir).map_err(|e| e.to_string())?;
+    if removed > 0 {
+        db::log_op(&conn, "user", "purge_orphan_thumbnails", &format!("removed={removed}"));
+    }
+    Ok(PurgeResult { removed, freed_bytes })
+}
 
 #[tauri::command]
 pub fn backup_db(state: State<AppState>) -> Result<BackupInfo, String> {

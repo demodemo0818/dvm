@@ -8,8 +8,9 @@ import { useLibrary } from '../store';
 import { ensureMpv } from './player/mpv';
 import { MpvPlayerView } from './player/MpvPlayerView';
 import { PlayerControls } from './player/PlayerControls';
-import { resumeValueMs } from './player/types';
+import { resumeValueMs, shouldCountView } from './player/types';
 import { usePlayerShortcuts } from './player/usePlayerShortcuts';
+import { usePlayQueue } from './player/usePlayQueue';
 import { useVideoPlayer } from './player/useVideoPlayer';
 import type { TranscodeProgress, VideoRow } from '../types';
 
@@ -51,7 +52,8 @@ function PlayerView({ video }: { video: VideoRow }) {
  * ネイティブ再生に失敗したら transcode へ切り替え、それでも失敗したら外部プレイヤーへ。
  */
 function Html5PlayerView({ video }: { video: VideoRow }) {
-  const { setPlayingVideo, bumpVersion } = useLibrary();
+  const { setPlayingVideo, bumpVersion, autoplayNext, pushToast } = useLibrary();
+  const queue = usePlayQueue();
   const videoRef = useRef<HTMLVideoElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
   const counted = useRef(false);
@@ -142,7 +144,25 @@ function Html5PlayerView({ video }: { video: VideoRow }) {
     if (!document.fullscreenElement) close();
   }, [close]);
 
-  usePlayerShortcuts(player, { onEscape, toggleFullscreen, wake });
+  // 今見ているコマをサムネイルにする(10% 固定で暗転を引いたときの手当て)。
+  // 変換キャッシュを再生している場合も尺は同じなので位置はそのまま使える
+  const setThumbnail = useCallback(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    api.setThumbTime(video.id, Math.floor(el.currentTime * 1000)).then(() => {
+      pushToast('この位置をサムネイルにしました', 'info');
+      bumpVersion();
+    });
+  }, [video.id, pushToast, bumpVersion]);
+
+  usePlayerShortcuts(player, {
+    onEscape,
+    toggleFullscreen,
+    wake,
+    onNext: queue.next,
+    onPrev: queue.prev,
+    onSetThumbnail: setThumbnail,
+  });
 
   // レジューム保存: 5 秒ごと + 一時停止・終了時
   const lastSavedSec = useRef(0);
@@ -194,12 +214,17 @@ function Html5PlayerView({ video }: { video: VideoRow }) {
               const sec = video.resumeMs / 1000;
               if (video.resumeMs > 0 && sec < el.duration - 5) el.currentTime = sec;
             }}
-            onPlaying={() => {
-              // 再生に成功したときだけ視聴カウント(フォールバック時の二重カウント防止)
-              if (!counted.current) {
-                counted.current = true;
-                api.markViewed(video.id).then(() => bumpVersion());
-              }
+            onTimeUpdate={(e) => {
+              // 視聴カウント: 尺の 5% 以上 or 30 秒以上まで観たら 1 回だけ(v1.8)。
+              // onPlaying で即カウントしていたが、開いてすぐ閉じても数えてしまっていた
+              if (counted.current) return;
+              const el = e.currentTarget;
+              if (!shouldCountView(el.currentTime, el.duration)) return;
+              counted.current = true;
+              api.markViewed(video.id).then(() => bumpVersion());
+            }}
+            onEnded={() => {
+              if (autoplayNext && queue.hasNext) void queue.next();
             }}
             onError={() => {
               if (mode === 'native') {
@@ -228,12 +253,26 @@ function Html5PlayerView({ video }: { video: VideoRow }) {
           <div className="player-title" title={video.path}>
             {video.title ?? video.filename}
           </div>
+          {src != null && (
+            <button
+              className="player-thumb-btn"
+              onClick={setThumbnail}
+              title="この位置をサムネイルにする (T)"
+            >
+              🖼
+            </button>
+          )}
           <button className="player-close" onClick={close} title="閉じる (Esc)">
             ✕
           </button>
         </div>
         {src != null && (
-          <PlayerControls player={player} isFullscreen={isFullscreen} onToggleFullscreen={toggleFullscreen} />
+          <PlayerControls
+            player={player}
+            isFullscreen={isFullscreen}
+            onToggleFullscreen={toggleFullscreen}
+            queue={queue}
+          />
         )}
       </div>
     </div>

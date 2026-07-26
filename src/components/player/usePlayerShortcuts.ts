@@ -13,10 +13,15 @@ export function usePlayerShortcuts(
     toggleFullscreen: () => void;
     /** ショートカット操作でコントロールを再表示する */
     wake: () => void;
+    /** 連続再生の前後移動(N / P)。単発再生なら省略 */
+    onNext?: () => void;
+    onPrev?: () => void;
+    /** 現在位置をサムネイルにする(T) */
+    onSetThumbnail?: () => void;
   },
 ) {
   const { togglePlay, seekBy, changeVolume, toggleMute, cycleRate } = player;
-  const { onEscape, toggleFullscreen, wake } = opts;
+  const { onEscape, toggleFullscreen, wake, onNext, onPrev, onSetThumbnail } = opts;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -64,6 +69,18 @@ export function usePlayerShortcuts(
         case '>':
           cycleRate(1);
           break;
+        case 'n':
+        case 'N':
+          onNext?.();
+          break;
+        case 'p':
+        case 'P':
+          onPrev?.();
+          break;
+        case 't':
+        case 'T':
+          onSetThumbnail?.();
+          break;
         default:
           return;
       }
@@ -71,5 +88,8 @@ export function usePlayerShortcuts(
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onEscape, toggleFullscreen, wake, togglePlay, seekBy, changeVolume, toggleMute, cycleRate]);
+  }, [
+    onEscape, toggleFullscreen, wake, togglePlay, seekBy, changeVolume, toggleMute, cycleRate,
+    onNext, onPrev, onSetThumbnail,
+  ]);
 }

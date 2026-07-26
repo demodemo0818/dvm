@@ -90,5 +90,47 @@ export function useVideos(query: VideoQuery, version: number) {
     [fetchPage],
   );
 
-  return { total, getVideo };
+  /**
+   * 範囲内の行を返す(足りないページは取得を待つ)。
+   * 範囲選択・全選択はページ境界をまたぐので、同期の getVideo では穴が空いてしまう。
+   * クエリが変わっていたら(世代不一致)空を返す
+   */
+  const getRange = useCallback(
+    async (from: number, to: number): Promise<VideoRow[]> => {
+      const lo = Math.max(0, Math.min(from, to));
+      const hi = Math.max(from, to);
+      const gen = generation.current;
+
+      const needed: number[] = [];
+      for (let p = Math.floor(lo / PAGE_SIZE); p <= Math.floor(hi / PAGE_SIZE); p++) {
+        if (!pages.current.has(p)) needed.push(p);
+      }
+      if (needed.length > 0) {
+        try {
+          const fetched = await Promise.all(
+            needed.map((p) =>
+              api.queryVideos(query, PAGE_SIZE, p * PAGE_SIZE).then((rows) => [p, rows] as const),
+            ),
+          );
+          if (generation.current !== gen) return [];
+          for (const [p, rows] of fetched) pages.current.set(p, rows);
+          rerender();
+        } catch {
+          // 失敗は api 側でトースト済み。取れているぶんだけで続ける
+          if (generation.current !== gen) return [];
+        }
+      }
+
+      const out: VideoRow[] = [];
+      for (let i = lo; i <= hi; i++) {
+        const row = pages.current.get(Math.floor(i / PAGE_SIZE))?.[i % PAGE_SIZE];
+        if (row) out.push(row);
+      }
+      return out;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [queryKey],
+  );
+
+  return { total, getVideo, getRange };
 }

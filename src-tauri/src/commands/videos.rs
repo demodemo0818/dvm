@@ -2,7 +2,7 @@ use crate::core::query::{self, VideoQuery, VideoRow};
 use crate::core::{library, videos};
 use crate::AppState;
 use rusqlite::params;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 #[tauri::command]
 pub fn count_videos(state: State<AppState>, query: VideoQuery) -> Result<i64, String> {
@@ -73,6 +73,20 @@ pub fn mark_viewed(state: State<AppState>, id: i64) -> Result<(), String> {
 pub fn set_resume(state: State<AppState>, id: i64, resume_ms: i64) -> Result<(), String> {
     let conn = state.db.lock().unwrap();
     videos::set_resume(&conn, id, resume_ms).map_err(|e| e.to_string())
+}
+
+/// サムネイルのコマ位置を指定して即座に作り直す。at_ms を省略すると自動選択に戻す
+#[tauri::command]
+pub async fn set_thumb_time(app: AppHandle, id: i64, at_ms: Option<i64>) -> Result<(), String> {
+    {
+        let state = app.state::<AppState>();
+        let conn = state.db.lock().unwrap();
+        crate::core::thumbs::set_thumb_time(&conn, id, at_ms).map_err(|e| e.to_string())?;
+    }
+    // 生成は既存のワーカーに任せる(ffprobe + サムネイル生成が同じ経路を通る)
+    let app2 = app.clone();
+    tauri::async_runtime::spawn_blocking(move || library::process_pending(&app2, vec![id]));
+    Ok(())
 }
 
 #[tauri::command]

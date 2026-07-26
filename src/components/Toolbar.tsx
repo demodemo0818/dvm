@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { advancedCount, buildQuery } from '../lib/query';
-import { useLibrary } from '../store';
+import { CARD_WIDTH_MAX, CARD_WIDTH_MIN, useLibrary } from '../store';
 import type { DurationBucket, SortKey } from '../types';
 import { AdvancedSearch } from './AdvancedSearch';
 import { SettingsModal } from './SettingsModal';
@@ -13,6 +13,7 @@ export function Toolbar() {
     minRating, setMinRating, durationBucket, setDurationBucket,
     showAiPanel, toggleAiPanel, advanced, reshuffle, duplicatesOnly,
     setShowStats, bumpVersion, pushToast,
+    viewMode, setViewMode, cardWidth, setCardWidth,
   } = useLibrary();
   const [input, setInput] = useState(text);
   const [showSettings, setShowSettings] = useState(false);
@@ -101,6 +102,30 @@ export function Toolbar() {
       <button title="今の検索条件をスマートフォルダとして保存" onClick={saveCurrentAsSmartFolder}>
         条件を保存
       </button>
+      <button
+        title={viewMode === 'grid' ? '詳細リスト表示に切り替え' : 'サムネイル表示に切り替え'}
+        onClick={() => {
+          const next = viewMode === 'grid' ? 'list' : 'grid';
+          setViewMode(next);
+          void api.setSetting('view_mode', next);
+        }}
+      >
+        {viewMode === 'grid' ? '☰' : '▦'}
+      </button>
+      {viewMode === 'grid' && (
+        <input
+          className="card-size"
+          type="range"
+          min={CARD_WIDTH_MIN}
+          max={CARD_WIDTH_MAX}
+          step={4}
+          value={cardWidth}
+          onChange={(e) => setCardWidth(Number(e.target.value))}
+          // ドラッグ中に毎回書き込まない(離したときだけ保存する)
+          onPointerUp={() => void api.setSetting('card_width', String(cardWidth))}
+          title="サムネイルの大きさ"
+        />
+      )}
       <button onClick={() => api.rescanAll()} disabled={scanning}>
         再スキャン
       </button>

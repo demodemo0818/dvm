@@ -1,10 +1,9 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useEffect, useRef, useState } from 'react';
-import { api } from '../api';
 import { fmtTime } from '../lib/format';
 import { useLibrary } from '../store';
-import type { VideoRow } from '../types';
 import { HoverPreview } from './HoverPreview';
+import type { VideoRowProps } from './rowProps';
 
 /** この時間ホバーし続けたらプレビューを開始する(グリッドを撫でただけで再生しない) */
 const HOVER_DELAY_MS = 400;
@@ -17,9 +16,8 @@ function fmtSize(bytes: number): string {
   return `${Math.round(bytes / 1024)} KB`;
 }
 
-export function VideoCard({ video }: { video?: VideoRow }) {
-  const { selection, selectOnly, toggleSelect, playerPath, setPlayingVideo, previewOnHover } =
-    useLibrary();
+export function VideoCard({ video, index, selected, focused, onPick, onPlay }: VideoRowProps) {
+  const previewOnHover = useLibrary((s) => s.previewOnHover);
   const [hovering, setHovering] = useState(false);
   const hoverTimer = useRef<number | undefined>(undefined);
 
@@ -31,28 +29,14 @@ export function VideoCard({ video }: { video?: VideoRow }) {
 
   if (!video) return <div className="card card-loading" />;
 
-  const selected = selection.some((v) => v.id === video.id);
   const openable = !video.isMissing && !video.isOffline;
 
-  const play = () => {
-    if (!openable) return;
-    // 外部プレイヤー設定があれば従来通り外部。無ければアプリ内再生
-    // (native はそのまま、remux/transcode は FFmpeg で変換してから再生)
-    if (playerPath.trim() === '') {
-      setPlayingVideo(video);
-    } else {
-      api.openVideo(video.id);
-    }
-  };
   return (
     <div
-      className={`card ${selected ? 'selected' : ''}`}
+      className={`card ${selected ? 'selected' : ''} ${focused ? 'focused' : ''}`}
       title={video.path}
-      onClick={(e) => {
-        if (e.ctrlKey || e.metaKey) toggleSelect(video);
-        else selectOnly(video);
-      }}
-      onDoubleClick={play}
+      onClick={(e) => onPick(video, index, e)}
+      onDoubleClick={() => onPlay(video, index)}
     >
       <div
         className="thumb"

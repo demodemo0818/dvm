@@ -117,6 +117,7 @@ pub fn run() {
             commands::videos::set_resume,
             commands::videos::set_rating,
             commands::videos::remove_videos,
+            commands::videos::set_thumb_time,
             commands::tags::list_tags,
             commands::tags::tag_videos,
             commands::tags::untag_videos,
@@ -144,6 +145,7 @@ pub fn run() {
             commands::maintenance::open_data_dir,
             commands::maintenance::get_app_info,
             commands::maintenance::regenerate_thumbnails,
+            commands::maintenance::purge_orphan_thumbnails,
             commands::playback::prepare_video,
             commands::playback::cancel_prepare,
         ])

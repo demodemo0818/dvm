@@ -303,18 +303,25 @@ pub fn process_pending(app: &AppHandle, ids: Vec<i64>) {
     pool.scope(|scope| {
         for id in ids {
             scope.spawn(move |_| {
-                let path: Option<String> = {
+                // ユーザーが指定したサムネイル位置(thumb_time_ms)があればそれを使う
+                let row: Option<(String, Option<i64>)> = {
                     let conn = state_ref.db.lock().unwrap();
-                    conn.query_row("SELECT path FROM videos WHERE id=?1", params![id], |r| r.get(0))
-                        .optional()
-                        .unwrap_or(None)
+                    conn.query_row(
+                        "SELECT path, thumb_time_ms FROM videos WHERE id=?1",
+                        params![id],
+                        |r| Ok((r.get(0)?, r.get(1)?)),
+                    )
+                    .optional()
+                    .unwrap_or(None)
                 };
-                let Some(path) = path else { return };
+                let Some((path, thumb_time_ms)) = row else { return };
 
                 let probed = metadata::probe(&state_ref.ffmpeg, &path);
                 let duration = probed.as_ref().ok().and_then(|p| p.duration_ms);
                 let thumb_path = state_ref.thumbs_dir.join(format!("{id}.jpg"));
-                let thumb_ok = thumbs::generate(&state_ref.ffmpeg, &path, duration, &thumb_path).is_ok();
+                let thumb_ok =
+                    thumbs::generate(&state_ref.ffmpeg, &path, duration, thumb_time_ms, &thumb_path)
+                        .is_ok();
                 let thumb_state = if thumb_ok { 1i64 } else { 2i64 };
 
                 {

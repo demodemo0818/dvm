@@ -2,8 +2,9 @@ use anyhow::Result;
 use rusqlite::Connection;
 use std::path::Path;
 
-/// スキーマの現行バージョン。列追加などの変更時は MIGRATIONS に差分を足してここを上げる
-const LATEST_VERSION: i32 = 2;
+/// スキーマの現行バージョン。列追加などの変更時は MIGRATIONS に差分を足してここを上げる。
+/// **新テーブルの追加では上げない**(SCHEMA の CREATE TABLE IF NOT EXISTS が既存 DB にも流れるため)
+const LATEST_VERSION: i32 = 3;
 
 /// v(N) -> v(N+1) の差分 SQL。PRAGMA user_version の更新は migrate() 側で同一トランザクションに含める
 const MIGRATIONS: &[&str] = &[
@@ -11,6 +12,8 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE watched_folders ADD COLUMN volume_serial TEXT;",
     // v1 -> v2: アプリ内再生のレジューム位置
     "ALTER TABLE videos ADD COLUMN resume_ms INTEGER NOT NULL DEFAULT 0;",
+    // v2 -> v3: サムネイルのコマ位置(NULL = 自動選択)
+    "ALTER TABLE videos ADD COLUMN thumb_time_ms INTEGER;",
 ];
 
 pub fn init(path: &Path) -> Result<Connection> {
@@ -100,6 +103,7 @@ CREATE TABLE IF NOT EXISTS videos (
   added_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
   is_missing INTEGER NOT NULL DEFAULT 0,
   thumb_state INTEGER NOT NULL DEFAULT 0,
+  thumb_time_ms INTEGER,
   watched_folder_id INTEGER REFERENCES watched_folders(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_videos_hash ON videos(size, partial_hash);

@@ -13,8 +13,10 @@ import { VideoGrid } from './components/VideoGrid';
 import { useLibrary } from './store';
 
 export default function App() {
-  const { bumpVersion, setStatus, status, scanning, setPlayerPath, setPreviewOnHover } =
-    useLibrary();
+  const {
+    bumpVersion, setStatus, status, scanning, setPlayerPath, setPreviewOnHover,
+    setViewMode, setCardWidth, setAutoplayNext,
+  } = useLibrary();
   const debounceTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -29,12 +31,21 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // 外部プレイヤー設定(再生分岐)とホバープレビューの可否をロード
+  // 外部プレイヤー設定(再生分岐)・ホバープレビュー・表示設定をロード
   useEffect(() => {
     api.getSetting('player_path').then((v) => setPlayerPath(v ?? ''));
     // 既定は ON。明示的に '0' のときだけ OFF
     api.getSetting('preview_on_hover').then((v) => setPreviewOnHover(v !== '0'));
-  }, [setPlayerPath, setPreviewOnHover]);
+    api.getSetting('view_mode').then((v) => {
+      if (v === 'list' || v === 'grid') setViewMode(v);
+    });
+    api.getSetting('card_width').then((v) => {
+      const n = Number(v);
+      if (Number.isFinite(n) && n > 0) setCardWidth(n);
+    });
+    // 連続再生は既定 OFF(勝手に次が始まると驚くため)
+    api.getSetting('autoplay_next').then((v) => setAutoplayNext(v === '1'));
+  }, [setPlayerPath, setPreviewOnHover, setViewMode, setCardWidth, setAutoplayNext]);
 
   useEffect(() => {
     const unlisteners: Array<() => void> = [];

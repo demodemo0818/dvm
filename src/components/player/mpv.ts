@@ -11,7 +11,20 @@ export const MPV_OBSERVED = [
   ['mute', 'flag'],
   ['speed', 'double'],
   ['demuxer-cache-time', 'double', 'none'],
+  // 音声・字幕トラックの一覧と現在の選択(v1.8)。
+  // node は JSON 相当のまま届くので、選択状態も track-list 側で分かる
+  ['track-list', 'node', 'none'],
 ] as const satisfies MpvObservableProperty[];
+
+/** mpv の track-list の 1 要素(必要なフィールドだけ) */
+export interface MpvTrackEntry {
+  id: number;
+  type: string;
+  title?: string;
+  lang?: string;
+  selected?: boolean;
+  codec?: string;
+}
 
 let initPromise: Promise<boolean> | null = null;
 

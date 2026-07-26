@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react';
 import { fmtTime } from '../../lib/format';
 import { RATE_OPTIONS } from './types';
-import type { VideoPlayer } from './types';
+import type { MediaTrack, VideoPlayer } from './types';
+import type { PlayQueueControls } from './usePlayQueue';
 
 /** バッファ帯付きシークバー。ドラッグ中はプレビュー位置を表示し、離した時にシークする */
 function SeekBar({ player }: { player: VideoPlayer }) {
@@ -45,14 +46,50 @@ function SeekBar({ player }: { player: VideoPlayer }) {
   );
 }
 
+/** mpv のときだけ出る音声・字幕トラックの選択 */
+function TrackSelect({
+  kind,
+  label,
+  tracks,
+  onChange,
+}: {
+  kind: 'audio' | 'sub';
+  label: string;
+  tracks: MediaTrack[];
+  onChange: (id: number | null) => void;
+}) {
+  const mine = tracks.filter((t) => t.kind === kind);
+  // 音声は 1 本しかなければ選ばせる意味がない。字幕は「オフ」に切り替えたいので 1 本でも出す
+  if (mine.length === 0 || (kind === 'audio' && mine.length < 2)) return null;
+  const selected = mine.find((t) => t.selected);
+
+  return (
+    <select
+      className="player-track"
+      value={selected ? String(selected.id) : ''}
+      onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
+      title={label}
+    >
+      {kind === 'sub' && <option value="">字幕オフ</option>}
+      {mine.map((t) => (
+        <option key={t.id} value={t.id}>
+          {t.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 export function PlayerControls({
   player,
   isFullscreen,
   onToggleFullscreen,
+  queue,
 }: {
   player: VideoPlayer;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
+  queue?: PlayQueueControls;
 }) {
   const { state } = player;
   // ボタンにフォーカスを残さない(スペース等のショートカットが二重発火しないように)
@@ -62,6 +99,16 @@ export function PlayerControls({
     <div className="player-controls" onClick={(e) => e.stopPropagation()}>
       <SeekBar player={player} />
       <div className="player-buttons">
+        {queue && (
+          <button
+            onMouseDown={noFocus}
+            onClick={queue.prev}
+            disabled={!queue.hasPrev}
+            title="前の動画 (P)"
+          >
+            ⏮
+          </button>
+        )}
         <button
           onMouseDown={noFocus}
           onClick={player.togglePlay}
@@ -69,10 +116,37 @@ export function PlayerControls({
         >
           {state.paused ? '▶' : '❚❚'}
         </button>
+        {queue && (
+          <button
+            onMouseDown={noFocus}
+            onClick={queue.next}
+            disabled={!queue.hasNext}
+            title="次の動画 (N)"
+          >
+            ⏭
+          </button>
+        )}
         <span className="player-time">
           {fmtTime(state.currentTime)} / {fmtTime(state.duration)}
         </span>
+        {queue?.position && <span className="player-position">{queue.position}</span>}
         <div className="player-spacer" />
+        {player.tracks && player.setTrack && (
+          <>
+            <TrackSelect
+              kind="audio"
+              label="音声トラック"
+              tracks={player.tracks}
+              onChange={(id) => player.setTrack!('audio', id)}
+            />
+            <TrackSelect
+              kind="sub"
+              label="字幕"
+              tracks={player.tracks}
+              onChange={(id) => player.setTrack!('sub', id)}
+            />
+          </>
+        )}
         <select
           className="player-rate"
           value={state.rate}

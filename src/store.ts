@@ -1,11 +1,24 @@
 import { create } from 'zustand';
 import { EMPTY_ADVANCED } from './types';
-import type { AdvancedFilter, DurationBucket, SortKey, Toast, VideoRow } from './types';
+import type {
+  AdvancedFilter, DurationBucket, PlayQueue, SortKey, Toast, VideoRow, ViewMode,
+} from './types';
 
 let toastSeq = 0;
 
 /** シャッフル種。0 は使わない(Rust 側で 1 に丸められる) */
 const newSeed = () => Math.floor(Math.random() * 999_000) + 1;
+
+/** カード幅の下限・上限(px)。ツールバーのスライダーの範囲 */
+export const CARD_WIDTH_MIN = 140;
+export const CARD_WIDTH_MAX = 400;
+export const CARD_WIDTH_DEFAULT = 224;
+
+/**
+ * 絞り込みが変わったら選択は無効になる(一覧の中身も通し番号も別物になるため)。
+ * 選択だけ消して anchor / focus が残ると、次の Shift+クリックが的外れな範囲を選ぶ
+ */
+const CLEARED = { selection: [] as VideoRow[], anchorIndex: null, focusIndex: null };
 
 interface LibraryState {
   text: string;
@@ -33,8 +46,20 @@ interface LibraryState {
   scanning: boolean;
   /** グリッドで選択中の動画(行データごと保持) */
   selection: VideoRow[];
+  /** Shift+クリックの起点。範囲選択はここから現在位置まで */
+  anchorIndex: number | null;
+  /** キーボード操作のフォーカス位置(一覧内の通し番号) */
+  focusIndex: number | null;
+  /** サムネイルグリッドか詳細リストか(設定に永続化) */
+  viewMode: ViewMode;
+  /** グリッドのカード幅 px(設定に永続化) */
+  cardWidth: number;
+  /** 再生が終わったら次の動画へ進むか(設定に永続化) */
+  autoplayNext: boolean;
   /** アプリ内プレイヤーで再生中の動画(null = 非表示) */
   playingVideo: VideoRow | null;
+  /** 連続再生の位置(null = 単発再生。⏭ が無効になる) */
+  playQueue: PlayQueue | null;
   /** 外部プレイヤーのパス設定(起動時ロード・設定保存時更新) */
   playerPath: string;
   /** カードのホバープレビューを有効にするか(設定で切り替え。既定 ON) */
@@ -64,6 +89,11 @@ interface LibraryState {
   bumpVersion: () => void;
   setStatus: (scanning: boolean, status: string) => void;
   setPlayingVideo: (video: VideoRow | null) => void;
+  /** 一覧から再生を始める(⏭ で次へ進めるようにキュー情報も持つ) */
+  playFromList: (video: VideoRow, queue: PlayQueue) => void;
+  setViewMode: (viewMode: ViewMode) => void;
+  setCardWidth: (cardWidth: number) => void;
+  setAutoplayNext: (autoplayNext: boolean) => void;
   setPlayerPath: (playerPath: string) => void;
   setPreviewOnHover: (previewOnHover: boolean) => void;
   toggleAiPanel: () => void;
@@ -83,8 +113,12 @@ interface LibraryState {
     sort?: SortKey;
     advanced?: Partial<AdvancedFilter>;
   }) => void;
-  selectOnly: (video: VideoRow) => void;
-  toggleSelect: (video: VideoRow) => void;
+  /** index は一覧内の通し番号。省略すると範囲選択の起点を持たない選択になる */
+  selectOnly: (video: VideoRow, index?: number | null) => void;
+  toggleSelect: (video: VideoRow, index?: number | null) => void;
+  /** 範囲選択・全選択の結果をまとめて反映する */
+  setSelection: (videos: VideoRow[], focusIndex?: number | null) => void;
+  setFocusIndex: (focusIndex: number | null) => void;
   clearSelection: () => void;
   /** 選択中の全行に部分更新を適用する(例: レーティング変更の即時反映) */
   patchSelection: (patch: Partial<VideoRow>) => void;
@@ -105,8 +139,12 @@ export const useLibrary = create<LibraryState>((set) => ({
   version: 0,
   status: '',
   scanning: false,
-  selection: [],
+  ...CLEARED,
+  viewMode: 'grid',
+  cardWidth: CARD_WIDTH_DEFAULT,
+  autoplayNext: false,
   playingVideo: null,
+  playQueue: null,
   playerPath: '',
   previewOnHover: true,
   showAiPanel: false,
@@ -119,7 +157,14 @@ export const useLibrary = create<LibraryState>((set) => ({
       return { toasts: [...s.toasts, { id: ++toastSeq, message, kind }].slice(-4) };
     }),
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
-  setPlayingVideo: (playingVideo) => set({ playingVideo }),
+  // 単発再生。プレイヤーを閉じたらキューも捨てる
+  setPlayingVideo: (playingVideo) =>
+    set(playingVideo === null ? { playingVideo: null, playQueue: null } : { playingVideo }),
+  playFromList: (playingVideo, playQueue) => set({ playingVideo, playQueue }),
+  setViewMode: (viewMode) => set({ viewMode }),
+  setCardWidth: (cardWidth) =>
+    set({ cardWidth: Math.min(Math.max(Math.round(cardWidth), CARD_WIDTH_MIN), CARD_WIDTH_MAX) }),
+  setAutoplayNext: (autoplayNext) => set({ autoplayNext }),
   setPlayerPath: (playerPath) => set({ playerPath }),
   setPreviewOnHover: (previewOnHover) => set({ previewOnHover }),
   toggleAiPanel: () => set((s) => ({ showAiPanel: !s.showAiPanel })),
@@ -136,20 +181,20 @@ export const useLibrary = create<LibraryState>((set) => ({
       advanced: { ...EMPTY_ADVANCED, ...f.advanced },
       sort: f.sort ?? (f.seriesId != null ? 'series_asc' : s.sort === 'series_asc' ? 'added_desc' : s.sort),
       folderId: null,
-      selection: [],
+      ...CLEARED,
     })),
-  setText: (text) => set({ text, selection: [] }),
-  setSort: (sort) => set({ sort, selection: [] }),
-  setFolderId: (folderId) => set({ folderId, selection: [] }),
+  setText: (text) => set({ text, ...CLEARED }),
+  setSort: (sort) => set({ sort, ...CLEARED }),
+  setFolderId: (folderId) => set({ folderId, ...CLEARED }),
   toggleTagFilter: (tagId) =>
     set((s) => ({
       tagIds: s.tagIds.includes(tagId)
         ? s.tagIds.filter((t) => t !== tagId)
         : [...s.tagIds, tagId],
-      selection: [],
+      ...CLEARED,
     })),
-  clearTagFilter: () => set({ tagIds: [], selection: [] }),
-  toggleMissingOnly: () => set((s) => ({ missingOnly: !s.missingOnly, selection: [] })),
+  clearTagFilter: () => set({ tagIds: [], ...CLEARED }),
+  toggleMissingOnly: () => set((s) => ({ missingOnly: !s.missingOnly, ...CLEARED })),
   toggleDuplicatesOnly: () =>
     set((s) => {
       const next = !s.duplicatesOnly;
@@ -157,15 +202,15 @@ export const useLibrary = create<LibraryState>((set) => ({
         duplicatesOnly: next,
         // 重複表示では同じファイルが隣り合う並びにする。外したら追加日順に戻す
         sort: next ? 'dup' : s.sort === 'dup' ? 'added_desc' : s.sort,
-        selection: [],
+        ...CLEARED,
       };
     }),
-  setMinRating: (minRating) => set({ minRating, selection: [] }),
-  setDurationBucket: (durationBucket) => set({ durationBucket, selection: [] }),
+  setMinRating: (minRating) => set({ minRating, ...CLEARED }),
+  setDurationBucket: (durationBucket) => set({ durationBucket, ...CLEARED }),
   setAdvanced: (patch) =>
-    set((s) => ({ advanced: { ...s.advanced, ...patch }, selection: [] })),
-  clearAdvanced: () => set({ advanced: EMPTY_ADVANCED, selection: [] }),
-  reshuffle: () => set({ sort: 'random', randomSeed: newSeed(), selection: [] }),
+    set((s) => ({ advanced: { ...s.advanced, ...patch }, ...CLEARED })),
+  clearAdvanced: () => set({ advanced: EMPTY_ADVANCED, ...CLEARED }),
+  reshuffle: () => set({ sort: 'random', randomSeed: newSeed(), ...CLEARED }),
   toggleSeriesFilter: (seriesId) =>
     set((s) => {
       const next = s.seriesId === seriesId ? null : seriesId;
@@ -173,19 +218,26 @@ export const useLibrary = create<LibraryState>((set) => ({
         seriesId: next,
         // シリーズを選んだらシリーズ順、外したら追加日順に戻す
         sort: next !== null ? 'series_asc' : s.sort === 'series_asc' ? 'added_desc' : s.sort,
-        selection: [],
+        ...CLEARED,
       };
     }),
   bumpVersion: () => set((s) => ({ version: s.version + 1 })),
   setStatus: (scanning, status) => set({ scanning, status }),
-  selectOnly: (video) => set({ selection: [video] }),
-  toggleSelect: (video) =>
+  selectOnly: (video, index = null) =>
+    set({ selection: [video], anchorIndex: index, focusIndex: index }),
+  toggleSelect: (video, index = null) =>
     set((s) => ({
       selection: s.selection.some((v) => v.id === video.id)
         ? s.selection.filter((v) => v.id !== video.id)
         : [...s.selection, video],
+      // Ctrl+クリックした位置が次の Shift+クリックの起点になる
+      anchorIndex: index,
+      focusIndex: index,
     })),
-  clearSelection: () => set({ selection: [] }),
+  setSelection: (selection, focusIndex) =>
+    set((s) => ({ selection, focusIndex: focusIndex === undefined ? s.focusIndex : focusIndex })),
+  setFocusIndex: (focusIndex) => set({ focusIndex }),
+  clearSelection: () => set({ ...CLEARED }),
   patchSelection: (patch) =>
     set((s) => ({ selection: s.selection.map((v) => ({ ...v, ...patch })) })),
 }));

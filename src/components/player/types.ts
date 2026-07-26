@@ -17,6 +17,14 @@ export interface PlayerState {
   bufferedEnd: number;
 }
 
+/** mpv の音声・字幕トラック 1 本(WebView2 エンジンでは扱えないので mpv 専用) */
+export interface MediaTrack {
+  id: number;
+  kind: 'audio' | 'sub';
+  label: string;
+  selected: boolean;
+}
+
 /** PlayerControls・ショートカットが両エンジンで共用するインターフェイス */
 export interface VideoPlayer {
   state: PlayerState;
@@ -28,6 +36,10 @@ export interface VideoPlayer {
   toggleMute: () => void;
   setRate: (rate: number) => void;
   cycleRate: (dir: 1 | -1) => void;
+  /** mpv のみ。未対応エンジンでは undefined(UI 側は出さない) */
+  tracks?: MediaTrack[];
+  /** id に null を渡すとそのトラックを無効にする(字幕オフ) */
+  setTrack?: (kind: 'audio' | 'sub', id: number | null) => void;
 }
 
 export const clamp01 = (n: number) => Math.min(Math.max(n, 0), 1);
@@ -57,4 +69,16 @@ export function saveMutedPref(muted: boolean): void {
 export function resumeValueMs(currentSec: number, durationSec: number): number {
   const finished = currentSec >= durationSec * 0.9 || durationSec - currentSec < 30;
   return finished ? 0 : Math.floor(currentSec * 1000);
+}
+
+/**
+ * 視聴カウント(view_count)を 1 増やしてよいか。
+ * 尺の 5% 以上、または 30 秒以上まで再生されたら「観た」とみなす(v1.8)。
+ * それまでは「開いてすぐ閉じた」扱いでカウントしない。
+ * 尺が取れていない場合は 30 秒だけで判断する
+ */
+export function shouldCountView(currentSec: number, durationSec: number): boolean {
+  if (!Number.isFinite(currentSec) || currentSec <= 0) return false;
+  if (currentSec >= 30) return true;
+  return durationSec > 0 && currentSec >= durationSec * 0.05;
 }

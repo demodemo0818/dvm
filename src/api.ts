@@ -89,4 +89,8 @@ export const api = {
   openDataDir: () => call<void>('open_data_dir'),
   regenerateThumbnails: (onlyFailed: boolean) =>
     call<number>('regenerate_thumbnails', { onlyFailed }),
+  /** atMs を省略するとサムネイルのコマ選びを自動に戻す */
+  setThumbTime: (id: number, atMs?: number) => call<void>('set_thumb_time', { id, atMs }),
+  purgeOrphanThumbnails: () =>
+    call<{ removed: number; freedBytes: number }>('purge_orphan_thumbnails'),
 };

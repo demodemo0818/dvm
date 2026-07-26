@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resumeValueMs } from './types';
+import { resumeValueMs, shouldCountView } from './types';
 
 describe('resumeValueMs', () => {
   it('途中なら現在位置をミリ秒で返す', () => {
@@ -35,5 +35,33 @@ describe('resumeValueMs', () => {
   it('尺が 0 なら 0 を返す', () => {
     expect(resumeValueMs(0, 0)).toBe(0);
     expect(resumeValueMs(100, 0)).toBe(0);
+  });
+});
+
+describe('shouldCountView', () => {
+  it('開いてすぐ閉じたらカウントしない', () => {
+    expect(shouldCountView(0, 600)).toBe(false);
+    expect(shouldCountView(1, 600)).toBe(false);
+    expect(shouldCountView(29, 600)).toBe(false);
+  });
+
+  it('30 秒以上再生したらカウントする', () => {
+    expect(shouldCountView(30, 3600)).toBe(true);
+  });
+
+  it('短い動画は尺の 5% でカウントする', () => {
+    // 100 秒の動画なら 5 秒で「観た」。30 秒ルールだと短い動画が永久にカウントされない
+    expect(shouldCountView(5, 100)).toBe(true);
+    expect(shouldCountView(4, 100)).toBe(false);
+  });
+
+  it('尺が不明なら 30 秒だけで判断する', () => {
+    expect(shouldCountView(10, 0)).toBe(false);
+    expect(shouldCountView(31, 0)).toBe(true);
+  });
+
+  it('不正な値ではカウントしない', () => {
+    expect(shouldCountView(NaN, 600)).toBe(false);
+    expect(shouldCountView(-5, 600)).toBe(false);
   });
 });

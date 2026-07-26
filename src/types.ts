@@ -105,6 +105,19 @@ export const EMPTY_ADVANCED: AdvancedFilter = {
 /** 尺フィルタのプリセット */
 export type DurationBucket = 'lt5' | '5to20' | '20to60' | 'gt60';
 
+/** グリッド(サムネイル)か詳細リストか */
+export type ViewMode = 'grid' | 'list';
+
+/**
+ * 連続再生の位置。プレイヤーは「クエリ + 一覧内の位置」だけを持ち、
+ * 次の 1 件は Rust から都度引く(グリッドのページキャッシュに依存させない)
+ */
+export interface PlayQueue {
+  query: VideoQuery;
+  index: number;
+  total: number;
+}
+
 export interface Tag {
   id: number;
   name: string;
