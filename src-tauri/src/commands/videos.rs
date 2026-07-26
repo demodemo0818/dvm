@@ -1,5 +1,5 @@
-use crate::core::library;
 use crate::core::query::{self, VideoQuery, VideoRow};
+use crate::core::{library, videos};
 use crate::AppState;
 use rusqlite::params;
 use tauri::{AppHandle, State};
@@ -23,33 +23,29 @@ pub fn query_videos(
 }
 
 #[tauri::command]
-pub fn set_rating(state: State<AppState>, video_ids: Vec<i64>, rating: i64) -> Result<(), String> {
-    let rating = rating.clamp(0, 5);
-    let ids_csv = video_ids
-        .iter()
-        .map(|i| i.to_string())
-        .collect::<Vec<_>>()
-        .join(",");
+pub fn set_rating(
+    state: State<AppState>,
+    video_ids: Vec<i64>,
+    rating: i64,
+    actor: Option<String>,
+) -> Result<(), String> {
+    let actor = super::validate_actor(actor)?;
     let conn = state.db.lock().unwrap();
-    conn.execute(&format!("UPDATE videos SET rating = {rating} WHERE id IN ({ids_csv})"), [])
-        .map_err(|e| e.to_string())?;
-    crate::db::log_op(&conn, "user", "set_rating", &format!("rating={rating} videos={video_ids:?}"));
-    Ok(())
+    videos::set_rating(&conn, &actor, &video_ids, rating).map_err(|e| e.to_string())
 }
 
 /// ライブラリから登録を削除する(ファイル自体は消さない)。サムネイルキャッシュも掃除する
 #[tauri::command]
-pub fn remove_videos(state: State<AppState>, video_ids: Vec<i64>) -> Result<(), String> {
-    let ids_csv = video_ids
-        .iter()
-        .map(|i| i.to_string())
-        .collect::<Vec<_>>()
-        .join(",");
-    let conn = state.db.lock().unwrap();
-    conn.execute(&format!("DELETE FROM videos WHERE id IN ({ids_csv})"), [])
-        .map_err(|e| e.to_string())?;
-    crate::db::log_op(&conn, "user", "remove_videos", &format!("videos={video_ids:?}"));
-    drop(conn);
+pub fn remove_videos(
+    state: State<AppState>,
+    video_ids: Vec<i64>,
+    actor: Option<String>,
+) -> Result<(), String> {
+    let actor = super::validate_actor(actor)?;
+    {
+        let conn = state.db.lock().unwrap();
+        videos::remove_videos(&conn, &actor, &video_ids).map_err(|e| e.to_string())?;
+    }
     for id in &video_ids {
         let _ = std::fs::remove_file(state.thumbs_dir.join(format!("{id}.jpg")));
     }
@@ -64,6 +60,13 @@ pub async fn register_files(app: AppHandle, paths: Vec<String>) -> Result<usize,
         .map_err(|e| e.to_string())
 }
 
+/// 視聴カウントを進める(アプリ内再生の開始時にフロントから呼ぶ)
+#[tauri::command]
+pub fn mark_viewed(state: State<AppState>, id: i64) -> Result<(), String> {
+    let conn = state.db.lock().unwrap();
+    videos::mark_viewed(&conn, id).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn open_video(state: State<AppState>, id: i64) -> Result<(), String> {
     let (path, player) = {
@@ -71,10 +74,7 @@ pub fn open_video(state: State<AppState>, id: i64) -> Result<(), String> {
         let p: String = conn
             .query_row("SELECT path FROM videos WHERE id=?1", params![id], |r| r.get(0))
             .map_err(|e| e.to_string())?;
-        let _ = conn.execute(
-            "UPDATE videos SET view_count=view_count+1, last_viewed_at=datetime('now','localtime') WHERE id=?1",
-            params![id],
-        );
+        let _ = videos::mark_viewed(&conn, id);
         let player = crate::core::settings::get(&conn, "player_path").unwrap_or(None);
         (p, player)
     };

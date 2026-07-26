@@ -30,6 +30,7 @@ xxhash-rust = { version = "0.8.18", features = ["xxh3"] }
 rayon = "1.12.0"
 anyhow = "1.0.104"
 notify = "8.2.0"
+trash = "5"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.60", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }

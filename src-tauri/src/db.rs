@@ -15,6 +15,8 @@ pub fn init(path: &Path) -> Result<Connection> {
     let conn = Connection::open(path)?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
+    // MCP 等の別プロセスと書き込みが重なったとき即エラーにせず待つ
+    conn.busy_timeout(std::time::Duration::from_secs(5))?;
     migrate(&conn)?;
     Ok(conn)
 }

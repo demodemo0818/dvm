@@ -68,6 +68,7 @@ pub fn run() {
             commands::videos::count_videos,
             commands::videos::register_files,
             commands::videos::open_video,
+            commands::videos::mark_viewed,
             commands::videos::set_rating,
             commands::videos::remove_videos,
             commands::tags::list_tags,

@@ -45,7 +45,7 @@ pub fn ensure_series(conn: &Connection, name: &str) -> Result<i64> {
 }
 
 /// 動画をシリーズに追加(末尾に追加。既に入っていれば何もしない)
-pub fn add_videos_to_series(conn: &Connection, video_ids: &[i64], name: &str) -> Result<i64> {
+pub fn add_videos_to_series(conn: &Connection, actor: &str, video_ids: &[i64], name: &str) -> Result<i64> {
     let series_id = ensure_series(conn, name)?;
     conn.execute_batch("BEGIN")?;
     for vid in video_ids {
@@ -57,11 +57,11 @@ pub fn add_videos_to_series(conn: &Connection, video_ids: &[i64], name: &str) ->
         )?;
     }
     conn.execute_batch("COMMIT")?;
-    db::log_op(conn, "user", "add_to_series", &format!("series={name} videos={video_ids:?}"));
+    db::log_op(conn, actor, "add_to_series", &format!("series={name} videos={video_ids:?}"));
     Ok(series_id)
 }
 
-pub fn remove_videos_from_series(conn: &Connection, video_ids: &[i64], series_id: i64) -> Result<()> {
+pub fn remove_videos_from_series(conn: &Connection, actor: &str, video_ids: &[i64], series_id: i64) -> Result<()> {
     conn.execute_batch("BEGIN")?;
     for vid in video_ids {
         conn.execute(
@@ -72,17 +72,17 @@ pub fn remove_videos_from_series(conn: &Connection, video_ids: &[i64], series_id
     conn.execute_batch("COMMIT")?;
     db::log_op(
         conn,
-        "user",
+        actor,
         "remove_from_series",
         &format!("series_id={series_id} videos={video_ids:?}"),
     );
     Ok(())
 }
 
-pub fn delete_series(conn: &Connection, series_id: i64) -> Result<()> {
+pub fn delete_series(conn: &Connection, actor: &str, series_id: i64) -> Result<()> {
     // series_entries は ON DELETE CASCADE
     conn.execute("DELETE FROM series WHERE id = ?1", params![series_id])?;
-    db::log_op(conn, "user", "delete_series", &format!("series_id={series_id}"));
+    db::log_op(conn, actor, "delete_series", &format!("series_id={series_id}"));
     Ok(())
 }
 

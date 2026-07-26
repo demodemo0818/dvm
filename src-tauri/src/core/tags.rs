@@ -41,7 +41,7 @@ pub fn ensure_tag(conn: &Connection, name: &str) -> Result<i64> {
     Ok(id)
 }
 
-pub fn tag_videos(conn: &Connection, video_ids: &[i64], tag_name: &str) -> Result<i64> {
+pub fn tag_videos(conn: &Connection, actor: &str, video_ids: &[i64], tag_name: &str) -> Result<i64> {
     let tag_id = ensure_tag(conn, tag_name)?;
     conn.execute_batch("BEGIN")?;
     for vid in video_ids {
@@ -51,11 +51,11 @@ pub fn tag_videos(conn: &Connection, video_ids: &[i64], tag_name: &str) -> Resul
         )?;
     }
     conn.execute_batch("COMMIT")?;
-    db::log_op(conn, "user", "tag_videos", &format!("tag={tag_name} videos={video_ids:?}"));
+    db::log_op(conn, actor, "tag_videos", &format!("tag={tag_name} videos={video_ids:?}"));
     Ok(tag_id)
 }
 
-pub fn untag_videos(conn: &Connection, video_ids: &[i64], tag_id: i64) -> Result<()> {
+pub fn untag_videos(conn: &Connection, actor: &str, video_ids: &[i64], tag_id: i64) -> Result<()> {
     conn.execute_batch("BEGIN")?;
     for vid in video_ids {
         conn.execute(
@@ -64,22 +64,22 @@ pub fn untag_videos(conn: &Connection, video_ids: &[i64], tag_id: i64) -> Result
         )?;
     }
     conn.execute_batch("COMMIT")?;
-    db::log_op(conn, "user", "untag_videos", &format!("tag_id={tag_id} videos={video_ids:?}"));
+    db::log_op(conn, actor, "untag_videos", &format!("tag_id={tag_id} videos={video_ids:?}"));
     Ok(())
 }
 
-pub fn rename_tag(conn: &Connection, tag_id: i64, new_name: &str) -> Result<()> {
+pub fn rename_tag(conn: &Connection, actor: &str, tag_id: i64, new_name: &str) -> Result<()> {
     let new_name = new_name.trim();
     anyhow::ensure!(!new_name.is_empty(), "タグ名が空です");
     conn.execute("UPDATE tags SET name = ?1 WHERE id = ?2", params![new_name, tag_id])?;
-    db::log_op(conn, "user", "rename_tag", &format!("tag_id={tag_id} new_name={new_name}"));
+    db::log_op(conn, actor, "rename_tag", &format!("tag_id={tag_id} new_name={new_name}"));
     Ok(())
 }
 
-pub fn delete_tag(conn: &Connection, tag_id: i64) -> Result<()> {
+pub fn delete_tag(conn: &Connection, actor: &str, tag_id: i64) -> Result<()> {
     // video_tags は ON DELETE CASCADE で一緒に消える
     conn.execute("DELETE FROM tags WHERE id = ?1", params![tag_id])?;
-    db::log_op(conn, "user", "delete_tag", &format!("tag_id={tag_id}"));
+    db::log_op(conn, actor, "delete_tag", &format!("tag_id={tag_id}"));
     Ok(())
 }
 

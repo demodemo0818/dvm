@@ -12,22 +12,24 @@ export const api = {
     invoke<VideoRow[]>('query_videos', { query, limit, offset }),
   registerFiles: (paths: string[]) => invoke<number>('register_files', { paths }),
   openVideo: (id: number) => invoke<void>('open_video', { id }),
+  markViewed: (id: number) => invoke<void>('mark_viewed', { id }),
   listTags: () => invoke<Tag[]>('list_tags'),
-  tagVideos: (videoIds: number[], name: string) =>
-    invoke<number>('tag_videos', { videoIds, name }),
-  untagVideos: (videoIds: number[], tagId: number) =>
-    invoke<void>('untag_videos', { videoIds, tagId }),
+  tagVideos: (videoIds: number[], name: string, actor?: 'user' | 'ai') =>
+    invoke<number>('tag_videos', { videoIds, name, actor }),
+  untagVideos: (videoIds: number[], tagId: number, actor?: 'user' | 'ai') =>
+    invoke<void>('untag_videos', { videoIds, tagId, actor }),
   renameTag: (tagId: number, name: string) => invoke<void>('rename_tag', { tagId, name }),
   deleteTag: (tagId: number) => invoke<void>('delete_tag', { tagId }),
   tagsForVideos: (videoIds: number[]) => invoke<Tag[]>('tags_for_videos', { videoIds }),
-  setRating: (videoIds: number[], rating: number) =>
-    invoke<void>('set_rating', { videoIds, rating }),
-  removeVideos: (videoIds: number[]) => invoke<void>('remove_videos', { videoIds }),
+  setRating: (videoIds: number[], rating: number, actor?: 'user' | 'ai') =>
+    invoke<void>('set_rating', { videoIds, rating, actor }),
+  removeVideos: (videoIds: number[], actor?: 'user' | 'ai') =>
+    invoke<void>('remove_videos', { videoIds, actor }),
   listSeries: () => invoke<Series[]>('list_series'),
-  addToSeries: (videoIds: number[], name: string) =>
-    invoke<number>('add_to_series', { videoIds, name }),
-  removeFromSeries: (videoIds: number[], seriesId: number) =>
-    invoke<void>('remove_from_series', { videoIds, seriesId }),
+  addToSeries: (videoIds: number[], name: string, actor?: 'user' | 'ai') =>
+    invoke<number>('add_to_series', { videoIds, name, actor }),
+  removeFromSeries: (videoIds: number[], seriesId: number, actor?: 'user' | 'ai') =>
+    invoke<void>('remove_from_series', { videoIds, seriesId, actor }),
   deleteSeries: (seriesId: number) => invoke<void>('delete_series', { seriesId }),
   seriesForVideos: (videoIds: number[]) => invoke<Series[]>('series_for_videos', { videoIds }),
   getSetting: (key: string) => invoke<string | null>('get_setting', { key }),

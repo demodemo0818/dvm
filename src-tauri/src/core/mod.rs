@@ -8,5 +8,6 @@ pub mod series;
 pub mod settings;
 pub mod tags;
 pub mod thumbs;
+pub mod videos;
 pub mod volumes;
 pub mod watcher;
