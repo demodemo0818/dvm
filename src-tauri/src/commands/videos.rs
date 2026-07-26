@@ -6,7 +6,7 @@ use tauri::{AppHandle, State};
 
 #[tauri::command]
 pub fn count_videos(state: State<AppState>, query: VideoQuery) -> Result<i64, String> {
-    let conn = state.db.lock().unwrap();
+    let conn = state.db_read.lock().unwrap();
     query::count(&conn, &query).map_err(|e| e.to_string())
 }
 
@@ -17,7 +17,7 @@ pub fn query_videos(
     limit: i64,
     offset: i64,
 ) -> Result<Vec<VideoRow>, String> {
-    let conn = state.db.lock().unwrap();
+    let conn = state.db_read.lock().unwrap();
     query::query_rows(&conn, Some(&state.thumbs_dir), &query, limit, offset)
         .map_err(|e| e.to_string())
 }

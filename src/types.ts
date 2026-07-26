@@ -80,6 +80,13 @@ export interface TranscodeProgress {
   message: string;
 }
 
+/** 画面右下に出す通知(主に API 失敗の報告) */
+export interface Toast {
+  id: number;
+  message: string;
+  kind: 'error' | 'info';
+}
+
 export interface AppInfo {
   dataDir: string;
   dbPath: string;

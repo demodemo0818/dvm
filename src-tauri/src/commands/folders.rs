@@ -18,7 +18,7 @@ pub struct WatchedFolder {
 
 #[tauri::command]
 pub fn list_watched_folders(state: State<AppState>) -> Result<Vec<WatchedFolder>, String> {
-    let conn = state.db.lock().unwrap();
+    let conn = state.db_read.lock().unwrap();
     let mut stmt = conn
         .prepare(
             "SELECT f.id, f.path, f.recursive, f.enabled,

@@ -4,7 +4,7 @@ use tauri::State;
 
 #[tauri::command]
 pub fn get_setting(state: State<AppState>, key: String) -> Result<Option<String>, String> {
-    let conn = state.db.lock().unwrap();
+    let conn = state.db_read.lock().unwrap();
     settings::get(&conn, &key).map_err(|e| e.to_string())
 }
 

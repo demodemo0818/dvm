@@ -10,6 +10,9 @@ use tauri::Manager;
 
 pub struct AppState {
     pub db: Mutex<rusqlite::Connection>,
+    /// 一覧・サイドバーなど読み取りだけのコマンド用。書き込みロックと競合させないため
+    /// 別コネクションにしている(db.rs の open_read 参照)
+    pub db_read: Mutex<rusqlite::Connection>,
     pub data_dir: PathBuf,
     pub thumbs_dir: PathBuf,
     pub backups_dir: PathBuf,
@@ -41,9 +44,13 @@ pub fn run() {
             std::fs::create_dir_all(&backups_dir)?;
             let transcode_dir = data_dir.join("transcode");
             std::fs::create_dir_all(&transcode_dir)?;
-            let conn = db::init(&data_dir.join("library.db"))?;
+            let db_path = data_dir.join("library.db");
+            let conn = db::init(&db_path)?;
+            // マイグレーション後に開く(スキーマが揃った状態を読ませる)
+            let conn_read = db::open_read(&db_path)?;
             app.manage(AppState {
                 db: Mutex::new(conn),
+                db_read: Mutex::new(conn_read),
                 data_dir,
                 thumbs_dir,
                 backups_dir,
@@ -58,7 +65,9 @@ pub fn run() {
 
             // 外部プロセス(MCP 等)からの DB 変更を検知して UI に反映する。
             // PRAGMA data_version は「他コネクションのコミット」でのみ増えるため、
-            // アプリ自身の書き込みには反応しない
+            // アプリ自身の書き込みには反応しない。
+            // ここは必ず書き込み用の db を使うこと(db_read で見ると自プロセスの
+            // 書き込みコネクションのコミットにも反応してしまい、常時 emit になる)
             let watcher_handle = app.handle().clone();
             std::thread::spawn(move || {
                 use tauri::Emitter;

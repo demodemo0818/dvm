@@ -7,12 +7,14 @@ import { AiPanel } from './components/AiPanel';
 import { Inspector } from './components/Inspector';
 import { PlayerOverlay } from './components/PlayerOverlay';
 import { Sidebar } from './components/Sidebar';
+import { Toasts } from './components/Toast';
 import { Toolbar } from './components/Toolbar';
 import { VideoGrid } from './components/VideoGrid';
 import { useLibrary } from './store';
 
 export default function App() {
-  const { bumpVersion, setStatus, status, scanning, setPlayerPath } = useLibrary();
+  const { bumpVersion, setStatus, status, scanning, setPlayerPath, setPreviewOnHover } =
+    useLibrary();
   const debounceTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -27,10 +29,12 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // 外部プレイヤー設定をロード(再生分岐で使う)
+  // 外部プレイヤー設定(再生分岐)とホバープレビューの可否をロード
   useEffect(() => {
     api.getSetting('player_path').then((v) => setPlayerPath(v ?? ''));
-  }, [setPlayerPath]);
+    // 既定は ON。明示的に '0' のときだけ OFF
+    api.getSetting('preview_on_hover').then((v) => setPreviewOnHover(v !== '0'));
+  }, [setPlayerPath, setPreviewOnHover]);
 
   useEffect(() => {
     const unlisteners: Array<() => void> = [];
@@ -69,6 +73,8 @@ export default function App() {
         <AiPanel />
       </div>
       <PlayerOverlay />
+      {/* 通知も .app の外(mpv 再生中でもエラーが見えるように) */}
+      <Toasts />
     </>
   );
 }

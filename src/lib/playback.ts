@@ -8,12 +8,17 @@ import type { VideoRow } from '../types';
  */
 export type PlayMode = 'native' | 'remux' | 'transcode';
 
-/** WebView2 がネイティブ再生できる可能性が高いコンテナ拡張子 */
-const NATIVE_EXTS = new Set(['mp4', 'm4v', 'mov', 'webm']);
-/** mp4 コンテナで WebView2 が確実にデコードできる映像コーデック */
-const MP4_SAFE_VIDEO = new Set(['h264', 'av1']);
-/** mp4 コンテナで WebView2 が確実にデコードできる音声コーデック */
-const MP4_SAFE_AUDIO = new Set(['aac', 'mp3']);
+/**
+ * WebView2 がネイティブ再生できる可能性が高いコンテナ拡張子。
+ * mkv を含むのは、WebM が Matroska のサブセットで Chromium に Matroska パーサが
+ * あるため(v1.6 で mkv + HEVC の直接再生を実測確認)。
+ * 判定を外しても native の onError で transcode に落ちるので、楽観側に倒してよい
+ */
+const NATIVE_EXTS = new Set(['mp4', 'm4v', 'mov', 'webm', 'mkv']);
+/** Chromium がデコードできる映像コーデック(HEVC は OS 拡張がある場合のみ。下記参照) */
+const SAFE_VIDEO = new Set(['h264', 'av1', 'vp8', 'vp9']);
+/** Chromium がデコードできる音声コーデック(ac3 / dts / truehd は非対応) */
+const SAFE_AUDIO = new Set(['aac', 'mp3', 'opus', 'vorbis', 'flac']);
 
 function extOf(path: string): string {
   return path.slice(path.lastIndexOf('.') + 1).toLowerCase();
@@ -38,14 +43,11 @@ export function decidePlayback(v: VideoRow): PlayMode {
   const vc = v.videoCodec;
   if (!vc) return NATIVE_EXTS.has(ext) ? 'native' : 'transcode';
 
-  const videoOk =
-    MP4_SAFE_VIDEO.has(vc) ||
-    ext === 'webm' || // webm(vp8/vp9/av1)はそのまま再生できる
-    (vc === 'hevc' && hevcSupported());
-  const audioOk = v.audioCodec == null || MP4_SAFE_AUDIO.has(v.audioCodec) || ext === 'webm';
+  const videoOk = SAFE_VIDEO.has(vc) || (vc === 'hevc' && hevcSupported());
+  const audioOk = v.audioCodec == null || SAFE_AUDIO.has(v.audioCodec);
 
   if (NATIVE_EXTS.has(ext) && videoOk && audioOk) return 'native';
-  // 映像はそのままでコンテナ/音声だけ直せばよい(vp8/vp9 は mp4 に copy できないので除外)
-  if (videoOk && ext !== 'webm' && vc !== 'vp8' && vc !== 'vp9') return 'remux';
+  // 映像はそのまま使えるのでコンテナ/音声だけ直す(vp8/vp9 は mp4 に copy できないので除外)
+  if (videoOk && vc !== 'vp8' && vc !== 'vp9') return 'remux';
   return 'transcode';
 }

@@ -221,6 +221,39 @@ body {
   display: block;
 }
 
+/* ホバープレビュー(元動画をそのまま再生。img の上・バッジの下に重なる) */
+.thumb .hover-preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+  display: block;
+}
+
+/* ホバープレビューの再生位置バー(マウスに追従してシーンを送れる) */
+.thumb .preview-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.thumb .preview-bar > div {
+  width: 0;
+  height: 100%;
+  background: #e8ebf2;
+}
+
+/* プレビュー中の「現在位置 / 尺」。位置バーのぶんだけ尺バッジより上に置く */
+.thumb .preview-time {
+  bottom: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* 視聴進捗バー(レジューム位置) */
 .thumb .resume-bar {
   position: absolute;
@@ -236,9 +269,10 @@ body {
   background: #4c8dff;
 }
 
+/* img の下に常時敷いておく。読み込みに失敗した img を隠すとこれが見える */
 .thumb-placeholder {
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -615,6 +649,22 @@ body {
   border: 1px solid #343945;
   border-radius: 6px;
   padding: 8px;
+}
+
+.settings-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 13px;
+  color: #d8dbe2;
+  cursor: pointer;
+}
+
+.settings-check input {
+  width: auto;
+  margin: 0;
+  cursor: pointer;
 }
 
 .settings-note {
@@ -1033,4 +1083,57 @@ html.mpv-active .app {
   font-size: 11px;
   color: #8a8f9c;
   flex-shrink: 0;
+}
+
+/* ---- 通知(トースト) ---- */
+.toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  /* プレイヤーオーバーレイ(200)より上に出す */
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 440px;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  background: #2b2f38;
+  border: 1px solid #3a3f4a;
+  color: #d8dbe2;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+.toast.error {
+  background: #3a2429;
+  border-color: #7a3b44;
+  color: #ffd9d9;
+}
+
+.toast-msg {
+  flex: 1;
+  word-break: break-word;
+}
+
+.toast-close {
+  background: none;
+  border: none;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.toast-close:hover {
+  opacity: 1;
 }

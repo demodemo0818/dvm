@@ -19,9 +19,12 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [aiKey, setAiKey] = useState('');
   const [aiModel, setAiModel] = useState('');
+  const [previewOnHover, setPreviewOnHover] = useState(true);
 
   useEffect(() => {
     api.getSetting('player_path').then((v) => setPlayerPath(v ?? ''));
+    // 既定は ON。明示的に '0' のときだけ OFF
+    api.getSetting('preview_on_hover').then((v) => setPreviewOnHover(v !== '0'));
     api.getSetting('anthropic_api_key').then((v) => setAiKey(v ?? ''));
     api.getSetting('anthropic_model').then((v) => setAiModel(v ?? ''));
     api.getAppInfo().then(setInfo).catch(() => {});
@@ -41,6 +44,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     await api.setSetting('player_path', playerPath.trim());
     // 再生分岐(アプリ内 or 外部)が即座に切り替わるようストアにも反映
     useLibrary.getState().setPlayerPath(playerPath.trim());
+    await api.setSetting('preview_on_hover', previewOnHover ? '1' : '0');
+    useLibrary.getState().setPreviewOnHover(previewOnHover);
     await api.setSetting('anthropic_api_key', aiKey.trim());
     await api.setSetting('anthropic_model', aiModel.trim());
     onClose();
@@ -90,6 +95,18 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
               onChange={(e) => setPlayerPath(e.target.value)}
             />
             <button onClick={browsePlayer}>参照...</button>
+          </div>
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={previewOnHover}
+              onChange={(e) => setPreviewOnHover(e.target.checked)}
+            />
+            カードにカーソルを合わせるとプレビュー再生する(マウスを左右に動かすとシーンを送れます)
+          </label>
+          <div className="settings-note">
+            プレビューは元の動画ファイルを直接読みます。外付け HDD / NAS のアクセスを抑えたいときは
+            オフにしてください
           </div>
         </div>
 

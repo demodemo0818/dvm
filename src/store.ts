@@ -1,5 +1,7 @@
 import { create } from 'zustand';
-import type { DurationBucket, SortKey, VideoRow } from './types';
+import type { DurationBucket, SortKey, Toast, VideoRow } from './types';
+
+let toastSeq = 0;
 
 interface LibraryState {
   text: string;
@@ -25,8 +27,14 @@ interface LibraryState {
   playingVideo: VideoRow | null;
   /** 外部プレイヤーのパス設定(起動時ロード・設定保存時更新) */
   playerPath: string;
+  /** カードのホバープレビューを有効にするか(設定で切り替え。既定 ON) */
+  previewOnHover: boolean;
   /** AI アシスタントパネルの表示状態 */
   showAiPanel: boolean;
+  /** 画面右下の通知(API 失敗を無反応にしないため) */
+  toasts: Toast[];
+  pushToast: (message: string, kind?: Toast['kind']) => void;
+  dismissToast: (id: number) => void;
   setText: (text: string) => void;
   setSort: (sort: SortKey) => void;
   setFolderId: (folderId: number | null) => void;
@@ -40,6 +48,7 @@ interface LibraryState {
   setStatus: (scanning: boolean, status: string) => void;
   setPlayingVideo: (video: VideoRow | null) => void;
   setPlayerPath: (playerPath: string) => void;
+  setPreviewOnHover: (previewOnHover: boolean) => void;
   toggleAiPanel: () => void;
   /** フィルタ一式をまとめて置き換える(AI アシスタントの apply_filter 用)。省略項目は既定値に戻る */
   applyFilter: (filter: {
@@ -73,9 +82,19 @@ export const useLibrary = create<LibraryState>((set) => ({
   selection: [],
   playingVideo: null,
   playerPath: '',
+  previewOnHover: true,
   showAiPanel: false,
+  toasts: [],
+  pushToast: (message, kind = 'error') =>
+    set((s) => {
+      // 同じ内容が出ている間は増やさない(ページ取得のリトライなどで連投されるため)
+      if (s.toasts.some((t) => t.message === message)) return s;
+      return { toasts: [...s.toasts, { id: ++toastSeq, message, kind }].slice(-4) };
+    }),
+  dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
   setPlayingVideo: (playingVideo) => set({ playingVideo }),
   setPlayerPath: (playerPath) => set({ playerPath }),
+  setPreviewOnHover: (previewOnHover) => set({ previewOnHover }),
   toggleAiPanel: () => set((s) => ({ showAiPanel: !s.showAiPanel })),
   applyFilter: (f) =>
     set((s) => ({

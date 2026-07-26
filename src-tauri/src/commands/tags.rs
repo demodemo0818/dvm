@@ -4,7 +4,7 @@ use tauri::State;
 
 #[tauri::command]
 pub fn list_tags(state: State<AppState>) -> Result<Vec<Tag>, String> {
-    let conn = state.db.lock().unwrap();
+    let conn = state.db_read.lock().unwrap();
     tags::list_tags(&conn).map_err(|e| e.to_string())
 }
 
@@ -46,6 +46,6 @@ pub fn delete_tag(state: State<AppState>, tag_id: i64) -> Result<(), String> {
 
 #[tauri::command]
 pub fn tags_for_videos(state: State<AppState>, video_ids: Vec<i64>) -> Result<Vec<Tag>, String> {
-    let conn = state.db.lock().unwrap();
+    let conn = state.db_read.lock().unwrap();
     tags::tags_for_videos(&conn, &video_ids).map_err(|e| e.to_string())
 }

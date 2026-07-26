@@ -1,63 +1,93 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { api } from '../api';
 import type { VideoQuery, VideoRow } from '../types';
 
 const PAGE_SIZE = 200;
+/** 同じページの取得に連続で失敗したら諦める回数(スクロールのたびに投げ続けないため) */
+const MAX_RETRY = 2;
 
 /**
  * 仮想化グリッド用のスパースなページキャッシュ。
  * 全件を一括で持たず、表示に必要なページだけ遅延取得する。
+ *
+ * ページは state ではなく ref で持ち、更新時に rerender する。
+ * クエリ変更(= 中身が別物)ではキャッシュを捨てるが、
+ * ライブラリ更新(version)では捨てずに裏で取り直して差し替える。
+ * 捨ててしまうと取り込み中に一覧が毎回「…」へ戻ってちらつくため
  */
 export function useVideos(query: VideoQuery, version: number) {
   const [total, setTotal] = useState(0);
-  const [pages, setPages] = useState<Map<number, VideoRow[]>>(new Map());
+  const pages = useRef<Map<number, VideoRow[]>>(new Map());
   const inflight = useRef<Set<number>>(new Set());
+  const failures = useRef<Map<number, number>>(new Map());
+  /** 世代番号。上げると進行中リクエストの結果は破棄される */
   const generation = useRef(0);
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
   const queryKey = JSON.stringify(query);
 
-  useEffect(() => {
-    generation.current += 1;
-    const gen = generation.current;
-    inflight.current.clear();
-    setPages(new Map());
-    api.countVideos(query).then((c) => {
-      if (generation.current === gen) setTotal(c);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryKey, version]);
-
-  const requestPage = useCallback(
+  const fetchPage = useCallback(
     (page: number) => {
       if (inflight.current.has(page)) return;
+      if ((failures.current.get(page) ?? 0) >= MAX_RETRY) return;
       inflight.current.add(page);
       const gen = generation.current;
       api
         .queryVideos(query, PAGE_SIZE, page * PAGE_SIZE)
         .then((rows) => {
+          inflight.current.delete(page);
           if (generation.current !== gen) return;
-          setPages((prev) => {
-            const next = new Map(prev);
-            next.set(page, rows);
-            return next;
-          });
+          failures.current.delete(page);
+          pages.current.set(page, rows);
+          rerender();
         })
-        .catch(() => inflight.current.delete(page));
+        .catch(() => {
+          // 失敗の中身は api 側でトースト表示済み。ここでは回数だけ数える
+          inflight.current.delete(page);
+          if (generation.current === gen) {
+            failures.current.set(page, (failures.current.get(page) ?? 0) + 1);
+          }
+        });
       // eslint-disable-next-line react-hooks/exhaustive-deps
     },
-    [queryKey, version],
+    [queryKey],
   );
+
+  // クエリが変わった: 中身が別物になるのでキャッシュごと作り直す
+  useEffect(() => {
+    generation.current += 1;
+    pages.current = new Map();
+    inflight.current.clear();
+    failures.current.clear();
+    rerender();
+  }, [queryKey]);
+
+  // クエリ変更 + ライブラリ更新: 件数を取り直し、保持中のページは裏で差し替える
+  useEffect(() => {
+    generation.current += 1;
+    inflight.current.clear();
+    failures.current.clear();
+    const gen = generation.current;
+    api
+      .countVideos(query)
+      .then((c) => {
+        if (generation.current === gen) setTotal(c);
+      })
+      .catch(() => {});
+    for (const page of Array.from(pages.current.keys())) fetchPage(page);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryKey, version, fetchPage]);
 
   const getVideo = useCallback(
     (index: number): VideoRow | undefined => {
       const page = Math.floor(index / PAGE_SIZE);
-      const rows = pages.get(page);
+      const rows = pages.current.get(page);
       if (!rows) {
-        requestPage(page);
+        fetchPage(page);
         return undefined;
       }
       return rows[index % PAGE_SIZE];
     },
-    [pages, requestPage],
+    [fetchPage],
   );
 
   return { total, getVideo };

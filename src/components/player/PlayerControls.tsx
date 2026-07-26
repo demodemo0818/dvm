@@ -1,16 +1,7 @@
 import { useRef, useState } from 'react';
+import { fmtTime } from '../../lib/format';
 import { RATE_OPTIONS } from './types';
 import type { VideoPlayer } from './types';
-
-function fmtTime(sec: number): string {
-  const s = Math.floor(sec);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const ss = s % 60;
-  return h > 0
-    ? `${h}:${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}`
-    : `${m}:${String(ss).padStart(2, '0')}`;
-}
 
 /** バッファ帯付きシークバー。ドラッグ中はプレビュー位置を表示し、離した時にシークする */
 function SeekBar({ player }: { player: VideoPlayer }) {

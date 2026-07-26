@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use std::io::Read;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 use walkdir::WalkDir;
 
@@ -63,8 +64,14 @@ fn unix_secs(t: std::io::Result<std::time::SystemTime>) -> Option<i64> {
         .map(|d| d.as_secs() as i64)
 }
 
-/// 1 ファイルを DB に登録(既存なら状態更新)。メタデータ取得が必要なら id を返す
-fn upsert_file(conn: &Connection, path: &Path, folder_id: Option<i64>) -> Result<Option<i64>> {
+/// 1 ファイルを DB に登録(既存なら状態更新)。メタデータ取得が必要なら id を返す。
+/// roots は移動検出で「旧パスが本当に消えたのか、ドライブ未接続なだけか」を見分けるのに使う
+fn upsert_file(
+    conn: &Connection,
+    roots: &mut offline::RootCache,
+    path: &Path,
+    folder_id: Option<i64>,
+) -> Result<Option<i64>> {
     let meta = std::fs::metadata(path)?;
     let size = meta.len();
     let path_str = path.to_string_lossy().to_string();
@@ -99,23 +106,40 @@ fn upsert_file(conn: &Connection, path: &Path, folder_id: Option<i64>) -> Result
         return Ok(if thumb_state == 0 { Some(id) } else { None });
     }
 
-    // 移動・リネーム検出: missing の中から同サイズ・同ハッシュを探す
+    // 移動・リネーム検出: 同サイズ・同ハッシュの既存レコードのうち、旧パスの実体が
+    // 消えているものを移動元とみなす。
+    // is_missing フラグで絞らないのは、フォルダをまたぐ移動でスキャン順が「移動先が先」に
+    // なると旧レコードがまだ is_missing=0 のままで、取りこぼして二重登録になるため
+    // (タグ・レーティング・視聴履歴が旧レコード側に取り残される)
     let hash = partial_hash(path, size);
     if let Some(h) = &hash {
-        let moved: Option<i64> = conn
-            .query_row(
-                "SELECT id FROM videos WHERE is_missing=1 AND size=?1 AND partial_hash=?2",
-                params![size as i64, h],
-                |r| r.get(0),
-            )
-            .optional()?;
-        if let Some(id) = moved {
+        let candidates: Vec<(i64, String, i64)> = {
+            let mut stmt = conn.prepare(
+                "SELECT id, path, thumb_state FROM videos WHERE size=?1 AND partial_hash=?2",
+            )?;
+            let rows = stmt
+                .query_map(params![size as i64, h], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+            rows
+        };
+        // オフラインのドライブ上にある旧パスは「消えた」と判断できないので候補から外す
+        // (同じ内容のファイルが両方に実在するだけ、というケースも実体チェックで弾ける)
+        let moved = candidates.into_iter().find(|(_, old_path, _)| {
+            old_path.as_str() != path_str
+                && roots.is_online(old_path)
+                && !Path::new(old_path).exists()
+        });
+        if let Some((id, old_path, thumb_state)) = moved {
             conn.execute(
                 "UPDATE videos SET path=?1, filename=?2, watched_folder_id=?3, is_missing=0 WHERE id=?4",
                 params![path_str, filename, folder_id, id],
             )?;
-            db::log_op(conn, "system", "move_detected", &path_str);
-            return Ok(None);
+            db::log_op(conn, "system", "move_detected", &format!("{old_path} -> {path_str}"));
+            // 移動元がサムネイル未生成だった場合はここで拾わないと永久に生成されない
+            return Ok(if thumb_state == 0 { Some(id) } else { None });
         }
     }
 
@@ -165,7 +189,7 @@ pub fn scan_folder(app: &AppHandle, folder_id: i64) -> Result<Vec<i64>> {
         conn.execute_batch("BEGIN")?;
         for entry in &files {
             seen.insert(entry.path().to_string_lossy().to_string());
-            if let Ok(Some(id)) = upsert_file(&conn, entry.path(), Some(folder_id)) {
+            if let Ok(Some(id)) = upsert_file(&conn, &mut roots, entry.path(), Some(folder_id)) {
                 pending.push(id);
             }
         }
@@ -239,11 +263,12 @@ pub fn register_paths(app: &AppHandle, paths: Vec<String>) -> Result<usize> {
 
     let mut pending: Vec<i64> = Vec::new();
     let count = targets.len();
+    let mut roots = offline::RootCache::default();
     {
         let conn = state.db.lock().unwrap();
         conn.execute_batch("BEGIN")?;
         for path in &targets {
-            if let Ok(Some(id)) = upsert_file(&conn, path, None) {
+            if let Ok(Some(id)) = upsert_file(&conn, &mut roots, path, None) {
                 pending.push(id);
             }
         }
@@ -265,12 +290,15 @@ pub fn process_pending(app: &AppHandle, ids: Vec<i64>) {
     let state = app.state::<AppState>();
     let total = ids.len();
     let done = AtomicUsize::new(0);
+    // library:changed を最後に投げた時刻(下の間引きで使う)
+    let last_changed = Mutex::new(std::time::Instant::now());
 
     let Ok(pool) = rayon::ThreadPoolBuilder::new().num_threads(3).build() else {
         return;
     };
     let state_ref = &state;
     let done_ref = &done;
+    let last_changed_ref = &last_changed;
 
     pool.scope(|scope| {
         for id in ids {
@@ -308,8 +336,22 @@ pub fn process_pending(app: &AppHandle, ids: Vec<i64>) {
 
                 let n = done_ref.fetch_add(1, Ordering::Relaxed) + 1;
                 if n % 10 == 0 || n == total {
+                    // 進捗テキストはこまめに出してよい(ステータスバーの文字が変わるだけ)
                     emit_state(app, n < total, format!("サムネイル生成中 {n}/{total}"));
-                    emit_changed(app);
+                    // library:changed は一覧の再取得を誘発するので 2 秒に 1 回までに抑える。
+                    // 10 件ごとに投げると数千件の取り込み中ずっと再取得が走り続けてしまう
+                    let should_emit = {
+                        let mut last = last_changed_ref.lock().unwrap();
+                        if n == total || last.elapsed() >= std::time::Duration::from_secs(2) {
+                            *last = std::time::Instant::now();
+                            true
+                        } else {
+                            false
+                        }
+                    };
+                    if should_emit {
+                        emit_changed(app);
+                    }
                 }
             });
         }
@@ -364,6 +406,112 @@ pub fn run_scan_all(app: &AppHandle) {
     process_pending(app, pending);
     emit_state(app, false, "");
     state.scanning.store(false, Ordering::SeqCst);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn setup(name: &str) -> (PathBuf, Connection) {
+        let dir = std::env::temp_dir().join(format!("videoshelf-test-{name}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let conn = crate::db::init(&dir.join("library.db")).unwrap();
+        // watched_folder_id の外部キー用に監視フォルダ 2 件(A / B)を用意しておく
+        conn.execute(
+            "INSERT INTO watched_folders (id, path) VALUES (1, ?1), (2, ?2)",
+            params![
+                dir.join("A").to_string_lossy(),
+                dir.join("B").to_string_lossy()
+            ],
+        )
+        .unwrap();
+        (dir, conn)
+    }
+
+    fn write_video(path: &Path, content: &[u8]) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, content).unwrap();
+    }
+
+    fn video_count(conn: &Connection) -> i64 {
+        conn.query_row("SELECT COUNT(*) FROM videos", [], |r| r.get(0)).unwrap()
+    }
+
+    /// フォルダをまたぐ移動で、スキャン順が「移動先が先」(旧レコードがまだ
+    /// is_missing=0)でも移動として検出され、二重登録にならないこと
+    #[test]
+    fn detects_move_across_folders_when_destination_scanned_first() {
+        let (dir, conn) = setup("move-across");
+        let old = dir.join("A").join("動画.mp4");
+        let new = dir.join("B").join("動画.mp4");
+        write_video(&old, b"videoshelf-test-content");
+
+        let mut roots = offline::RootCache::default();
+        upsert_file(&conn, &mut roots, &old, Some(1)).unwrap();
+        // ユーザーが付けたデータが引き継がれることの確認用
+        conn.execute("UPDATE videos SET rating = 5", []).unwrap();
+
+        // 実ファイルを別フォルダへ移動。旧レコードは is_missing=0 のまま
+        write_video(&new, b"videoshelf-test-content");
+        std::fs::remove_file(&old).unwrap();
+        upsert_file(&conn, &mut roots, &new, Some(2)).unwrap();
+
+        let (path, rating, missing, folder): (String, i64, i64, i64) = conn
+            .query_row("SELECT path, rating, is_missing, watched_folder_id FROM videos", [], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })
+            .unwrap();
+        assert_eq!(video_count(&conn), 1, "移動なのに二重登録されている");
+        assert_eq!(path, new.to_string_lossy());
+        assert_eq!(rating, 5, "レーティングが引き継がれていない");
+        assert_eq!(missing, 0);
+        assert_eq!(folder, 2, "移動先の監視フォルダに付け替わっていない");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 同じ内容のファイルが両方に実在する場合は移動ではないので、別レコードになること
+    #[test]
+    fn keeps_copies_as_separate_entries() {
+        let (dir, conn) = setup("copy");
+        let a = dir.join("A").join("同じ中身.mp4");
+        let b = dir.join("B").join("同じ中身.mp4");
+        write_video(&a, b"videoshelf-test-content");
+        write_video(&b, b"videoshelf-test-content");
+
+        let mut roots = offline::RootCache::default();
+        upsert_file(&conn, &mut roots, &a, Some(1)).unwrap();
+        upsert_file(&conn, &mut roots, &b, Some(1)).unwrap();
+
+        assert_eq!(video_count(&conn), 2, "実在するコピーが移動扱いにされている");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 旧レコードが missing 済みのケース(従来からの経路)も引き続き動くこと
+    #[test]
+    fn detects_move_from_missing_entry() {
+        let (dir, conn) = setup("move-missing");
+        let old = dir.join("A").join("旧.mp4");
+        let new = dir.join("A").join("新.mp4");
+        write_video(&old, b"videoshelf-test-content");
+
+        let mut roots = offline::RootCache::default();
+        upsert_file(&conn, &mut roots, &old, Some(1)).unwrap();
+        write_video(&new, b"videoshelf-test-content");
+        std::fs::remove_file(&old).unwrap();
+        conn.execute("UPDATE videos SET is_missing = 1", []).unwrap();
+
+        upsert_file(&conn, &mut roots, &new, Some(1)).unwrap();
+
+        let (path, missing): (String, i64) = conn
+            .query_row("SELECT path, is_missing FROM videos", [], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap();
+        assert_eq!(video_count(&conn), 1);
+        assert_eq!(path, new.to_string_lossy());
+        assert_eq!(missing, 0, "復帰したのに missing のまま");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 /// 監視フォルダ 1 つのスキャン + 後処理(多重起動ガードつき)

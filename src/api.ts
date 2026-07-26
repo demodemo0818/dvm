@@ -1,49 +1,71 @@
 import { invoke } from '@tauri-apps/api/core';
+import { useLibrary } from './store';
 import type { AppInfo, BackupInfo, Series, Tag, VideoQuery, VideoRow, WatchedFolder } from './types';
 
+/**
+ * Tauri コマンド呼び出しの共通ラッパ。
+ * 失敗を握り潰さず必ずトーストで見せてから再スローする
+ * (ffmpeg 欠落・権限エラー・プレイヤー起動失敗などが「無反応」になるのを防ぐ)
+ */
+async function call<T>(cmd: string, args?: Record<string, unknown>, silent = false): Promise<T> {
+  try {
+    return await invoke<T>(cmd, args);
+  } catch (e) {
+    if (!silent) {
+      const detail = e instanceof Error ? e.message : String(e);
+      useLibrary.getState().pushToast(`${detail}(${cmd})`);
+    }
+    throw e;
+  }
+}
+
 export const api = {
-  listWatchedFolders: () => invoke<WatchedFolder[]>('list_watched_folders'),
-  addWatchedFolder: (path: string) => invoke<number>('add_watched_folder', { path }),
+  listWatchedFolders: () => call<WatchedFolder[]>('list_watched_folders'),
+  addWatchedFolder: (path: string) => call<number>('add_watched_folder', { path }),
   removeWatchedFolder: (id: number, removeVideos: boolean) =>
-    invoke<void>('remove_watched_folder', { id, removeVideos }),
-  rescanAll: () => invoke<void>('rescan_all'),
-  countVideos: (query: VideoQuery) => invoke<number>('count_videos', { query }),
+    call<void>('remove_watched_folder', { id, removeVideos }),
+  rescanAll: () => call<void>('rescan_all'),
+  countVideos: (query: VideoQuery) => call<number>('count_videos', { query }),
   queryVideos: (query: VideoQuery, limit: number, offset: number) =>
-    invoke<VideoRow[]>('query_videos', { query, limit, offset }),
-  registerFiles: (paths: string[]) => invoke<number>('register_files', { paths }),
-  openVideo: (id: number) => invoke<void>('open_video', { id }),
-  markViewed: (id: number) => invoke<void>('mark_viewed', { id }),
-  setResume: (id: number, resumeMs: number) => invoke<void>('set_resume', { id, resumeMs }),
-  /** 再生用変換(remux/transcode)。完了までブロックし、キャッシュ mp4 の絶対パスを返す */
+    call<VideoRow[]>('query_videos', { query, limit, offset }),
+  registerFiles: (paths: string[]) => call<number>('register_files', { paths }),
+  openVideo: (id: number) => call<void>('open_video', { id }),
+  markViewed: (id: number) => call<void>('mark_viewed', { id }),
+  setResume: (id: number, resumeMs: number) => call<void>('set_resume', { id, resumeMs }),
+  /**
+   * 再生用変換(remux/transcode)。完了までブロックし、キャッシュ mp4 の絶対パスを返す。
+   * 失敗は呼び出し側が transcode / 外部プレイヤーへフォールバックする正常経路であり、
+   * 準備中に閉じたときのキャンセルでも失敗するため、トーストは出さない(silent)
+   */
   prepareVideo: (id: number, mode: 'remux' | 'transcode') =>
-    invoke<string>('prepare_video', { id, mode }),
-  cancelPrepare: () => invoke<void>('cancel_prepare'),
-  listTags: () => invoke<Tag[]>('list_tags'),
+    call<string>('prepare_video', { id, mode }, true),
+  cancelPrepare: () => call<void>('cancel_prepare', undefined, true),
+  listTags: () => call<Tag[]>('list_tags'),
   tagVideos: (videoIds: number[], name: string, actor?: 'user' | 'ai') =>
-    invoke<number>('tag_videos', { videoIds, name, actor }),
+    call<number>('tag_videos', { videoIds, name, actor }),
   untagVideos: (videoIds: number[], tagId: number, actor?: 'user' | 'ai') =>
-    invoke<void>('untag_videos', { videoIds, tagId, actor }),
-  renameTag: (tagId: number, name: string) => invoke<void>('rename_tag', { tagId, name }),
-  deleteTag: (tagId: number) => invoke<void>('delete_tag', { tagId }),
-  tagsForVideos: (videoIds: number[]) => invoke<Tag[]>('tags_for_videos', { videoIds }),
+    call<void>('untag_videos', { videoIds, tagId, actor }),
+  renameTag: (tagId: number, name: string) => call<void>('rename_tag', { tagId, name }),
+  deleteTag: (tagId: number) => call<void>('delete_tag', { tagId }),
+  tagsForVideos: (videoIds: number[]) => call<Tag[]>('tags_for_videos', { videoIds }),
   setRating: (videoIds: number[], rating: number, actor?: 'user' | 'ai') =>
-    invoke<void>('set_rating', { videoIds, rating, actor }),
+    call<void>('set_rating', { videoIds, rating, actor }),
   removeVideos: (videoIds: number[], actor?: 'user' | 'ai') =>
-    invoke<void>('remove_videos', { videoIds, actor }),
-  listSeries: () => invoke<Series[]>('list_series'),
+    call<void>('remove_videos', { videoIds, actor }),
+  listSeries: () => call<Series[]>('list_series'),
   addToSeries: (videoIds: number[], name: string, actor?: 'user' | 'ai') =>
-    invoke<number>('add_to_series', { videoIds, name, actor }),
+    call<number>('add_to_series', { videoIds, name, actor }),
   removeFromSeries: (videoIds: number[], seriesId: number, actor?: 'user' | 'ai') =>
-    invoke<void>('remove_from_series', { videoIds, seriesId, actor }),
-  deleteSeries: (seriesId: number) => invoke<void>('delete_series', { seriesId }),
-  seriesForVideos: (videoIds: number[]) => invoke<Series[]>('series_for_videos', { videoIds }),
-  getSetting: (key: string) => invoke<string | null>('get_setting', { key }),
-  setSetting: (key: string, value: string) => invoke<void>('set_setting', { key, value }),
-  getAppInfo: () => invoke<AppInfo>('get_app_info'),
-  backupDb: () => invoke<BackupInfo>('backup_db'),
-  listDbBackups: () => invoke<BackupInfo[]>('list_db_backups'),
-  openBackupsDir: () => invoke<void>('open_backups_dir'),
-  openDataDir: () => invoke<void>('open_data_dir'),
+    call<void>('remove_from_series', { videoIds, seriesId, actor }),
+  deleteSeries: (seriesId: number) => call<void>('delete_series', { seriesId }),
+  seriesForVideos: (videoIds: number[]) => call<Series[]>('series_for_videos', { videoIds }),
+  getSetting: (key: string) => call<string | null>('get_setting', { key }),
+  setSetting: (key: string, value: string) => call<void>('set_setting', { key, value }),
+  getAppInfo: () => call<AppInfo>('get_app_info'),
+  backupDb: () => call<BackupInfo>('backup_db'),
+  listDbBackups: () => call<BackupInfo[]>('list_db_backups'),
+  openBackupsDir: () => call<void>('open_backups_dir'),
+  openDataDir: () => call<void>('open_data_dir'),
   regenerateThumbnails: (onlyFailed: boolean) =>
-    invoke<number>('regenerate_thumbnails', { onlyFailed }),
+    call<number>('regenerate_thumbnails', { onlyFailed }),
 };

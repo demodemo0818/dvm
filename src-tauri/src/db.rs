@@ -23,6 +23,17 @@ pub fn init(path: &Path) -> Result<Connection> {
     Ok(conn)
 }
 
+/// 一覧・サイドバー用の読み取り専用コネクションを開く(init() の後に呼ぶこと)。
+/// 書き込み用と分けることで、取り込み中(ffprobe / サムネイル生成の UPDATE 連発)に
+/// 一覧クエリがロック待ちで固まるのを防ぐ。WAL なので読み取りは書き込みと並行できる
+pub fn open_read(path: &Path) -> Result<Connection> {
+    let conn = Connection::open(path)?;
+    conn.busy_timeout(std::time::Duration::from_secs(5))?;
+    // 誤って書き込み経路に使われないよう明示的に読み取り専用にしておく
+    conn.execute_batch("PRAGMA query_only = ON;")?;
+    Ok(conn)
+}
+
 fn migrate(conn: &Connection) -> Result<()> {
     // user_version 導入前(v0.4 以前)の DB は 0 のままなので、新規 DB かどうかは videos の有無で見分ける
     let fresh: bool = conn.query_row(
@@ -135,4 +146,34 @@ pub fn log_op(conn: &Connection, actor: &str, action: &str, payload: &str) {
         "INSERT INTO operations_log (actor, action, payload) VALUES (?1, ?2, ?3)",
         rusqlite::params![actor, action, payload],
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 読み取り用コネクションが (1) 書き込み用のコミットをそのまま見られること
+    /// (2) 書き込みを拒否すること。WAL の実挙動を見たいので実ファイルで検証する
+    #[test]
+    fn read_connection_sees_commits_and_refuses_writes() {
+        let dir = std::env::temp_dir().join("videoshelf-test-dbread");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("library.db");
+
+        let write = init(&path).unwrap();
+        let read = open_read(&path).unwrap();
+
+        write
+            .execute("INSERT INTO videos (path, filename) VALUES ('X:\\a.mp4', 'a.mp4')", [])
+            .unwrap();
+
+        let count: i64 = read
+            .query_row("SELECT COUNT(*) FROM videos", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1, "別コネクションからコミット済みの行が見えていない");
+        assert!(read.execute("DELETE FROM videos", []).is_err(), "読み取り専用のはずが書けてしまう");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

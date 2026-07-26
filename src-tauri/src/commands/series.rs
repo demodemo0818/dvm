@@ -4,7 +4,7 @@ use tauri::State;
 
 #[tauri::command]
 pub fn list_series(state: State<AppState>) -> Result<Vec<Series>, String> {
-    let conn = state.db.lock().unwrap();
+    let conn = state.db_read.lock().unwrap();
     series::list_series(&conn).map_err(|e| e.to_string())
 }
 
@@ -40,6 +40,6 @@ pub fn delete_series(state: State<AppState>, series_id: i64) -> Result<(), Strin
 
 #[tauri::command]
 pub fn series_for_videos(state: State<AppState>, video_ids: Vec<i64>) -> Result<Vec<Series>, String> {
-    let conn = state.db.lock().unwrap();
+    let conn = state.db_read.lock().unwrap();
     series::series_for_videos(&conn, &video_ids).map_err(|e| e.to_string())
 }

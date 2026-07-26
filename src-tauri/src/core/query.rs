@@ -201,14 +201,12 @@ pub fn query_rows(
     let rows = raw
         .into_iter()
         .map(|(id, path, filename, title, size, duration_ms, width, height, rating, view_count, last_viewed_at, resume_ms, video_codec, audio_codec, is_missing, thumb_state, added_at)| {
-            let thumb_path = thumbs_dir.and_then(|dir| {
-                let thumb = dir.join(format!("{id}.jpg"));
-                if thumb_state == 1 && thumb.exists() {
-                    Some(thumb.to_string_lossy().to_string())
-                } else {
-                    None
-                }
-            });
+            // 実在確認(exists)はしない。1 ページぶんで数百回のファイル I/O になるうえ、
+            // thumb_state=1 なら生成済みのはず。万一読めなかったときはフロント側の
+            // img onError でプレースホルダに落とす
+            let thumb_path = thumbs_dir
+                .filter(|_| thumb_state == 1)
+                .map(|dir| dir.join(format!("{id}.jpg")).to_string_lossy().to_string());
             VideoRow {
                 is_offline: !roots.is_online(&path),
                 thumb_path,
