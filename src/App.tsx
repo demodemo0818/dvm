@@ -3,6 +3,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useEffect, useRef } from 'react';
 import './App.css';
 import { api } from './api';
+import { AiPanel } from './components/AiPanel';
 import { Inspector } from './components/Inspector';
 import { PlayerOverlay } from './components/PlayerOverlay';
 import { Sidebar } from './components/Sidebar';
@@ -63,6 +64,7 @@ export default function App() {
         <div className="statusbar">{scanning || status ? status : '準備完了'}</div>
       </main>
       <Inspector />
+      <AiPanel />
       <PlayerOverlay />
     </div>
   );

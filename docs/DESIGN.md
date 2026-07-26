@@ -152,6 +152,18 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
   - `trash_video_files`(**dry_run 必須引数**。true でプレビュー、false でごみ箱送り。実行後は missing 状態で DB に残し、ごみ箱から戻せば再スキャンで復帰できる)
   - すべて operations_log に **actor='ai'** で記録される
 - アプリ側は `PRAGMA data_version` を 2 秒毎に監視し、MCP など外部プロセスのコミットを検知したら `library:changed` を emit して UI に自動反映する
+
+### アプリ内 AI アシスタント(v1.3 実装済み)
+
+- フロント TypeScript から `@anthropic-ai/sdk`(`dangerouslyAllowBrowser: true`)で Claude API を直接呼ぶ。Rust 側に HTTP クライアントは持たない
+- API キー・モデル名は settings テーブル(`anthropic_api_key` / `anthropic_model`、既定 `claude-opus-4-8`)。設定画面の「AI アシスタント」セクションで入力。**キーは library.db に平文保存され、バックアップにも含まれる**(ローカル個人用アプリとして許容)
+- UI: ツールバーの ✨ で右ドックパネル(`AiPanel.tsx`)をトグル。会話履歴はパネル内 state のみ(永続化しない)。API 履歴はテキストのみ持ち回す(thinking / tool ブロックの再送問題を回避)
+- ツールループ: `client.beta.messages.toolRunner` + `betaTool`(raw JSON Schema)。`thinking: adaptive`・`stream: true` でテキストをストリーミング表示
+- ツール(`src/lib/aiTools.ts`。既存 Tauri コマンドの薄いラッパ):
+  - 読み取り: `search_videos` / `list_tags` / `list_series`
+  - 表示: `apply_filter` — Zustand の `applyFilter` でグリッドを直接絞り込み、件数を返す(自然言語検索の中核)
+  - 書き込み: `tag_videos` / `set_rating` / `add_to_series` — actor="ai" で operations_log に記録。すべて可逆なメタデータ操作のため確認なしで実行し、チャット内カードで結果を必ず表示する。破壊的操作(ごみ箱送り等)はツールに含めない
+- システムプロンプトに選択中の動画(ファイル名・尺・タグ等)と現在のフィルタ状態を毎回注入 →「この動画にタグを提案して」が成立する
 - ビルド: `cd src-tauri && cargo build --bin videoshelf-mcp`
 - Claude Code への登録例:
   `claude mcp add videoshelf -- <repo>\src-tauri\target\debug\videoshelf-mcp.exe`
@@ -182,4 +194,5 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
 - **v1.0** ✅(2026-07-24 実装済み): 設定画面(外部プレイヤー・データ保存場所の表示・サムネイル一括再生成・バックアップ管理)、DB バックアップ(下記)、ドライブレター変動対策(ボリュームシリアル記録、v0.4 繰り越し分)、検索強化(レーティング下限・尺範囲フィルタを UI と MCP の両方に追加)、user_version による簡易マイグレーション機構
 - **v1.1** ✅(2026-07-26 実装済み): 書き込み系 MCP(`VIDEOSHELF_ALLOW_WRITE=1` でオプトイン。タグ・シリーズ・レーティング・情報編集、登録削除、dry-run 付きごみ箱送り。actor='ai' で監査ログ)、data_version 監視による外部変更の UI 自動反映
 - **v1.2** ✅(2026-07-26 実装済み): アプリ内再生(WebView2 ネイティブ、非対応形式は onError で外部フォールバック、視聴カウントは再生成功時のみ)
+- **v1.3** ✅(2026-07-26 実装済み): アプリ内 AI アシスタント(✨ パネル。自然言語検索 → apply_filter でグリッド反映、タグ提案・付与、actor='ai' 監査ログ)
 - **将来**: アプリ内再生の高度化(remux → トランスコード → libmpv)、mac/Linux 対応

@@ -17,9 +17,13 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [backups, setBackups] = useState<BackupInfo[]>([]);
   const [busy, setBusy] = useState(false);
+  const [aiKey, setAiKey] = useState('');
+  const [aiModel, setAiModel] = useState('');
 
   useEffect(() => {
     api.getSetting('player_path').then((v) => setPlayerPath(v ?? ''));
+    api.getSetting('anthropic_api_key').then((v) => setAiKey(v ?? ''));
+    api.getSetting('anthropic_model').then((v) => setAiModel(v ?? ''));
     api.getAppInfo().then(setInfo).catch(() => {});
     api.listDbBackups().then(setBackups).catch(() => {});
   }, []);
@@ -33,10 +37,12 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     if (typeof selected === 'string') setPlayerPath(selected);
   };
 
-  const savePlayer = async () => {
+  const save = async () => {
     await api.setSetting('player_path', playerPath.trim());
     // 再生分岐(アプリ内 or 外部)が即座に切り替わるようストアにも反映
     useLibrary.getState().setPlayerPath(playerPath.trim());
+    await api.setSetting('anthropic_api_key', aiKey.trim());
+    await api.setSetting('anthropic_model', aiModel.trim());
     onClose();
   };
 
@@ -121,6 +127,30 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="settings-section">
+          <div className="settings-heading">AI アシスタント</div>
+          <label className="modal-label">Anthropic API キー(✨ パネルで使用)</label>
+          <div className="modal-row">
+            <input
+              type="password"
+              value={aiKey}
+              placeholder="sk-ant-..."
+              onChange={(e) => setAiKey(e.target.value)}
+            />
+          </div>
+          <label className="modal-label">モデル(空欄なら claude-opus-4-8)</label>
+          <div className="modal-row">
+            <input
+              value={aiModel}
+              placeholder="claude-opus-4-8"
+              onChange={(e) => setAiModel(e.target.value)}
+            />
+          </div>
+          <div className="settings-note">
+            キーは library.db に平文で保存され、DB バックアップにも含まれます。利用量に応じて Anthropic の API 料金が発生します
+          </div>
+        </div>
+
+        <div className="settings-section">
           <div className="settings-heading">バックアップ</div>
           <div className="modal-row">
             <button onClick={backupNow} disabled={busy}>
@@ -147,7 +177,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
 
         <div className="modal-actions">
           <button onClick={onClose}>閉じる</button>
-          <button className="primary" onClick={savePlayer}>保存</button>
+          <button className="primary" onClick={save}>保存</button>
         </div>
       </div>
     </div>

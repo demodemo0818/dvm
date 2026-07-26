@@ -8,6 +8,7 @@ export function Toolbar() {
   const {
     text, setText, sort, setSort, scanning, seriesId,
     minRating, setMinRating, durationBucket, setDurationBucket,
+    showAiPanel, toggleAiPanel,
   } = useLibrary();
   const [input, setInput] = useState(text);
   const [showSettings, setShowSettings] = useState(false);
@@ -63,6 +64,13 @@ export function Toolbar() {
       </select>
       <button onClick={() => api.rescanAll()} disabled={scanning}>
         再スキャン
+      </button>
+      <button
+        title="AI アシスタント"
+        className={showAiPanel ? 'active' : ''}
+        onClick={toggleAiPanel}
+      >
+        ✨
       </button>
       <button title="設定" onClick={() => setShowSettings(true)}>⚙</button>
 

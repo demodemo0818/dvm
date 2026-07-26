@@ -25,6 +25,8 @@ interface LibraryState {
   playingVideo: VideoRow | null;
   /** 外部プレイヤーのパス設定(起動時ロード・設定保存時更新) */
   playerPath: string;
+  /** AI アシスタントパネルの表示状態 */
+  showAiPanel: boolean;
   setText: (text: string) => void;
   setSort: (sort: SortKey) => void;
   setFolderId: (folderId: number | null) => void;
@@ -38,6 +40,17 @@ interface LibraryState {
   setStatus: (scanning: boolean, status: string) => void;
   setPlayingVideo: (video: VideoRow | null) => void;
   setPlayerPath: (playerPath: string) => void;
+  toggleAiPanel: () => void;
+  /** フィルタ一式をまとめて置き換える(AI アシスタントの apply_filter 用)。省略項目は既定値に戻る */
+  applyFilter: (filter: {
+    text?: string;
+    tagIds?: number[];
+    seriesId?: number | null;
+    minRating?: number;
+    durationBucket?: DurationBucket | null;
+    missingOnly?: boolean;
+    sort?: SortKey;
+  }) => void;
   selectOnly: (video: VideoRow) => void;
   toggleSelect: (video: VideoRow) => void;
   clearSelection: () => void;
@@ -60,8 +73,22 @@ export const useLibrary = create<LibraryState>((set) => ({
   selection: [],
   playingVideo: null,
   playerPath: '',
+  showAiPanel: false,
   setPlayingVideo: (playingVideo) => set({ playingVideo }),
   setPlayerPath: (playerPath) => set({ playerPath }),
+  toggleAiPanel: () => set((s) => ({ showAiPanel: !s.showAiPanel })),
+  applyFilter: (f) =>
+    set((s) => ({
+      text: f.text ?? '',
+      tagIds: f.tagIds ?? [],
+      seriesId: f.seriesId ?? null,
+      minRating: f.minRating ?? 0,
+      durationBucket: f.durationBucket ?? null,
+      missingOnly: f.missingOnly ?? false,
+      sort: f.sort ?? (f.seriesId != null ? 'series_asc' : s.sort === 'series_asc' ? 'added_desc' : s.sort),
+      folderId: null,
+      selection: [],
+    })),
   setText: (text) => set({ text, selection: [] }),
   setSort: (sort) => set({ sort, selection: [] }),
   setFolderId: (folderId) => set({ folderId, selection: [] }),
