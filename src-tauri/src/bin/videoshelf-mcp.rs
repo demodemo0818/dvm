@@ -1,16 +1,18 @@
-//! VideoShelf 読み取り専用 MCP サーバー(stdio トランスポート)
+//! VideoShelf MCP サーバー(stdio トランスポート)
 //!
 //! Claude Code などの MCP クライアントから起動して使う:
 //!   claude mcp add videoshelf -- <path>\videoshelf-mcp.exe
 //!
-//! DB は読み取り専用で開くため、ライブラリを壊す操作は構造的にできない。
+//! 既定では DB を読み取り専用で開くため、ライブラリを壊す操作は構造的にできない。
+//! 環境変数 VIDEOSHELF_ALLOW_WRITE=1 を付けて起動したときだけ書き込みツール
+//! (タグ・シリーズ・レーティング編集、ごみ箱送りなど)が有効になる。
 //! アプリ(VideoShelf)が起動していなくても動作する。
 
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 use tauri_app_lib::core::query::{self, VideoQuery};
-use tauri_app_lib::core::{series, tags};
+use tauri_app_lib::core::{series, tags, videos};
 
 fn default_db_path() -> PathBuf {
     let appdata = std::env::var("APPDATA").expect("APPDATA is not set");
@@ -21,14 +23,22 @@ fn main() {
     let db_path = std::env::var("VIDEOSHELF_DB")
         .map(PathBuf::from)
         .unwrap_or_else(|_| default_db_path());
-    let conn = rusqlite::Connection::open_with_flags(
-        &db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap_or_else(|e| {
+    let allow_write = std::env::var("VIDEOSHELF_ALLOW_WRITE").as_deref() == Ok("1");
+    // CREATE は付けない(DB が無ければ従来通りエラー終了)
+    let flags = if allow_write {
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
+    } else {
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+    };
+    let conn = rusqlite::Connection::open_with_flags(&db_path, flags).unwrap_or_else(|e| {
         eprintln!("DB を開けません ({}): {e}", db_path.display());
         std::process::exit(1);
     });
+    let _ = conn.busy_timeout(std::time::Duration::from_secs(5));
+    if allow_write {
+        // rusqlite の既定は foreign_keys=OFF。書き込み時は CASCADE を効かせる
+        let _ = conn.pragma_update(None, "foreign_keys", "ON");
+    }
 
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
@@ -61,11 +71,11 @@ fn main() {
                 }))
             }
             "ping" => ok(&id, json!({})),
-            "tools/list" => ok(&id, json!({ "tools": tool_definitions() })),
+            "tools/list" => ok(&id, json!({ "tools": tool_definitions(allow_write) })),
             "tools/call" => {
                 let name = req["params"]["name"].as_str().unwrap_or("");
                 let args = &req["params"]["arguments"];
-                match call_tool(&conn, name, args) {
+                match call_tool(&conn, allow_write, name, args) {
                     Ok(text) => ok(&id, json!({
                         "content": [{ "type": "text", "text": text }],
                         "isError": false,
@@ -93,7 +103,19 @@ fn ok(id: &Value, result: Value) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "result": result })
 }
 
-fn tool_definitions() -> Value {
+fn tool_definitions(allow_write: bool) -> Value {
+    let mut tools = read_tool_definitions();
+    if allow_write {
+        if let (Some(arr), Some(Value::Array(write_arr))) =
+            (tools.as_array_mut(), Some(write_tool_definitions()))
+        {
+            arr.extend(write_arr);
+        }
+    }
+    tools
+}
+
+fn read_tool_definitions() -> Value {
     json!([
         {
             "name": "search_videos",
@@ -140,7 +162,131 @@ fn tool_definitions() -> Value {
     ])
 }
 
-fn call_tool(conn: &rusqlite::Connection, name: &str, args: &Value) -> anyhow::Result<String> {
+fn write_tool_definitions() -> Value {
+    let video_ids = json!({ "type": "array", "items": { "type": "integer" }, "description": "対象の動画 ID 一覧" });
+    json!([
+        {
+            "name": "tag_videos",
+            "description": "動画にタグを付ける(タグが無ければ作成される)",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "video_ids": video_ids,
+                    "tag": { "type": "string", "description": "タグ名" }
+                },
+                "required": ["video_ids", "tag"]
+            }
+        },
+        {
+            "name": "untag_videos",
+            "description": "動画からタグを外す",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "video_ids": video_ids,
+                    "tag": { "type": "string", "description": "タグ名(完全一致)" }
+                },
+                "required": ["video_ids", "tag"]
+            }
+        },
+        {
+            "name": "add_to_series",
+            "description": "動画をシリーズに追加する(シリーズが無ければ作成される。末尾に追加)",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "video_ids": video_ids,
+                    "series": { "type": "string", "description": "シリーズ名" }
+                },
+                "required": ["video_ids", "series"]
+            }
+        },
+        {
+            "name": "remove_from_series",
+            "description": "動画をシリーズから外す",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "video_ids": video_ids,
+                    "series": { "type": "string", "description": "シリーズ名(完全一致)" }
+                },
+                "required": ["video_ids", "series"]
+            }
+        },
+        {
+            "name": "set_rating",
+            "description": "動画のレーティングを設定する(0 で解除)",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "video_ids": video_ids,
+                    "rating": { "type": "integer", "minimum": 0, "maximum": 5 }
+                },
+                "required": ["video_ids", "rating"]
+            }
+        },
+        {
+            "name": "set_video_info",
+            "description": "動画のタイトル・コメントを設定する(指定したフィールドだけ更新)",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": { "type": "integer", "description": "動画 ID" },
+                    "title": { "type": "string" },
+                    "comment": { "type": "string" }
+                },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "remove_from_library",
+            "description": "動画の登録をライブラリから削除する。ファイル自体は削除しない(タグ・レーティング等のメタデータは失われる)",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "video_ids": video_ids },
+                "required": ["video_ids"]
+            }
+        },
+        {
+            "name": "trash_video_files",
+            "description": "動画ファイル本体を Windows のごみ箱へ送る。必ず dry_run: true で実行内容(対象パス一覧)を確認し、ユーザーの意図と一致することを確かめてから dry_run: false で実行すること。実行後の登録は missing 状態で残る(ごみ箱から戻して再スキャンすれば復帰できる)",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "video_ids": video_ids,
+                    "dry_run": { "type": "boolean", "description": "true: 実行内容のプレビューのみ / false: 実際にごみ箱へ送る" }
+                },
+                "required": ["video_ids", "dry_run"]
+            }
+        }
+    ])
+}
+
+/// JSON 配列引数から i64 の Vec を取り出す
+fn ids_arg(args: &Value) -> anyhow::Result<Vec<i64>> {
+    let ids: Vec<i64> = args["video_ids"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("video_ids が必要です"))?
+        .iter()
+        .filter_map(|v| v.as_i64())
+        .collect();
+    anyhow::ensure!(!ids.is_empty(), "video_ids が空です");
+    Ok(ids)
+}
+
+fn call_tool(
+    conn: &rusqlite::Connection,
+    allow_write: bool,
+    name: &str,
+    args: &Value,
+) -> anyhow::Result<String> {
+    const WRITE_TOOLS: &[&str] = &[
+        "tag_videos", "untag_videos", "add_to_series", "remove_from_series",
+        "set_rating", "set_video_info", "remove_from_library", "trash_video_files",
+    ];
+    if WRITE_TOOLS.contains(&name) && !allow_write {
+        anyhow::bail!("書き込みは無効です。環境変数 VIDEOSHELF_ALLOW_WRITE=1 を付けて起動してください");
+    }
     match name {
         "search_videos" => {
             let mut q = VideoQuery {
@@ -248,6 +394,89 @@ fn call_tool(conn: &rusqlite::Connection, name: &str, args: &Value) -> anyhow::R
                 "missingCount": missing,
             }))?)
         }
+        "tag_videos" => {
+            let ids = ids_arg(args)?;
+            let tag = args["tag"].as_str().ok_or_else(|| anyhow::anyhow!("tag が必要です"))?;
+            tags::tag_videos(conn, "ai", &ids, tag)?;
+            Ok(format!("{} 件にタグ「{tag}」を付けました", ids.len()))
+        }
+        "untag_videos" => {
+            let ids = ids_arg(args)?;
+            let tag = args["tag"].as_str().ok_or_else(|| anyhow::anyhow!("tag が必要です"))?;
+            let tag_id: i64 = conn
+                .query_row("SELECT id FROM tags WHERE name = ?1 COLLATE NOCASE", [tag], |r| r.get(0))
+                .map_err(|_| anyhow::anyhow!("タグ「{tag}」が見つかりません"))?;
+            tags::untag_videos(conn, "ai", &ids, tag_id)?;
+            Ok(format!("{} 件からタグ「{tag}」を外しました", ids.len()))
+        }
+        "add_to_series" => {
+            let ids = ids_arg(args)?;
+            let name = args["series"].as_str().ok_or_else(|| anyhow::anyhow!("series が必要です"))?;
+            series::add_videos_to_series(conn, "ai", &ids, name)?;
+            Ok(format!("{} 件をシリーズ「{name}」に追加しました", ids.len()))
+        }
+        "remove_from_series" => {
+            let ids = ids_arg(args)?;
+            let name = args["series"].as_str().ok_or_else(|| anyhow::anyhow!("series が必要です"))?;
+            let sid: i64 = conn
+                .query_row("SELECT id FROM series WHERE name = ?1 COLLATE NOCASE", [name], |r| r.get(0))
+                .map_err(|_| anyhow::anyhow!("シリーズ「{name}」が見つかりません"))?;
+            series::remove_videos_from_series(conn, "ai", &ids, sid)?;
+            Ok(format!("{} 件をシリーズ「{name}」から外しました", ids.len()))
+        }
+        "set_rating" => {
+            let ids = ids_arg(args)?;
+            let rating = args["rating"].as_i64().ok_or_else(|| anyhow::anyhow!("rating が必要です"))?;
+            videos::set_rating(conn, "ai", &ids, rating)?;
+            Ok(format!("{} 件のレーティングを {} にしました", ids.len(), rating.clamp(0, 5)))
+        }
+        "set_video_info" => {
+            let id = args["id"].as_i64().ok_or_else(|| anyhow::anyhow!("id が必要です"))?;
+            let title = args["title"].as_str();
+            let comment = args["comment"].as_str();
+            anyhow::ensure!(title.is_some() || comment.is_some(), "title か comment のどちらかが必要です");
+            videos::set_video_info(conn, "ai", id, title, comment)?;
+            Ok(format!("id={id} の情報を更新しました"))
+        }
+        "remove_from_library" => {
+            let ids = ids_arg(args)?;
+            videos::remove_videos(conn, "ai", &ids)?;
+            // サムネイルキャッシュも掃除(DB と同じフォルダの thumbs/)
+            if let Some(dir) = default_thumbs_dir() {
+                for id in &ids {
+                    let _ = std::fs::remove_file(dir.join(format!("{id}.jpg")));
+                }
+            }
+            Ok(format!("{} 件をライブラリから削除しました(ファイルは残っています)", ids.len()))
+        }
+        "trash_video_files" => {
+            let ids = ids_arg(args)?;
+            let dry_run = args["dry_run"]
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("dry_run (true/false) が必要です"))?;
+            if dry_run {
+                let plan = videos::plan_trash(conn, &ids)?;
+                Ok(serde_json::to_string_pretty(&json!({
+                    "dryRun": true,
+                    "items": plan,
+                    "note": "実行するには dry_run: false で再度呼び出してください",
+                }))?)
+            } else {
+                let results = videos::trash_files(conn, "ai", &ids)?;
+                Ok(serde_json::to_string_pretty(&json!({
+                    "dryRun": false,
+                    "results": results,
+                }))?)
+            }
+        }
         other => Err(anyhow::anyhow!("unknown tool: {other}")),
     }
+}
+
+/// DB と同じデータフォルダ配下の thumbs ディレクトリ
+fn default_thumbs_dir() -> Option<PathBuf> {
+    let db_path = std::env::var("VIDEOSHELF_DB")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| default_db_path());
+    db_path.parent().map(|p| p.join("thumbs"))
 }

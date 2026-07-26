@@ -43,6 +43,27 @@ pub fn run() {
                 watch_tx: Mutex::new(None),
             });
 
+            // 外部プロセス(MCP 等)からの DB 変更を検知して UI に反映する。
+            // PRAGMA data_version は「他コネクションのコミット」でのみ増えるため、
+            // アプリ自身の書き込みには反応しない
+            let watcher_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                use tauri::Emitter;
+                let mut last: i64 = -1;
+                loop {
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    let state = watcher_handle.state::<AppState>();
+                    let v: i64 = {
+                        let conn = state.db.lock().unwrap();
+                        conn.query_row("PRAGMA data_version", [], |r| r.get(0)).unwrap_or(-1)
+                    };
+                    if last >= 0 && v != last {
+                        let _ = watcher_handle.emit("library:changed", ());
+                    }
+                    last = v;
+                }
+            });
+
             // ファイル監視を開始し、自動バックアップ → 起動時スキャンを回す(バックグラウンド)
             crate::core::watcher::init(app.handle());
             let handle = app.handle().clone();

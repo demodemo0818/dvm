@@ -129,16 +129,23 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
 3. **破壊的操作の安全装置**: ファイル削除は必ずごみ箱経由(trash クレート)。ファイル移動・リネーム系の操作は dry-run(実行内容のプレビュー)を返せる形で設計する
 4. **操作ログ**: `operations_log(id, timestamp, actor, action, payload)` にメタデータ変更・ファイル操作を記録する(actor = user / ai)。AI に操作を許すときの監査・巻き戻しの土台
 
-導入時期: 設計規律は v0.1 から。読み取り専用 MCP は v0.4 で実装済み、書き込み系 MCP とアプリ内アシスタントは v1.0 以降。
+導入時期: 設計規律は v0.1 から。読み取り専用 MCP は v0.4、書き込み系 MCP は v1.1、アプリ内アシスタントは v1.3 で実装済み。
 
-### MCP サーバー(実装済み・読み取り専用)
+### MCP サーバー(実装済み)
 
 - 別バイナリ `videoshelf-mcp.exe`(stdio トランスポート)。アプリが起動していなくても動く
-- DB を**読み取り専用フラグで開く**ため、AI からライブラリを変更することは構造的に不可能
-- ツール: `search_videos`(構造化クエリ。text / tag / series / missing / min_rating / min_duration_sec / max_duration_sec / sort / limit)/ `get_video` / `list_tags` / `list_series` / `library_stats`
+- **既定は読み取り専用**: DB を読み取り専用フラグで開くため、AI からライブラリを変更することは構造的に不可能
+- 読み取りツール: `search_videos`(構造化クエリ。text / tag / series / missing / min_rating / min_duration_sec / max_duration_sec / sort / limit)/ `get_video` / `list_tags` / `list_series` / `library_stats`
+- **書き込みモード(v1.1)**: 環境変数 `VIDEOSHELF_ALLOW_WRITE=1` を付けて起動したときだけ、DB を読み書きで開き(`foreign_keys=ON`・`busy_timeout 5s`)、次のツールを追加公開する:
+  - `tag_videos` / `untag_videos` / `add_to_series` / `remove_from_series` / `set_rating` / `set_video_info`(タイトル・コメント)
+  - `remove_from_library`(登録削除。ファイルは残す)
+  - `trash_video_files`(**dry_run 必須引数**。true でプレビュー、false でごみ箱送り。実行後は missing 状態で DB に残し、ごみ箱から戻せば再スキャンで復帰できる)
+  - すべて operations_log に **actor='ai'** で記録される
+- アプリ側は `PRAGMA data_version` を 2 秒毎に監視し、MCP など外部プロセスのコミットを検知したら `library:changed` を emit して UI に自動反映する
 - ビルド: `cd src-tauri && cargo build --bin videoshelf-mcp`
 - Claude Code への登録例:
   `claude mcp add videoshelf -- <repo>\src-tauri\target\debug\videoshelf-mcp.exe`
+  (書き込みを許可する場合は `claude mcp add videoshelf -e VIDEOSHELF_ALLOW_WRITE=1 -- ...`)
 - DB の場所は既定(%APPDATA%\com.taiki.videoshelf\library.db)。環境変数 `VIDEOSHELF_DB` で上書き可
 
 ## DB バックアップ(v1.0 実装済み)
@@ -163,4 +170,5 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
 - **v0.3** ✅(2026-07-24 実装済み): シリーズ管理(登録順の並び保持)、星レーティング、外部プレイヤー設定(settings テーブル)、視聴履歴表示、レーティング/視聴日時ソート
 - **v0.4** ✅(2026-07-24 実装済み): ファイル監視(notify、1.5 秒デバウンスで自動取り込み)、missing 絞り込みとライブラリからの削除 UI、読み取り専用 MCP サーバー
 - **v1.0** ✅(2026-07-24 実装済み): 設定画面(外部プレイヤー・データ保存場所の表示・サムネイル一括再生成・バックアップ管理)、DB バックアップ(下記)、ドライブレター変動対策(ボリュームシリアル記録、v0.4 繰り越し分)、検索強化(レーティング下限・尺範囲フィルタを UI と MCP の両方に追加)、user_version による簡易マイグレーション機構
-- **将来**: 書き込み系 MCP(タグ・シリーズ・ファイル操作)、アプリ内 AI アシスタント(自然言語検索・自動タグ提案)、アプリ内再生(WebView2 → remux → トランスコード → libmpv)、mac/Linux 対応
+- **v1.1** ✅(2026-07-26 実装済み): 書き込み系 MCP(`VIDEOSHELF_ALLOW_WRITE=1` でオプトイン。タグ・シリーズ・レーティング・情報編集、登録削除、dry-run 付きごみ箱送り。actor='ai' で監査ログ)、data_version 監視による外部変更の UI 自動反映
+- **将来**: アプリ内再生の高度化(remux → トランスコード → libmpv)、mac/Linux 対応
