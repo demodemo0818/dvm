@@ -15,6 +15,7 @@ export function Toolbar() {
     showAiPanel, toggleAiPanel, advanced, reshuffle, duplicatesOnly,
     setShowStats, bumpVersion, pushToast,
     viewMode, setViewMode, cardWidth, setCardWidth,
+    inspectorPinned, setInspectorPinned,
   } = useLibrary();
   const [input, setInput] = useState(text);
   const [showSettings, setShowSettings] = useState(false);
@@ -133,6 +134,21 @@ export function Toolbar() {
       </button>
       <button title="統計" onClick={() => setShowStats(true)}>📊</button>
       <button title="操作履歴" onClick={() => setShowHistory(true)}>🕘</button>
+      <button
+        title={
+          inspectorPinned
+            ? '詳細ペインの固定を解除(選択中だけ表示に戻す)'
+            : '詳細ペインを常に表示する'
+        }
+        className={inspectorPinned ? 'active' : ''}
+        onClick={() => {
+          const next = !inspectorPinned;
+          setInspectorPinned(next);
+          void api.setSetting('inspector_pinned', next ? '1' : '0');
+        }}
+      >
+        📋
+      </button>
       <button
         title="AI アシスタント"
         className={showAiPanel ? 'active' : ''}

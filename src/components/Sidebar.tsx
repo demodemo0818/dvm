@@ -22,7 +22,7 @@ function folderName(path: string): string {
 
 export function Sidebar() {
   const {
-    folderId, setFolderId, dirPath, version, bumpVersion,
+    folderId, setFolderId, dirPath, version, bumpVersion, sidebarWidth,
     seriesId, toggleSeriesFilter,
     missingOnly, toggleMissingOnly,
     duplicatesOnly, toggleDuplicatesOnly, applyFilter, pushToast,
@@ -176,14 +176,15 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="sidebar">
+    // 幅はドラッグで変えられる。min-width も同じ値にして flex に縮められないようにする
+    <aside className="sidebar" style={{ width: sidebarWidth, minWidth: sidebarWidth }}>
       <div className="sidebar-title">VideoShelf</div>
       <button
         className={`side-item ${folderId === null && dirPath === null && !missingOnly ? 'active' : ''}`}
         onClick={() => {
           if (missingOnly) toggleMissingOnly();
-          setFolderId(null);
           // setFolderId は dirPath(フォルダーツリーの絞り込み)も一緒に外す
+          setFolderId(null);
         }}
       >
         すべての動画 <span className="count">{totalCount}</span>

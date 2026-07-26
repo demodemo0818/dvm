@@ -84,11 +84,14 @@ export function PlayerControls({
   player,
   isFullscreen,
   onToggleFullscreen,
+  onSetThumbnail,
   queue,
 }: {
   player: VideoPlayer;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
+  /** 今見ているコマをサムネイルにする。上のバーに置くと ✕ の誤爆が起きるのでここに置く */
+  onSetThumbnail?: () => void;
   queue?: PlayQueueControls;
 }) {
   const { state } = player;
@@ -172,6 +175,16 @@ export function PlayerControls({
           onChange={(e) => player.setVolume(Number(e.target.value))}
           title="音量 (↑↓)"
         />
+        {onSetThumbnail && (
+          <button
+            className="player-thumb-btn"
+            onMouseDown={noFocus}
+            onClick={onSetThumbnail}
+            title="この位置をサムネイルにする (T)"
+          >
+            🖼️
+          </button>
+        )}
         <button onMouseDown={noFocus} onClick={onToggleFullscreen} title="フルスクリーン (F)">
           {isFullscreen ? '🗗' : '⛶'}
         </button>

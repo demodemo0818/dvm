@@ -185,9 +185,6 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
         <div className="player-title" title={video.path}>
           {video.title ?? video.filename}
         </div>
-        <button className="player-thumb-btn" onClick={setThumbnail} title="この位置をサムネイルにする (T)">
-          🖼
-        </button>
         <button className="player-close" onClick={close} title="閉じる (Esc)">
           ✕
         </button>
@@ -196,6 +193,7 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
         player={player}
         isFullscreen={isFullscreen}
         onToggleFullscreen={toggleFullscreen}
+        onSetThumbnail={setThumbnail}
         queue={queue}
       />
     </div>

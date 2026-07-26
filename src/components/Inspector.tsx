@@ -8,7 +8,10 @@ import type { FileOpKind } from './FileOpDialog';
 
 /** 選択中の動画の詳細とタグ・シリーズ・レーティング編集を行う右パネル */
 export function Inspector() {
-  const { selection, version, bumpVersion, clearSelection, patchSelection } = useLibrary();
+  const {
+    selection, version, bumpVersion, clearSelection, patchSelection,
+    inspectorPinned, inspectorWidth,
+  } = useLibrary();
   const [commonTags, setCommonTags] = useState<Tag[]>([]);
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [commonSeries, setCommonSeries] = useState<Series[]>([]);
@@ -34,7 +37,22 @@ export function Inspector() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsKey, version]);
 
-  if (selection.length === 0) return null;
+  // 幅はドラッグで変えられる。min-width も同じ値にして、flex に縮められないようにする
+  const style = { width: inspectorWidth, minWidth: inspectorWidth };
+
+  if (selection.length === 0) {
+    // 固定表示していないときは従来どおり畳む
+    if (!inspectorPinned) return null;
+    // 固定中は枠だけ残す。レーティングやタグは選択が無いと操作できないので出さない
+    return (
+      <aside className="inspector" style={style}>
+        <div className="inspector-head">
+          <span>詳細</span>
+        </div>
+        <div className="inspector-empty">動画を選ぶとここに詳細が出ます</div>
+      </aside>
+    );
+  }
 
   const single = selection.length === 1 ? selection[0] : undefined;
 
@@ -64,7 +82,7 @@ export function Inspector() {
   };
 
   return (
-    <aside className="inspector">
+    <aside className="inspector" style={style}>
       <div className="inspector-head">
         <span>{single ? '詳細' : `${selection.length} 件選択中`}</span>
         <button className="close" title="選択解除 (Esc)" onClick={clearSelection}>×</button>

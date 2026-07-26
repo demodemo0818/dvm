@@ -14,6 +14,13 @@ export const CARD_WIDTH_MIN = 140;
 export const CARD_WIDTH_MAX = 400;
 export const CARD_WIDTH_DEFAULT = 224;
 
+/** サイドバー / 詳細ペインの幅(px)。ドラッグの上下限と初期値 */
+export const SIDEBAR_WIDTH = { min: 180, max: 480, default: 240 };
+export const INSPECTOR_WIDTH = { min: 220, max: 520, default: 260 };
+
+const clamp = (v: number, { min, max }: { min: number; max: number }) =>
+  Math.min(Math.max(Math.round(v), min), max);
+
 /**
  * 絞り込みが変わったら選択は無効になる(一覧の中身も通し番号も別物になるため)。
  * 選択だけ消して anchor / focus が残ると、次の Shift+クリックが的外れな範囲を選ぶ
@@ -23,17 +30,17 @@ const CLEARED = { selection: [] as VideoRow[], anchorIndex: null, focusIndex: nu
 interface LibraryState {
   text: string;
   sort: SortKey;
+  /** 監視フォルダで絞る(配下すべて)。サイドバー「ライブラリ」タブの監視フォルダ一覧から */
   folderId: number | null;
+  /** フォルダ直下だけで絞る(サブフォルダは含まない)。サイドバー「フォルダー」タブのツリーから */
+  dirPath: string | null;
   /** 選択中のタグフィルタ(AND 条件) */
   tagIds: number[];
   /** 選択中のシリーズフィルタ */
   seriesId: number | null;
   /** true のとき「見つからないファイル」だけを表示 */
   missingOnly: boolean;
-  /** 監視フォルダで絞る(配下すべて)。サイドバー「ライブラリ」タブの監視フォルダ一覧から */
   /** このレーティング以上に絞る(0 = 絞らない) */
-  /** フォルダ直下だけで絞る(サブフォルダは含まない)。サイドバー「フォルダー」タブのツリーから */
-  dirPath: string | null;
   minRating: number;
   /** 尺フィルタのプリセット(null = 絞らない) */
   durationBucket: DurationBucket | null;
@@ -57,6 +64,11 @@ interface LibraryState {
   viewMode: ViewMode;
   /** グリッドのカード幅 px(設定に永続化) */
   cardWidth: number;
+  /** 選択が空でも詳細ペインを出したままにする(設定に永続化) */
+  inspectorPinned: boolean;
+  /** 左サイドバー / 右詳細ペインの幅 px(ドラッグで伸縮。設定に永続化) */
+  sidebarWidth: number;
+  inspectorWidth: number;
   /** 再生が終わったら次の動画へ進むか(設定に永続化) */
   autoplayNext: boolean;
   /** アプリ内プレイヤーで再生中の動画(null = 非表示) */
@@ -78,6 +90,8 @@ interface LibraryState {
   setText: (text: string) => void;
   setSort: (sort: SortKey) => void;
   setFolderId: (folderId: number | null) => void;
+  /** 同じフォルダをもう一度渡すと解除する。null で明示的に解除 */
+  toggleDirPath: (dirPath: string | null) => void;
   toggleTagFilter: (tagId: number) => void;
   clearTagFilter: () => void;
   toggleSeriesFilter: (seriesId: number) => void;
@@ -90,14 +104,15 @@ interface LibraryState {
   /** ランダムソートに切り替える / すでにランダムなら並びを引き直す */
   reshuffle: () => void;
   bumpVersion: () => void;
-  /** 同じフォルダをもう一度渡すと解除する。null で明示的に解除 */
-  toggleDirPath: (dirPath: string | null) => void;
   setStatus: (scanning: boolean, status: string) => void;
   setPlayingVideo: (video: VideoRow | null) => void;
   /** 一覧から再生を始める(⏭ で次へ進めるようにキュー情報も持つ) */
   playFromList: (video: VideoRow, queue: PlayQueue) => void;
   setViewMode: (viewMode: ViewMode) => void;
   setCardWidth: (cardWidth: number) => void;
+  setInspectorPinned: (inspectorPinned: boolean) => void;
+  setSidebarWidth: (sidebarWidth: number) => void;
+  setInspectorWidth: (inspectorWidth: number) => void;
   setAutoplayNext: (autoplayNext: boolean) => void;
   setPlayerPath: (playerPath: string) => void;
   setPreviewOnHover: (previewOnHover: boolean) => void;
@@ -117,6 +132,8 @@ interface LibraryState {
     duplicatesOnly?: boolean;
     sort?: SortKey;
     advanced?: Partial<AdvancedFilter>;
+    folderId?: number | null;
+    dirPath?: string | null;
   }) => void;
   /** index は一覧内の通し番号。省略すると範囲選択の起点を持たない選択になる */
   selectOnly: (video: VideoRow, index?: number | null) => void;
@@ -132,9 +149,8 @@ interface LibraryState {
 export const useLibrary = create<LibraryState>((set) => ({
   text: '',
   sort: 'added_desc',
-    folderId?: number | null;
-    dirPath?: string | null;
   folderId: null,
+  dirPath: null,
   tagIds: [],
   seriesId: null,
   missingOnly: false,
@@ -149,8 +165,10 @@ export const useLibrary = create<LibraryState>((set) => ({
   ...CLEARED,
   viewMode: 'grid',
   cardWidth: CARD_WIDTH_DEFAULT,
+  inspectorPinned: false,
+  sidebarWidth: SIDEBAR_WIDTH.default,
+  inspectorWidth: INSPECTOR_WIDTH.default,
   autoplayNext: false,
-  dirPath: null,
   playingVideo: null,
   playQueue: null,
   playerPath: '',
@@ -172,6 +190,9 @@ export const useLibrary = create<LibraryState>((set) => ({
   setViewMode: (viewMode) => set({ viewMode }),
   setCardWidth: (cardWidth) =>
     set({ cardWidth: Math.min(Math.max(Math.round(cardWidth), CARD_WIDTH_MIN), CARD_WIDTH_MAX) }),
+  setInspectorPinned: (inspectorPinned) => set({ inspectorPinned }),
+  setSidebarWidth: (w) => set({ sidebarWidth: clamp(w, SIDEBAR_WIDTH) }),
+  setInspectorWidth: (w) => set({ inspectorWidth: clamp(w, INSPECTOR_WIDTH) }),
   setAutoplayNext: (autoplayNext) => set({ autoplayNext }),
   setPlayerPath: (playerPath) => set({ playerPath }),
   setPreviewOnHover: (previewOnHover) => set({ previewOnHover }),

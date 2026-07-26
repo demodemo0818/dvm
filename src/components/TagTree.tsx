@@ -166,14 +166,15 @@ export function TagTree({ tags }: { tags: Tag[] }) {
           >
             {children.length > 0 ? (
               <button
-                className="tree-toggle"
+                className={`tree-toggle ${isCollapsed ? '' : 'open'}`}
                 title={isCollapsed ? '子タグを表示' : '子タグを隠す'}
                 onClick={(e) => {
                   e.stopPropagation();
                   toggleCollapse(t.id);
                 }}
               >
-                {isCollapsed ? '▸' : '▾'}
+                {/* 開閉で字を変えず CSS で回す。別グリフだと字幅・線の太さが変わって見えるため */}
+                ▼
               </button>
             ) : (
               <span className="tree-toggle spacer" />

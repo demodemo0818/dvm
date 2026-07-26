@@ -2,6 +2,45 @@
   box-sizing: border-box;
 }
 
+/*
+ * ネイティブ部品(<select> のドロップダウン、input の枠、既定のスクロールバー)を
+ * 暗い側で描かせる。これが無いと Windows の白いスクロールバーが暗い画面に浮く
+ */
+:root {
+  color-scheme: dark;
+}
+
+/*
+ * スクロールバー。標準の scrollbar-width / scrollbar-color は**書かない** —
+ * 新しい Chromium では標準側が指定されていると ::-webkit-scrollbar が無視され、
+ * つまみの丸めや余白を作れなくなるため
+ */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3a4150;
+  border-radius: 5px;
+  /* 透明の枠 + padding-box でトラックとの間に余白を作る(細く見せる) */
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #4d566a;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 html,
 body,
 #root {
@@ -23,10 +62,25 @@ body {
   height: 100%;
 }
 
+/* ペインの境目。掴んで幅を変える(幅は Sidebar / Inspector 側でインライン指定) */
+.pane-resizer {
+  width: 5px;
+  flex: none;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.12s;
+  /* ドラッグ中に中身のテキストが選択されないように */
+  user-select: none;
+  touch-action: none;
+}
+
+.pane-resizer:hover,
+.pane-resizer:active {
+  background: #2f66d0;
+}
+
 /* ---- サイドバー ---- */
 .sidebar {
-  width: 240px;
-  min-width: 240px;
   background: #1c1f26;
   border-right: 1px solid #2a2e37;
   padding: 10px 8px;
@@ -72,6 +126,46 @@ body {
   font-size: 11px;
   color: #8a8f9c;
   padding: 12px 10px 4px;
+}
+
+/* ライブラリ / フォルダー の切り替え。サイドバーの下半分だけを入れ替える */
+.sidebar-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 10px 0 2px;
+  padding: 2px;
+  background: #171a20;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.sidebar-tab {
+  flex: 1;
+  background: none;
+  border: none;
+  color: #8a8f9c;
+  padding: 6px 4px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.sidebar-tab:hover {
+  color: #d8dbe2;
+}
+
+.sidebar-tab.active {
+  background: #2a2e37;
+  color: #fff;
+}
+
+/* タブの中身が空のときの案内 */
+.side-empty {
+  font-size: 12px;
+  color: #8a8f9c;
+  line-height: 1.6;
+  padding: 10px;
 }
 
 .count {
@@ -128,46 +222,6 @@ body {
   margin-top: 6px;
   background: #22252d;
   border: 1px dashed #3a3f4b;
-/* ライブラリ / フォルダー の切り替え。サイドバーの下半分だけを入れ替える */
-.sidebar-tabs {
-  display: flex;
-  gap: 2px;
-  margin: 10px 0 2px;
-  padding: 2px;
-  background: #171a20;
-  border-radius: 6px;
-  flex-shrink: 0;
-}
-
-.sidebar-tab {
-  flex: 1;
-  background: none;
-  border: none;
-  color: #8a8f9c;
-  padding: 6px 4px;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 12px;
-  font-family: inherit;
-}
-
-.sidebar-tab:hover {
-  color: #d8dbe2;
-}
-
-.sidebar-tab.active {
-  background: #2a2e37;
-  color: #fff;
-}
-
-/* タブの中身が空のときの案内 */
-.side-empty {
-  font-size: 12px;
-  color: #8a8f9c;
-  line-height: 1.6;
-  padding: 10px;
-}
-
   color: #aab0bd;
   padding: 7px 10px;
   border-radius: 6px;
@@ -361,60 +415,6 @@ body {
   border-radius: 6px;
 }
 
-.empty-hint {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #6b7180;
-  padding: 20px;
-  text-align: center;
-  line-height: 1.8;
-}
-
-/* ---- 選択・インスペクタ・タグ ---- */
-.card.selected .thumb {
-  outline: 2px solid #2f66d0;
-  outline-offset: 1px;
-}
-
-.card.selected .card-name {
-  color: #7da7f0;
-}
-
-.tag-mark {
-  color: #8a8f9c;
-  flex-shrink: 0;
-}
-
-.inspector {
-  width: 260px;
-  min-width: 260px;
-  background: #1c1f26;
-  border-left: 1px solid #2a2e37;
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  overflow-y: auto;
-}
-
-.inspector-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-weight: 700;
-  color: #fff;
-  padding: 2px 2px 8px;
-}
-
-.inspector-head .close {
-  background: none;
-  border: none;
-  color: #9aa0ad;
-  cursor: pointer;
-  font-size: 15px;
 /* ---- 一覧の先頭に出すフォルダ(ダブルクリックで開く) ---- */
 .folder-card,
 .folder-row {
@@ -466,6 +466,58 @@ body {
   padding-right: 8px;
 }
 
+.empty-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6b7180;
+  padding: 20px;
+  text-align: center;
+  line-height: 1.8;
+}
+
+/* ---- 選択・インスペクタ・タグ ---- */
+.card.selected .thumb {
+  outline: 2px solid #2f66d0;
+  outline-offset: 1px;
+}
+
+.card.selected .card-name {
+  color: #7da7f0;
+}
+
+.tag-mark {
+  color: #8a8f9c;
+  flex-shrink: 0;
+}
+
+.inspector {
+  background: #1c1f26;
+  border-left: 1px solid #2a2e37;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+}
+
+.inspector-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 700;
+  color: #fff;
+  padding: 2px 2px 8px;
+}
+
+.inspector-head .close {
+  background: none;
+  border: none;
+  color: #9aa0ad;
+  cursor: pointer;
+  font-size: 15px;
 }
 
 .inspector-head .close:hover {
@@ -554,6 +606,14 @@ body {
   color: #6b7180;
   padding: 6px 2px;
   line-height: 1.5;
+}
+
+/* 固定表示していて何も選ばれていないとき */
+.inspector-empty {
+  font-size: 12px;
+  color: #6b7180;
+  line-height: 1.6;
+  padding: 12px 2px;
 }
 
 /* ---- missing・削除 ---- */
@@ -1347,15 +1407,32 @@ html.mpv-active .app {
 }
 
 /* ---- タグツリー (v1.7) ---- */
+/**
+ * 開閉の三角。字は常に ▼ で、閉じているときだけ CSS で右向きに回す
+ * (▶ と ▼ は別グリフなので、字を差し替えると大きさが変わって見える)。
+ * 小さいと押しづらいので、当たり判定は字より大きめに取る
+ */
 .tree-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
-  color: #8a8f9c;
+  color: #b6bcc9;
   cursor: pointer;
-  font-size: 10px;
-  width: 12px;
+  font-size: 11px;
+  line-height: 1;
+  width: 20px;
+  height: 20px;
+  margin: -3px 0;
+  border-radius: 4px;
   padding: 0;
   flex-shrink: 0;
+}
+
+/* 閉じている間は右向き(▼ を反時計回りに 90°) */
+.tree-toggle:not(.open) {
+  transform: rotate(-90deg);
 }
 
 .tree-toggle.spacer {
@@ -1364,6 +1441,15 @@ html.mpv-active .app {
 
 .tree-toggle:hover {
   color: #fff;
+  background: #3a4150;
+}
+
+.side-item.active .tree-toggle {
+  color: #fff;
+}
+
+.side-item.active .tree-toggle:hover {
+  background: #4a7ad8;
 }
 
 .tag-editor {
@@ -1694,18 +1780,13 @@ button.stats-tile:hover {
   cursor: default;
 }
 
-.player-thumb-btn {
-  background: none;
-  border: none;
-  color: #d8dbe2;
-  cursor: pointer;
+/*
+ * 「この位置をサムネイルにする」。下のボタン列に置いている(v1.11)。
+ * 以前は上のバーで ✕ の隣にあり、閉じるつもりで押してしまう事故があった。
+ * 見た目は .player-buttons button を継いだうえで、絵文字が少しだけ小さく見えるので詰める
+ */
+.player-buttons .player-thumb-btn {
   font-size: 15px;
-  padding: 0 6px;
-  line-height: 1;
-}
-
-.player-thumb-btn:hover {
-  color: #fff;
 }
 
 /* ---- ファイル操作の確認ダイアログ (v1.9) ---- */

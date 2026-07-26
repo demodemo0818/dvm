@@ -253,15 +253,6 @@ function Html5PlayerView({ video }: { video: VideoRow }) {
           <div className="player-title" title={video.path}>
             {video.title ?? video.filename}
           </div>
-          {src != null && (
-            <button
-              className="player-thumb-btn"
-              onClick={setThumbnail}
-              title="この位置をサムネイルにする (T)"
-            >
-              🖼
-            </button>
-          )}
           <button className="player-close" onClick={close} title="閉じる (Esc)">
             ✕
           </button>
@@ -271,6 +262,7 @@ function Html5PlayerView({ video }: { video: VideoRow }) {
             player={player}
             isFullscreen={isFullscreen}
             onToggleFullscreen={toggleFullscreen}
+            onSetThumbnail={setThumbnail}
             queue={queue}
           />
         )}
