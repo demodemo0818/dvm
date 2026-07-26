@@ -1222,7 +1222,6 @@ html.mpv-active .app {
 
 .player-volume {
   width: 80px;
-  accent-color: #4c8dff;
 }
 
 .player-rate {
@@ -1761,9 +1760,9 @@ button.stats-tile:hover {
 .list-rating { width: 70px; color: #e0c14a; text-align: left; }
 .list-added { width: 82px; }
 
+/* 140〜400px を刻むので、90px だと 1 段が 1.4px しか動かず合わせづらかった */
 .card-size {
-  width: 90px;
-  accent-color: #2f66d0;
+  width: 110px;
 }
 
 /* ---- 連続再生・トラック切替 (v1.8) ---- */
@@ -2043,6 +2042,61 @@ svg.lucide {
 .tree-toggle svg.lucide {
   width: 14px;
   height: 14px;
+}
+
+/* ---- スライダー (v1.13) ---- */
+/*
+ * サムネイルの大きさ・音量のスライダー。
+ * 既定の見た目は accent-color しか触れず、track の細さも つまみの大きさも詰められない
+ * ので自前に組む(WebView2 は Chromium なので ::-webkit-slider-* が使える)。
+ * 左側の塗りは JS から --fill(%)を渡してグラデーションで描く —
+ * ネイティブの range には「ここまで塗る」を CSS だけで表す手段が無いため
+ */
+input[type='range'] {
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  /* track より厚く取って掴みやすくする(つまみの高さぶん) */
+  height: 14px;
+  cursor: pointer;
+}
+
+input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  /* --fill が未指定なら塗りなし(下地だけ)になる */
+  background: linear-gradient(
+    to right,
+    #4c8dff 0 var(--fill, 0%),
+    #343945 var(--fill, 0%) 100%
+  );
+}
+
+input[type='range']::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  /* track(4px)の中央に載せる: (4 - 12) / 2 */
+  margin-top: -4px;
+  border-radius: 50%;
+  background: #dfe3ea;
+  transition:
+    background 0.12s,
+    transform 0.12s;
+}
+
+input[type='range']:hover::-webkit-slider-thumb,
+input[type='range']:active::-webkit-slider-thumb {
+  background: #fff;
+  transform: scale(1.2);
+}
+
+/* キーボードで触ったときだけ枠を出す(クリックでは出さない) */
+input[type='range']:focus-visible {
+  outline: 2px solid #4c8dff;
+  outline-offset: 3px;
+  border-radius: 2px;
 }
 
 /* ---- 表示サイズ・連続再生のトグル (v1.12) ---- */

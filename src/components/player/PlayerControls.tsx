@@ -1,5 +1,5 @@
 import {
-  Camera,
+  GalleryThumbnails,
   ListVideo,
   Maximize,
   Minimize,
@@ -226,6 +226,8 @@ export function PlayerControls({
           step={0.05}
           value={state.muted ? 0 : state.volume}
           onChange={(e) => player.setVolume(Number(e.target.value))}
+          // 左側の塗り。ネイティブの range は「ここまで塗る」を CSS だけでは表せない
+          style={{ '--fill': `${(state.muted ? 0 : state.volume) * 100}%` } as React.CSSProperties}
           title="音量 (↑↓)"
         />
         {/*
@@ -238,7 +240,8 @@ export function PlayerControls({
             onClick={onSetThumbnail}
             title="この位置をサムネイルにする (T)"
           >
-            <Camera />
+            {/* カメラは「撮影」に見えて紛らわしいので、サムネイル一覧の形にしている */}
+            <GalleryThumbnails />
           </button>
         )}
         {/* 表示サイズ(mpv のみ)。両状態で同じアイコンを使うのでバーの幅が揺れない */}

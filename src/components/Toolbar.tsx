@@ -44,6 +44,8 @@ export function Toolbar() {
   }, [text]);
 
   const advCount = advancedCount(advanced);
+  const cardWidthPct =
+    ((cardWidth - CARD_WIDTH_MIN) / (CARD_WIDTH_MAX - CARD_WIDTH_MIN)) * 100;
 
   const saveCurrentAsSmartFolder = async () => {
     const name = window.prompt('この検索条件に名前を付けて保存します');
@@ -138,6 +140,8 @@ export function Toolbar() {
           onChange={(e) => setCardWidth(Number(e.target.value))}
           // ドラッグ中に毎回書き込まない(離したときだけ保存する)
           onPointerUp={() => void api.setSetting('card_width', String(cardWidth))}
+          // 左側の塗り。ネイティブの range は「ここまで塗る」を CSS だけでは表せない
+          style={{ '--fill': `${cardWidthPct}%` } as React.CSSProperties}
           title="サムネイルの大きさ"
         />
       )}
