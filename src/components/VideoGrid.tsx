@@ -1,40 +1,26 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useVideos } from '../hooks/useVideos';
+import { buildQuery } from '../lib/query';
 import { useLibrary } from '../store';
-import type { DurationBucket, VideoQuery } from '../types';
+import type { VideoQuery } from '../types';
 import { VideoCard } from './VideoCard';
 
 const CARD_W = 224; // カード幅 + ギャップの目安
 const CARD_H = 210; // 1 行の高さ
 
-const MIN = 60_000; // 1 分 (ms)
-const DURATION_RANGES: Record<DurationBucket, { min?: number; max?: number }> = {
-  lt5: { max: 5 * MIN },
-  '5to20': { min: 5 * MIN, max: 20 * MIN },
-  '20to60': { min: 20 * MIN, max: 60 * MIN },
-  gt60: { min: 60 * MIN },
-};
-
 export function VideoGrid() {
   const {
     text, sort, folderId, tagIds, seriesId, missingOnly, minRating, durationBucket,
-    version, clearSelection,
+    duplicatesOnly, advanced, randomSeed, version, clearSelection,
   } = useLibrary();
-  const query = useMemo<VideoQuery>(() => {
-    const range = durationBucket ? DURATION_RANGES[durationBucket] : undefined;
-    return {
-      text: text || undefined,
-      sort,
-      folderId,
-      tagIds: tagIds.length > 0 ? tagIds : undefined,
-      seriesId,
-      missing: missingOnly ? true : undefined,
-      minRating: minRating > 0 ? minRating : undefined,
-      minDurationMs: range?.min,
-      maxDurationMs: range?.max,
-    };
-  }, [text, sort, folderId, tagIds, seriesId, missingOnly, minRating, durationBucket]);
+  const query = useMemo<VideoQuery>(() => buildQuery({
+    text, sort, folderId, tagIds, seriesId, missingOnly, minRating, durationBucket,
+    duplicatesOnly, advanced, randomSeed,
+  }), [
+    text, sort, folderId, tagIds, seriesId, missingOnly, minRating, durationBucket,
+    duplicatesOnly, advanced, randomSeed,
+  ]);
   const { total, getVideo } = useVideos(query, version);
 
   const parentRef = useRef<HTMLDivElement>(null);

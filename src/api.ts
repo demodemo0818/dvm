@@ -1,6 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useLibrary } from './store';
-import type { AppInfo, BackupInfo, Series, Tag, VideoQuery, VideoRow, WatchedFolder } from './types';
+import type {
+  AppInfo, BackupInfo, LibraryStats, Series, SmartFolder, Tag, VideoQuery, VideoRow, WatchedFolder,
+} from './types';
 
 /**
  * Tauri コマンド呼び出しの共通ラッパ。
@@ -47,6 +49,12 @@ export const api = {
     call<void>('untag_videos', { videoIds, tagId, actor }),
   renameTag: (tagId: number, name: string) => call<void>('rename_tag', { tagId, name }),
   deleteTag: (tagId: number) => call<void>('delete_tag', { tagId }),
+  /** color に null を渡すと色なしに戻す */
+  setTagColor: (tagId: number, color: string | null) =>
+    call<void>('set_tag_color', { tagId, color }),
+  /** parentId に null を渡すとトップレベルに戻す */
+  setTagParent: (tagId: number, parentId: number | null) =>
+    call<void>('set_tag_parent', { tagId, parentId }),
   tagsForVideos: (videoIds: number[]) => call<Tag[]>('tags_for_videos', { videoIds }),
   setRating: (videoIds: number[], rating: number, actor?: 'user' | 'ai') =>
     call<void>('set_rating', { videoIds, rating, actor }),
@@ -61,6 +69,19 @@ export const api = {
   seriesForVideos: (videoIds: number[]) => call<Series[]>('series_for_videos', { videoIds }),
   getSetting: (key: string) => call<string | null>('get_setting', { key }),
   setSetting: (key: string, value: string) => call<void>('set_setting', { key, value }),
+  listSmartFolders: () => call<SmartFolder[]>('list_smart_folders'),
+  createSmartFolder: (name: string, query: VideoQuery, actor?: 'user' | 'ai') =>
+    call<number>('create_smart_folder', { name, queryJson: JSON.stringify(query), actor }),
+  updateSmartFolder: (id: number, name?: string, query?: VideoQuery, actor?: 'user' | 'ai') =>
+    call<void>('update_smart_folder', {
+      id,
+      name,
+      queryJson: query ? JSON.stringify(query) : undefined,
+      actor,
+    }),
+  deleteSmartFolder: (id: number) => call<void>('delete_smart_folder', { id }),
+  reorderSmartFolders: (ids: number[]) => call<void>('reorder_smart_folders', { ids }),
+  libraryStats: () => call<LibraryStats>('library_stats'),
   getAppInfo: () => call<AppInfo>('get_app_info'),
   backupDb: () => call<BackupInfo>('backup_db'),
   listDbBackups: () => call<BackupInfo[]>('list_db_backups'),

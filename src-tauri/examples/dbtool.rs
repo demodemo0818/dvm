@@ -2,13 +2,48 @@
 //! 使い方:
 //!   cargo run --example dbtool -- <db_path> seed <folder_path>
 //!   cargo run --example dbtool -- <db_path> dump
+//!   cargo run --example dbtool -- <db_path> check   # マイグレーション適用と統計の確認
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 3 {
-        eprintln!("usage: dbtool <db_path> seed <folder> | dbtool <db_path> dump");
+        eprintln!("usage: dbtool <db_path> seed <folder> | dbtool <db_path> dump | dbtool <db_path> check");
         std::process::exit(1);
     }
+
+    // check は init 経由でマイグレーションを実際に走らせる(本番と同じ経路を通す)
+    if args[2] == "check" {
+        let conn = tauri_app_lib::db::init(std::path::Path::new(&args[1])).expect("init db");
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .expect("user_version");
+        println!("user_version = {version}");
+
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            .expect("prepare");
+        let tables: Vec<String> = stmt
+            .query_map([], |r| r.get(0))
+            .expect("query")
+            .flatten()
+            .collect();
+        println!("tables = {}", tables.join(", "));
+
+        let stats = tauri_app_lib::core::stats::library_stats(&conn).expect("stats");
+        println!(
+            "videos={} missing={} unwatched={} untagged={} duplicates={} tags={} series={}",
+            stats.video_count,
+            stats.missing_count,
+            stats.unwatched_count,
+            stats.untagged_count,
+            stats.duplicate_count,
+            stats.tag_count,
+            stats.series_count,
+        );
+        println!("smart_folders = {}", tauri_app_lib::core::smart_folders::list(&conn).unwrap().len());
+        return;
+    }
+
     let conn = rusqlite::Connection::open(&args[1]).expect("open db");
 
     match args[2].as_str() {

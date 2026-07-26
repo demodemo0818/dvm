@@ -2,7 +2,8 @@ import { ask, open } from '@tauri-apps/plugin-dialog';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useLibrary } from '../store';
-import type { Series, Tag, WatchedFolder } from '../types';
+import type { Series, SmartFolder, Tag, VideoQuery, WatchedFolder } from '../types';
+import { TagTree } from './TagTree';
 
 const VIDEO_EXTENSIONS = [
   'mp4', 'm4v', 'mkv', 'avi', 'wmv', 'mov', 'flv', 'webm',
@@ -18,22 +19,65 @@ function folderName(path: string): string {
 export function Sidebar() {
   const {
     folderId, setFolderId, version, bumpVersion,
-    tagIds, toggleTagFilter, seriesId, toggleSeriesFilter,
+    seriesId, toggleSeriesFilter,
     missingOnly, toggleMissingOnly,
+    duplicatesOnly, toggleDuplicatesOnly, applyFilter, pushToast,
   } = useLibrary();
   const [folders, setFolders] = useState<WatchedFolder[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [seriesList, setSeriesList] = useState<Series[]>([]);
+  const [smartFolders, setSmartFolders] = useState<SmartFolder[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [missingCount, setMissingCount] = useState(0);
+  const [duplicateCount, setDuplicateCount] = useState(0);
 
   useEffect(() => {
     api.listWatchedFolders().then(setFolders);
     api.listTags().then(setTags);
     api.listSeries().then(setSeriesList);
+    api.listSmartFolders().then(setSmartFolders);
     api.countVideos({}).then(setTotalCount);
     api.countVideos({ missing: true }).then(setMissingCount);
+    api.countVideos({ duplicatesOnly: true }).then(setDuplicateCount);
   }, [version]);
+
+  /** 保存した検索条件を復元する。壊れた JSON は握り潰さずトーストで知らせる */
+  const openSmartFolder = (sf: SmartFolder) => {
+    let q: VideoQuery;
+    try {
+      q = JSON.parse(sf.queryJson);
+    } catch {
+      pushToast(`「${sf.name}」の検索条件を読めませんでした`);
+      return;
+    }
+    applyFilter({
+      text: q.text,
+      tagIds: q.tagIds,
+      seriesId: q.seriesId,
+      minRating: q.minRating,
+      missingOnly: q.missing,
+      duplicatesOnly: q.duplicatesOnly,
+      sort: q.sort,
+      advanced: {
+        searchPath: q.searchPath ?? false,
+        untagged: q.untagged ?? false,
+        unwatched: q.unwatched ?? false,
+        minHeight: q.minHeight ?? 0,
+        videoCodecs: q.videoCodecs ?? [],
+        addedAfter: q.addedAfter ?? '',
+        addedBefore: q.addedBefore ?? '',
+      },
+    });
+  };
+
+  const removeSmartFolder = async (sf: SmartFolder) => {
+    const yes = await ask(`スマートフォルダ「${sf.name}」を削除しますか?\n(動画は消えません)`, {
+      title: 'スマートフォルダの削除',
+    });
+    if (!yes) return;
+    await api.deleteSmartFolder(sf.id);
+    bumpVersion();
+  };
 
   const removeSeries = async (s: Series) => {
     const yes = await ask(
@@ -43,17 +87,6 @@ export function Sidebar() {
     if (!yes) return;
     await api.deleteSeries(s.id);
     if (seriesId === s.id) toggleSeriesFilter(s.id);
-    bumpVersion();
-  };
-
-  const removeTag = async (tag: Tag) => {
-    const yes = await ask(
-      `タグ「${tag.name}」を削除しますか?\n(${tag.videoCount} 件の動画から外れます。動画自体は消えません)`,
-      { title: 'タグの削除' },
-    );
-    if (!yes) return;
-    await api.deleteTag(tag.id);
-    if (tagIds.includes(tag.id)) toggleTagFilter(tag.id);
     bumpVersion();
   };
 
@@ -113,6 +146,38 @@ export function Sidebar() {
           ⚠ 見つからない <span className="count">{missingCount}</span>
         </button>
       )}
+      {duplicateCount > 0 && (
+        <button
+          className={`side-item ${duplicatesOnly ? 'active' : ''}`}
+          onClick={toggleDuplicatesOnly}
+          title="内容が同じ動画(サイズと先頭ハッシュが一致)だけを表示。同じものが隣り合って並びます"
+        >
+          ⧉ 重複 <span className="count">{duplicateCount}</span>
+        </button>
+      )}
+
+      {smartFolders.length > 0 && <div className="side-section">スマートフォルダ</div>}
+      {smartFolders.map((sf) => (
+        <div
+          key={sf.id}
+          className="side-item folder"
+          onClick={() => openSmartFolder(sf)}
+          title={`${sf.name}(保存した検索条件を復元します)`}
+        >
+          <span className="tag-mark">🔍</span>
+          <span className="folder-name">{sf.name}</span>
+          <button
+            className="remove"
+            title="スマートフォルダを削除"
+            onClick={(e) => {
+              e.stopPropagation();
+              removeSmartFolder(sf);
+            }}
+          >
+            ×
+          </button>
+        </div>
+      ))}
 
       <div className="side-section">監視フォルダ</div>
       {folders.map((f) => (
@@ -166,28 +231,7 @@ export function Sidebar() {
       ))}
 
       {tags.length > 0 && <div className="side-section">タグ</div>}
-      {tags.map((t) => (
-        <div
-          key={t.id}
-          className={`side-item folder ${tagIds.includes(t.id) ? 'active' : ''}`}
-          onClick={() => toggleTagFilter(t.id)}
-          title={`${t.name}(クリックで絞り込み。複数選択で AND 検索)`}
-        >
-          <span className="tag-mark">#</span>
-          <span className="folder-name">{t.name}</span>
-          <span className="count">{t.videoCount}</span>
-          <button
-            className="remove"
-            title="タグを削除"
-            onClick={(e) => {
-              e.stopPropagation();
-              removeTag(t);
-            }}
-          >
-            ×
-          </button>
-        </div>
-      ))}
+      <TagTree tags={tags} />
     </aside>
   );
 }

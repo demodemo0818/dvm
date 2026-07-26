@@ -1,8 +1,8 @@
 [package]
 name = "tauri-app"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+version = "1.7.0"
+description = "VideoShelf — Windows 向け動画管理ソフト"
+authors = ["taiki"]
 edition = "2021"
 default-run = "tauri-app"
 

@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 use tauri_app_lib::core::query::{self, VideoQuery};
-use tauri_app_lib::core::{series, tags, videos};
+use tauri_app_lib::core::{series, stats, tags, videos};
 
 fn default_db_path() -> PathBuf {
     let appdata = std::env::var("APPDATA").expect("APPDATA is not set");
@@ -119,18 +119,27 @@ fn read_tool_definitions() -> Value {
     json!([
         {
             "name": "search_videos",
-            "description": "動画ライブラリを検索する。テキスト(ファイル名・タイトルの部分一致)、タグ名、シリーズ名、missing 状態で絞り込める。結果は JSON 配列で返る。",
+            "description": "動画ライブラリを検索する。テキスト(ファイル名・タイトルの部分一致。空白区切りで AND)、タグ名、シリーズ名、missing 状態、未視聴、タグなし、解像度、コーデック、追加日で絞り込める。結果は JSON 配列で返る。",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "text": { "type": "string", "description": "ファイル名・タイトルの部分一致検索" },
-                    "tag": { "type": "string", "description": "タグ名(完全一致)。このタグが付いた動画に絞る" },
+                    "text": { "type": "string", "description": "ファイル名・タイトルの部分一致検索。空白区切りで複数語すべてを含むものに絞る" },
+                    "search_path": { "type": "boolean", "description": "true で text の検索対象にフルパスも含める" },
+                    "tag": { "type": "string", "description": "タグ名(完全一致)。このタグが付いた動画に絞る。子タグが付いた動画も含む" },
                     "series": { "type": "string", "description": "シリーズ名(完全一致)。指定時は登録順で返る" },
                     "missing": { "type": "boolean", "description": "true でファイルが見つからない動画のみ" },
+                    "untagged": { "type": "boolean", "description": "true でタグが 1 つも付いていない動画のみ" },
+                    "unwatched": { "type": "boolean", "description": "true で一度も再生していない動画のみ" },
+                    "duplicates_only": { "type": "boolean", "description": "true で内容が同一(サイズ+部分ハッシュが一致)の動画だけを返す。sort=dup と併せると同じものが隣り合う" },
                     "min_rating": { "type": "integer", "minimum": 1, "maximum": 5, "description": "このレーティング以上の動画に絞る" },
                     "min_duration_sec": { "type": "integer", "description": "尺の下限(秒)" },
                     "max_duration_sec": { "type": "integer", "description": "尺の上限(秒)" },
-                    "sort": { "type": "string", "enum": ["added_desc", "added_asc", "name_asc", "name_desc", "size_desc", "duration_desc", "rating_desc", "viewed_desc"], "description": "並び順(既定: added_desc)" },
+                    "min_width": { "type": "integer", "description": "横解像度の下限(ピクセル)" },
+                    "min_height": { "type": "integer", "description": "縦解像度の下限(ピクセル)。1080 で FHD 以上" },
+                    "video_codecs": { "type": "array", "items": { "type": "string" }, "description": "映像コーデックで絞る(例: [\"h264\", \"hevc\"])" },
+                    "added_after": { "type": "string", "description": "ライブラリ追加日の下限(YYYY-MM-DD。その日を含む)" },
+                    "added_before": { "type": "string", "description": "ライブラリ追加日の上限(YYYY-MM-DD。その日を含む)" },
+                    "sort": { "type": "string", "enum": ["added_desc", "added_asc", "name_asc", "name_desc", "size_desc", "duration_desc", "rating_desc", "viewed_desc", "dup"], "description": "並び順(既定: added_desc)" },
                     "limit": { "type": "integer", "description": "最大件数(既定 50、最大 1000)" }
                 }
             }
@@ -156,7 +165,7 @@ fn read_tool_definitions() -> Value {
         },
         {
             "name": "library_stats",
-            "description": "ライブラリ全体の統計(動画数・合計サイズ・タグ数・シリーズ数・missing 数)を取得する",
+            "description": "ライブラリ全体の統計(動画数・合計サイズ・合計再生時間・タグ数・シリーズ数・missing 数・未視聴数・タグなし数・重複数・レーティング分布・コーデック別/解像度別/フォルダ別/月別の内訳)を取得する",
             "inputSchema": { "type": "object", "properties": {} }
         }
     ])
@@ -296,6 +305,17 @@ fn call_tool(
                 min_rating: args["min_rating"].as_i64(),
                 min_duration_ms: args["min_duration_sec"].as_i64().map(|s| s * 1000),
                 max_duration_ms: args["max_duration_sec"].as_i64().map(|s| s * 1000),
+                search_path: args["search_path"].as_bool(),
+                untagged: args["untagged"].as_bool(),
+                unwatched: args["unwatched"].as_bool(),
+                duplicates_only: args["duplicates_only"].as_bool(),
+                min_width: args["min_width"].as_i64(),
+                min_height: args["min_height"].as_i64(),
+                video_codecs: args["video_codecs"].as_array().map(|a| {
+                    a.iter().filter_map(|v| v.as_str().map(String::from)).collect()
+                }),
+                added_after: args["added_after"].as_str().map(String::from),
+                added_before: args["added_before"].as_str().map(String::from),
                 ..Default::default()
             };
             if let Some(tag) = args["tag"].as_str() {
@@ -375,25 +395,8 @@ fn call_tool(
         }
         "list_tags" => Ok(serde_json::to_string_pretty(&tags::list_tags(conn)?)?),
         "list_series" => Ok(serde_json::to_string_pretty(&series::list_series(conn)?)?),
-        "library_stats" => {
-            let (count, size): (i64, i64) = conn.query_row(
-                "SELECT COUNT(*), COALESCE(SUM(size), 0) FROM videos",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )?;
-            let missing: i64 =
-                conn.query_row("SELECT COUNT(*) FROM videos WHERE is_missing=1", [], |r| r.get(0))?;
-            let tag_count: i64 = conn.query_row("SELECT COUNT(*) FROM tags", [], |r| r.get(0))?;
-            let series_count: i64 =
-                conn.query_row("SELECT COUNT(*) FROM series", [], |r| r.get(0))?;
-            Ok(serde_json::to_string_pretty(&json!({
-                "videoCount": count,
-                "totalSizeBytes": size,
-                "tagCount": tag_count,
-                "seriesCount": series_count,
-                "missingCount": missing,
-            }))?)
-        }
+        // 集計はアプリの統計画面と同じ core::stats を使う(数字が食い違わないように)
+        "library_stats" => Ok(serde_json::to_string_pretty(&stats::library_stats(conn)?)?),
         "tag_videos" => {
             let ids = ids_arg(args)?;
             let tag = args["tag"].as_str().ok_or_else(|| anyhow::anyhow!("tag が必要です"))?;

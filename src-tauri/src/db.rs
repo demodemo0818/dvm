@@ -34,6 +34,12 @@ pub fn open_read(path: &Path) -> Result<Connection> {
     Ok(conn)
 }
 
+/// 最新スキーマを流す(すべて IF NOT EXISTS)。テストでインメモリ DB を組むときにも使う
+pub fn apply_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(SCHEMA)?;
+    Ok(())
+}
+
 fn migrate(conn: &Connection) -> Result<()> {
     // user_version 導入前(v0.4 以前)の DB は 0 のままなので、新規 DB かどうかは videos の有無で見分ける
     let fresh: bool = conn.query_row(
@@ -130,6 +136,14 @@ CREATE TABLE IF NOT EXISTS series_entries (
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT
+);
+
+-- 保存した検索条件(VideoQuery の JSON)。サイドバーに出す
+CREATE TABLE IF NOT EXISTS smart_folders (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  query_json TEXT NOT NULL,
+  position INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS operations_log (

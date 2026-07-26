@@ -1,7 +1,11 @@
 import { create } from 'zustand';
-import type { DurationBucket, SortKey, Toast, VideoRow } from './types';
+import { EMPTY_ADVANCED } from './types';
+import type { AdvancedFilter, DurationBucket, SortKey, Toast, VideoRow } from './types';
 
 let toastSeq = 0;
+
+/** シャッフル種。0 は使わない(Rust 側で 1 に丸められる) */
+const newSeed = () => Math.floor(Math.random() * 999_000) + 1;
 
 interface LibraryState {
   text: string;
@@ -17,6 +21,12 @@ interface LibraryState {
   minRating: number;
   /** 尺フィルタのプリセット(null = 絞らない) */
   durationBucket: DurationBucket | null;
+  /** true のとき内容が同一の動画だけを表示する(重複整理) */
+  duplicatesOnly: boolean;
+  /** ツールバーに出していない詳細検索の条件 */
+  advanced: AdvancedFilter;
+  /** sort='random' のシャッフル種。ページングしても順序を保つために固定値を持つ */
+  randomSeed: number;
   /** ライブラリ内容の変更通知。増えると各所が再取得する */
   version: number;
   status: string;
@@ -31,6 +41,8 @@ interface LibraryState {
   previewOnHover: boolean;
   /** AI アシスタントパネルの表示状態 */
   showAiPanel: boolean;
+  /** 統計ダッシュボードの表示状態 */
+  showStats: boolean;
   /** 画面右下の通知(API 失敗を無反応にしないため) */
   toasts: Toast[];
   pushToast: (message: string, kind?: Toast['kind']) => void;
@@ -42,15 +54,24 @@ interface LibraryState {
   clearTagFilter: () => void;
   toggleSeriesFilter: (seriesId: number) => void;
   toggleMissingOnly: () => void;
+  toggleDuplicatesOnly: () => void;
   setMinRating: (minRating: number) => void;
   setDurationBucket: (durationBucket: DurationBucket | null) => void;
+  setAdvanced: (patch: Partial<AdvancedFilter>) => void;
+  clearAdvanced: () => void;
+  /** ランダムソートに切り替える / すでにランダムなら並びを引き直す */
+  reshuffle: () => void;
   bumpVersion: () => void;
   setStatus: (scanning: boolean, status: string) => void;
   setPlayingVideo: (video: VideoRow | null) => void;
   setPlayerPath: (playerPath: string) => void;
   setPreviewOnHover: (previewOnHover: boolean) => void;
   toggleAiPanel: () => void;
-  /** フィルタ一式をまとめて置き換える(AI アシスタントの apply_filter 用)。省略項目は既定値に戻る */
+  setShowStats: (showStats: boolean) => void;
+  /**
+   * フィルタ一式をまとめて置き換える(AI アシスタントの apply_filter・
+   * スマートフォルダの復元で共用)。省略項目は既定値に戻る
+   */
   applyFilter: (filter: {
     text?: string;
     tagIds?: number[];
@@ -58,7 +79,9 @@ interface LibraryState {
     minRating?: number;
     durationBucket?: DurationBucket | null;
     missingOnly?: boolean;
+    duplicatesOnly?: boolean;
     sort?: SortKey;
+    advanced?: Partial<AdvancedFilter>;
   }) => void;
   selectOnly: (video: VideoRow) => void;
   toggleSelect: (video: VideoRow) => void;
@@ -76,6 +99,9 @@ export const useLibrary = create<LibraryState>((set) => ({
   missingOnly: false,
   minRating: 0,
   durationBucket: null,
+  duplicatesOnly: false,
+  advanced: EMPTY_ADVANCED,
+  randomSeed: newSeed(),
   version: 0,
   status: '',
   scanning: false,
@@ -84,6 +110,7 @@ export const useLibrary = create<LibraryState>((set) => ({
   playerPath: '',
   previewOnHover: true,
   showAiPanel: false,
+  showStats: false,
   toasts: [],
   pushToast: (message, kind = 'error') =>
     set((s) => {
@@ -96,6 +123,7 @@ export const useLibrary = create<LibraryState>((set) => ({
   setPlayerPath: (playerPath) => set({ playerPath }),
   setPreviewOnHover: (previewOnHover) => set({ previewOnHover }),
   toggleAiPanel: () => set((s) => ({ showAiPanel: !s.showAiPanel })),
+  setShowStats: (showStats) => set({ showStats }),
   applyFilter: (f) =>
     set((s) => ({
       text: f.text ?? '',
@@ -104,6 +132,8 @@ export const useLibrary = create<LibraryState>((set) => ({
       minRating: f.minRating ?? 0,
       durationBucket: f.durationBucket ?? null,
       missingOnly: f.missingOnly ?? false,
+      duplicatesOnly: f.duplicatesOnly ?? false,
+      advanced: { ...EMPTY_ADVANCED, ...f.advanced },
       sort: f.sort ?? (f.seriesId != null ? 'series_asc' : s.sort === 'series_asc' ? 'added_desc' : s.sort),
       folderId: null,
       selection: [],
@@ -120,8 +150,22 @@ export const useLibrary = create<LibraryState>((set) => ({
     })),
   clearTagFilter: () => set({ tagIds: [], selection: [] }),
   toggleMissingOnly: () => set((s) => ({ missingOnly: !s.missingOnly, selection: [] })),
+  toggleDuplicatesOnly: () =>
+    set((s) => {
+      const next = !s.duplicatesOnly;
+      return {
+        duplicatesOnly: next,
+        // 重複表示では同じファイルが隣り合う並びにする。外したら追加日順に戻す
+        sort: next ? 'dup' : s.sort === 'dup' ? 'added_desc' : s.sort,
+        selection: [],
+      };
+    }),
   setMinRating: (minRating) => set({ minRating, selection: [] }),
   setDurationBucket: (durationBucket) => set({ durationBucket, selection: [] }),
+  setAdvanced: (patch) =>
+    set((s) => ({ advanced: { ...s.advanced, ...patch }, selection: [] })),
+  clearAdvanced: () => set({ advanced: EMPTY_ADVANCED, selection: [] }),
+  reshuffle: () => set({ sort: 'random', randomSeed: newSeed(), selection: [] }),
   toggleSeriesFilter: (seriesId) =>
     set((s) => {
       const next = s.seriesId === seriesId ? null : seriesId;

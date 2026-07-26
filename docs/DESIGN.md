@@ -83,8 +83,51 @@ Windows 向け動画管理ソフト(仮称: VideoShelf)。
 区別が効く場面: 監視フォルダを解除したとき、そのフォルダ由来の動画をまとめて外す(または残すか確認する)ことができる一方、個別登録したファイルは影響を受けない。missing 検出(起動時の存在チェック・移動検出)はどちらの経路でも同じように働く。
 
 ### 全文検索について
-- v0.1 のテキスト検索は filename / title への LIKE 部分一致(日本語の部分一致はこれで正しく動く)
+- テキスト検索は filename / title への LIKE 部分一致(日本語の部分一致はこれで正しく動く)。
+  v1.7 から**空白区切りで AND**(全角スペースも区切り)。設定で path も対象に含められる
 - FTS5 は日本語トークナイズの問題(標準トークナイザは CJK に弱い)があるため、導入するなら trigram トークナイザ等を検証してから(v0.2 で判断)
+
+## 構造化クエリ `VideoQuery`(v1.7 で拡張)
+
+UI・MCP・AI アシスタントが共有する唯一の検索条件型(`core/query.rs`)。
+**新しい条件は必ず `Option` で足す**。未指定なら従来とまったく同じ SQL が出ること
+(`where_clause` の回帰テストで担保している)。
+
+| 条件 | 備考 |
+|---|---|
+| text / sort / folderId / tagIds / seriesId / missing | v0.1〜v0.4 |
+| minRating / minDurationMs / maxDurationMs | v1.0 |
+| searchPath | text の対象に path を含める |
+| untagged / unwatched | タグなし / 未視聴 |
+| minWidth / minHeight | 解像度下限 |
+| videoCodecs | 映像コーデック(バインドパラメータ。小文字比較) |
+| addedAfter / addedBefore | 追加日範囲(YYYY-MM-DD、両端を含む) |
+| duplicatesOnly | size + partial_hash の重複のみ |
+| includeChildTags | 親タグ選択時に子孫も含む(既定 true) |
+| randomSeed | ランダムソートの種 |
+
+- `where_clause()` は `(SQL, Vec<String>)` を返す。複数語 LIKE とコーデック・日付をバインドするため
+  (i64 の条件は従来どおり直接埋め込む。文字列だけをパラメータにする)
+- **ランダムソートは `RANDOM()` を使わない**。ページごとに順序が変わって仮想化と両立しないため、
+  `id` と種から決定的に並べる: `t = (id * 2654435761) % 1000003` を作り `t * (t + seed) % 1000003` で並べる。
+  掛け算と剰余だけだと id に対して線形になり件数が少ないとシャッフルされないので、二乗を混ぜて非線形にしている
+- タグ階層は再帰 CTE(`WITH RECURSIVE`)を `IN` の中に置く。親タグを選ぶと子孫タグ付きの動画も出る
+- 重複判定は `(size, partial_hash) IN (... GROUP BY ... HAVING COUNT(*) > 1)`。
+  `partial_hash IS NULL`(未算出)は「不明」であって重複ではないので除く
+
+### スマートフォルダ(v1.7)
+
+- `smart_folders(id, name, query_json, position)`。`query_json` は **VideoQuery をそのまま JSON 化**したもの
+- 保存前に `serde_json::from_str::<VideoQuery>` で検証する(壊れた条件を貯めない)
+- 復元は store の `applyFilter` を使う(AI の `apply_filter` と同じ経路)
+- **新テーブルの追加に `MIGRATIONS` は要らない**。`db.rs` の `migrate()` は既存 DB にも `SCHEMA`
+  (すべて `CREATE TABLE IF NOT EXISTS`)を流すため。`LATEST_VERSION` を上げるのは**列追加のときだけ**
+
+### 統計(v1.7)
+
+`core/stats.rs` の `library_stats()` に集約し、アプリの 📊 画面と MCP の `library_stats` が同じ関数を呼ぶ
+(AI に聞いた数字と画面の数字が食い違わないようにするため)。
+グラフは CSS の幅指定だけで描く(グラフライブラリを足さない)。
 
 ## ファイル同一性の追跡
 
@@ -167,6 +210,18 @@ Windows 向け動画管理ソフト(仮称: VideoShelf)。
 
 グリッドに数十枚並ぶサムネイルを描くのにデコードが走るのは論外だが、ホバーは常に 1 本だけで、
 ダブルクリック再生が既に元動画を直接開いていることとも一貫する。
+
+## テスト(v1.7 で整備)
+
+- **Rust**: `cargo test`。`core/query.rs`(検索条件・ランダムソートの安定性・LIKE エスケープ)、
+  `core/tags.rs`(タグ階層の循環拒否・色の形式)、`core/smart_folders.rs`、`core/stats.rs`、
+  `core/library.rs`(移動検出)、`db.rs`(読み書きコネクション分離)。
+  SQL は文字列比較ではなく**インメモリ DB に本物のスキーマを流して実行結果で検証する**
+  (`db::apply_schema` をテストから呼べるように公開している)
+- **フロント**: `npm run test`(vitest + jsdom)。純関数のみを対象にする —
+  `decidePlayback` / `resumeValueMs` / `fmtTime`
+- **既存 DB でのマイグレーション確認**: `cargo run --example dbtool -- <db> check`。
+  本番と同じ `db::init` を通して user_version・テーブル一覧・統計を出す(DB をコピーして試すこと)
 
 ## アプリ内再生(v1.2 実装、v1.4 で強化)
 
@@ -286,7 +341,7 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
 
 - 別バイナリ `videoshelf-mcp.exe`(stdio トランスポート)。アプリが起動していなくても動く
 - **既定は読み取り専用**: DB を読み取り専用フラグで開くため、AI からライブラリを変更することは構造的に不可能
-- 読み取りツール: `search_videos`(構造化クエリ。text / tag / series / missing / min_rating / min_duration_sec / max_duration_sec / sort / limit)/ `get_video` / `list_tags` / `list_series` / `library_stats`
+- 読み取りツール: `search_videos`(構造化クエリ。text / search_path / tag / series / missing / untagged / unwatched / duplicates_only / min_rating / min_duration_sec / max_duration_sec / min_width / min_height / video_codecs / added_after / added_before / sort / limit)/ `get_video` / `list_tags` / `list_series` / `library_stats`
 - **書き込みモード(v1.1)**: 環境変数 `VIDEOSHELF_ALLOW_WRITE=1` を付けて起動したときだけ、DB を読み書きで開き(`foreign_keys=ON`・`busy_timeout 5s`)、次のツールを追加公開する:
   - `tag_videos` / `untag_videos` / `add_to_series` / `remove_from_series` / `set_rating` / `set_video_info`(タイトル・コメント)
   - `remove_from_library`(登録削除。ファイルは残す)
@@ -368,21 +423,20 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
   `library:changed` 間引き、API 失敗のトースト表示、ページキャッシュのちらつき解消とリトライ上限。
   あわせて**ホバープレビュー**(元動画の直接再生 + マウス位置でシーン送り、生成キャッシュなし)と、
   実測に基づく `decidePlayback` の楽観化(mkv を native に。remux 待ちが減る)
+- **v1.7** ✅(2026-07-26 実装済み): 検索・分類の刷新。`VideoQuery` の拡張(空白区切り AND / パス検索 /
+  タグなし / 未視聴 / 解像度 / コーデック / 追加日範囲)、決定的シャッフルによるランダムソート、
+  タグの階層と色(再帰 CTE で親タグに子孫を含める)、スマートフォルダ、重複ファイル検出、
+  統計ダッシュボード(`core/stats.rs` に集約して MCP と共有)。あわせて vitest / cargo test の
+  テスト基盤とプロジェクト名・バージョンの整理
 - **将来**: フォールバック側の HLS 追いかけ再生、mac/Linux 対応
 
 ## 今後のタスク(未着手・優先度順)
 
 1. **範囲選択・全選択・キーボード操作** — Shift+クリック / Ctrl+A / 矢印移動 / Enter で再生
-2. **重複ファイル検出** — `size + partial_hash` で GROUP BY するだけで実装できる
-3. **サムネイルサイズ変更 + 詳細リスト表示** — 現状はカードサイズ固定(`VideoGrid.tsx` の定数)
-4. **スマートフォルダ(保存した検索条件)** — `VideoQuery` の JSON を保存してサイドバーに出す
-5. **missing の再リンク** — フォルダ単位のパス一括置換(dry-run 付き)。今は「削除」しか出口がない
-6. **ファイルのリネーム / 移動** — dry-run 設計は宣言済みだが機能自体が未実装
-7. **連続再生・プレイリスト** — 現在の絞り込み順 / シリーズ順で次へ。mpv なら字幕・音声トラック切替も
-8. **検索の強化** — スペース区切り AND / パスも対象 / タグなし / 未視聴 / 解像度 / コーデック / 追加日範囲
-9. **タグの階層と色** — スキーマに `parent_id` / `color` があるのに UI 未実装
-10. **統計ダッシュボード** — `library_stats` が MCP にしかない
-11. **ランダムソート**
+2. **サムネイルサイズ変更 + 詳細リスト表示** — 現状はカードサイズ固定(`VideoGrid.tsx` の定数)
+3. **連続再生・プレイリスト** — 現在の絞り込み順 / シリーズ順で次へ。mpv なら字幕・音声トラック切替も
+4. **missing の再リンク** — フォルダ単位のパス一括置換(dry-run 付き)。今は「削除」しか出口がない
+5. **ファイルのリネーム / 移動** — dry-run 設計は宣言済みだが機能自体が未実装
 
 その他(細かい改善):
 
@@ -392,6 +446,4 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
 - バックアップのアプリ内復元
 - API キーの暗号化(現状は `library.db` に平文。Windows DPAPI)
 - 孤児サムネイルの掃除
-- `decidePlayback` / `resumeValueMs` など純関数の単体テスト
 - D&D でフォルダを落としたとき、監視フォルダにするか個別登録かを尋ねる
-- `package.json` の name が `tauri-app` / version 0.1.0 のまま

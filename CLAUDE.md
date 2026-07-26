@@ -7,7 +7,8 @@ Windows 向け動画管理ソフト(Tauri 2 + React + TypeScript + Rust)。
 
 - 動画ファイルは**コピーしない**。元の場所に置いたまま SQLite で管理する
 - フォーマット対応は FFmpeg(サイドカー)に一本化する
-- 再生は v1 では外部プレイヤー起動。アプリ内再生は将来フェーズ
+- 再生は libmpv 埋め込みが主経路(v1.5)。フォールバックは WebView2 + FFmpeg 変換(v1.4)。
+  外部プレイヤーを設定したときだけ従来どおり外部起動する
 
 ## パフォーマンス原則(コードを書くとき必ず守る)
 
@@ -41,6 +42,8 @@ Windows 向け動画管理ソフト(Tauri 2 + React + TypeScript + Rust)。
 - `npm run tauri dev` — 開発起動(フロント HMR + Rust 自動再ビルド)
 - `npm run tauri build` — 配布ビルド
 - Rust のみの型チェック: `cd src-tauri && cargo check`
+- テスト: `cd src-tauri && cargo test`(コアロジック)/ `npm run test`(フロントの純関数)
+- 既存 DB でマイグレーションを試す: `cd src-tauri && cargo run --example dbtool -- <db のコピー> check`
 
 ## 会話・ドキュメント
 

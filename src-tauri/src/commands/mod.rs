@@ -12,5 +12,7 @@ pub fn validate_actor(actor: Option<String>) -> Result<String, String> {
 }
 pub mod series;
 pub mod settings;
+pub mod smart_folders;
+pub mod stats;
 pub mod tags;
 pub mod videos;

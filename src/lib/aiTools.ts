@@ -1,22 +1,91 @@
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import { api } from '../api';
 import { useLibrary } from '../store';
-import type { DurationBucket, SortKey, VideoQuery } from '../types';
+import { DURATION_RANGES } from './query';
+import type { AdvancedFilter, DurationBucket, SortKey, VideoQuery } from '../types';
 
 /** ツール実行を UI(チャット内カード)へ通知するコールバック */
 export type ToolNotify = (message: string) => void;
 
-const DURATION_RANGES: Record<DurationBucket, { min?: number; max?: number }> = {
-  lt5: { max: 5 * 60_000 },
-  '5to20': { min: 5 * 60_000, max: 20 * 60_000 },
-  '20to60': { min: 20 * 60_000, max: 60 * 60_000 },
-  gt60: { min: 60 * 60_000 },
-};
-
 const SORT_ENUM = [
   'added_desc', 'added_asc', 'name_asc', 'name_desc',
-  'size_desc', 'duration_desc', 'rating_desc', 'viewed_desc',
+  'size_desc', 'duration_desc', 'rating_desc', 'viewed_desc', 'random', 'dup',
 ] as const;
+
+/** search_videos と apply_filter で共通の絞り込み条件(スキーマがずれないよう 1 か所にまとめる) */
+const FILTER_PROPS = {
+  text: { type: 'string', description: 'ファイル名・タイトルの部分一致。空白区切りで複数語すべてを含むものに絞る' },
+  searchPath: { type: 'boolean', description: 'text の検索対象にフォルダのパスも含める' },
+  tag: { type: 'string', description: 'タグ名(完全一致)。子タグが付いた動画も含まれる' },
+  series: { type: 'string', description: 'シリーズ名(完全一致)' },
+  minRating: { type: 'integer', minimum: 1, maximum: 5 },
+  durationBucket: { type: 'string', enum: ['lt5', '5to20', '20to60', 'gt60'], description: '尺: 5分未満/5〜20分/20〜60分/60分以上' },
+  untagged: { type: 'boolean', description: 'タグが 1 つも付いていない動画だけ' },
+  unwatched: { type: 'boolean', description: '一度も再生していない動画だけ' },
+  duplicatesOnly: { type: 'boolean', description: '内容が同一(サイズと先頭ハッシュが一致)の動画だけ。sort=dup と併せると同じものが隣り合う' },
+  minHeight: { type: 'integer', description: '縦解像度の下限。1080 で FHD 以上、2160 で 4K 以上' },
+  videoCodecs: { type: 'array', items: { type: 'string' }, description: '映像コーデックで絞る(例: ["h264","hevc"])' },
+  addedAfter: { type: 'string', description: 'ライブラリ追加日の下限(YYYY-MM-DD。その日を含む)' },
+  addedBefore: { type: 'string', description: 'ライブラリ追加日の上限(YYYY-MM-DD。その日を含む)' },
+  sort: { type: 'string', enum: [...SORT_ENUM] },
+} as const;
+
+/** FILTER_PROPS に対応する入力(betaTool が推論する型と同じ形) */
+interface FilterInput {
+  text?: string;
+  searchPath?: boolean;
+  tag?: string;
+  series?: string;
+  minRating?: number;
+  durationBucket?: string;
+  untagged?: boolean;
+  unwatched?: boolean;
+  duplicatesOnly?: boolean;
+  minHeight?: number;
+  videoCodecs?: string[];
+  addedAfter?: string;
+  addedBefore?: string;
+  sort?: string;
+  missingOnly?: boolean;
+}
+
+/** ツール入力を VideoQuery に変換する。タグ・シリーズ名は id へ解決する */
+async function toQuery(input: FilterInput): Promise<VideoQuery> {
+  const range = input.durationBucket
+    ? DURATION_RANGES[input.durationBucket as DurationBucket]
+    : undefined;
+  return {
+    text: input.text || undefined,
+    sort: input.sort as SortKey | undefined,
+    tagIds: input.tag ? [await resolveTagId(input.tag)] : undefined,
+    seriesId: input.series ? await resolveSeriesId(input.series) : undefined,
+    minRating: input.minRating,
+    minDurationMs: range?.min,
+    maxDurationMs: range?.max,
+    missing: input.missingOnly ? true : undefined,
+    searchPath: input.searchPath || undefined,
+    untagged: input.untagged || undefined,
+    unwatched: input.unwatched || undefined,
+    duplicatesOnly: input.duplicatesOnly || undefined,
+    minHeight: input.minHeight || undefined,
+    videoCodecs: input.videoCodecs?.length ? input.videoCodecs : undefined,
+    addedAfter: input.addedAfter || undefined,
+    addedBefore: input.addedBefore || undefined,
+  };
+}
+
+/** ツール入力から store の詳細検索状態を作る(apply_filter で画面に反映するため) */
+function toAdvanced(input: FilterInput): AdvancedFilter {
+  return {
+    searchPath: input.searchPath ?? false,
+    untagged: input.untagged ?? false,
+    unwatched: input.unwatched ?? false,
+    minHeight: input.minHeight ?? 0,
+    videoCodecs: input.videoCodecs ?? [],
+    addedAfter: input.addedAfter ?? '',
+    addedBefore: input.addedBefore ?? '',
+  };
+}
 
 async function resolveTagId(name: string): Promise<number> {
   const tags = await api.listTags();
@@ -48,28 +117,12 @@ export function buildTools(notify: ToolNotify) {
     inputSchema: {
       type: 'object',
       properties: {
-        text: { type: 'string', description: 'ファイル名・タイトルの部分一致' },
-        tag: { type: 'string', description: 'タグ名(完全一致)' },
-        series: { type: 'string', description: 'シリーズ名(完全一致)' },
-        minRating: { type: 'integer', minimum: 1, maximum: 5 },
-        durationBucket: { type: 'string', enum: ['lt5', '5to20', '20to60', 'gt60'], description: '尺: 5分未満/5〜20分/20〜60分/60分以上' },
-        sort: { type: 'string', enum: [...SORT_ENUM] },
+        ...FILTER_PROPS,
         limit: { type: 'integer', description: '最大件数(既定 20)' },
       },
     } as const,
     run: async (input) => {
-      const query: VideoQuery = {
-        text: input.text || undefined,
-        sort: input.sort as SortKey | undefined,
-        minRating: input.minRating,
-      };
-      if (input.tag) query.tagIds = [await resolveTagId(input.tag)];
-      if (input.series) query.seriesId = await resolveSeriesId(input.series);
-      if (input.durationBucket) {
-        const range = DURATION_RANGES[input.durationBucket as DurationBucket];
-        query.minDurationMs = range.min;
-        query.maxDurationMs = range.max;
-      }
+      const query = await toQuery(input);
       const total = await api.countVideos(query);
       const rows = await api.queryVideos(query, Math.min(input.limit ?? 20, 100), 0);
       return JSON.stringify({
@@ -109,41 +162,25 @@ export function buildTools(notify: ToolNotify) {
     inputSchema: {
       type: 'object',
       properties: {
-        text: { type: 'string', description: 'ファイル名・タイトルの部分一致' },
-        tag: { type: 'string', description: 'タグ名(完全一致)' },
-        series: { type: 'string', description: 'シリーズ名(完全一致)' },
-        minRating: { type: 'integer', minimum: 1, maximum: 5 },
-        durationBucket: { type: 'string', enum: ['lt5', '5to20', '20to60', 'gt60'] },
-        missingOnly: { type: 'boolean' },
-        sort: { type: 'string', enum: [...SORT_ENUM] },
+        ...FILTER_PROPS,
+        missingOnly: { type: 'boolean', description: 'ファイルが見つからない動画だけ' },
       },
     } as const,
     run: async (input) => {
-      const tagIds = input.tag ? [await resolveTagId(input.tag)] : undefined;
-      const seriesId = input.series ? await resolveSeriesId(input.series) : undefined;
+      const query = await toQuery(input);
       useLibrary.getState().applyFilter({
         text: input.text,
-        tagIds,
-        seriesId,
+        tagIds: query.tagIds,
+        seriesId: query.seriesId,
         minRating: input.minRating,
         durationBucket: input.durationBucket as DurationBucket | undefined,
         missingOnly: input.missingOnly,
+        duplicatesOnly: input.duplicatesOnly,
         sort: input.sort as SortKey | undefined,
+        advanced: toAdvanced(input),
       });
-      // 適用後の件数を返す(UI と同じクエリ条件)
-      const range = input.durationBucket
-        ? DURATION_RANGES[input.durationBucket as DurationBucket]
-        : undefined;
-      const count = await api.countVideos({
-        text: input.text || undefined,
-        tagIds,
-        seriesId,
-        minRating: input.minRating,
-        minDurationMs: range?.min,
-        maxDurationMs: range?.max,
-        missing: input.missingOnly ? true : undefined,
-        sort: input.sort as SortKey | undefined,
-      });
+      // 適用後の件数を返す(グリッドと同じクエリ条件)
+      const count = await api.countVideos(query);
       notify(`🔍 グリッドを絞り込みました(${count} 件)`);
       return `絞り込みを適用しました。該当 ${count} 件`;
     },
@@ -241,6 +278,14 @@ export async function buildSystemPrompt(): Promise<string> {
   if (s.minRating > 0) filters.push(`★${s.minRating} 以上`);
   if (s.durationBucket) filters.push(`尺 ${s.durationBucket}`);
   if (s.missingOnly) filters.push('missing のみ');
+  if (s.duplicatesOnly) filters.push('重複のみ');
+  if (s.advanced.untagged) filters.push('タグなしのみ');
+  if (s.advanced.unwatched) filters.push('未視聴のみ');
+  if (s.advanced.minHeight > 0) filters.push(`${s.advanced.minHeight}p 以上`);
+  if (s.advanced.videoCodecs.length > 0) filters.push(`コーデック ${s.advanced.videoCodecs.join('/')}`);
+  if (s.advanced.addedAfter || s.advanced.addedBefore) {
+    filters.push(`追加日 ${s.advanced.addedAfter || '…'}〜${s.advanced.addedBefore || '…'}`);
+  }
 
   return `あなたは Windows 向け動画管理ソフト「VideoShelf」のアシスタントです。ユーザーの動画ライブラリの検索・整理(タグ付け・レーティング・シリーズ管理)を手伝います。
 

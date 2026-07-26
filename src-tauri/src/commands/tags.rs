@@ -45,6 +45,26 @@ pub fn delete_tag(state: State<AppState>, tag_id: i64) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn set_tag_color(
+    state: State<AppState>,
+    tag_id: i64,
+    color: Option<String>,
+) -> Result<(), String> {
+    let conn = state.db.lock().unwrap();
+    tags::set_tag_color(&conn, "user", tag_id, color.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_tag_parent(
+    state: State<AppState>,
+    tag_id: i64,
+    parent_id: Option<i64>,
+) -> Result<(), String> {
+    let conn = state.db.lock().unwrap();
+    tags::set_tag_parent(&conn, "user", tag_id, parent_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn tags_for_videos(state: State<AppState>, video_ids: Vec<i64>) -> Result<Vec<Tag>, String> {
     let conn = state.db_read.lock().unwrap();
     tags::tags_for_videos(&conn, &video_ids).map_err(|e| e.to_string())

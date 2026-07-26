@@ -7,6 +7,8 @@ pub mod playback;
 pub mod query;
 pub mod series;
 pub mod settings;
+pub mod smart_folders;
+pub mod stats;
 pub mod tags;
 pub mod thumbs;
 pub mod videos;

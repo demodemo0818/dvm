@@ -40,9 +40,14 @@ export type SortKey =
   | 'duration_desc'
   | 'rating_desc'
   | 'viewed_desc'
-  | 'series_asc';
+  | 'series_asc'
+  /** 重複表示用。同じファイルが隣り合う */
+  | 'dup'
+  /** randomSeed から決定的にシャッフル(ページングしても崩れない) */
+  | 'random';
 
 export interface VideoQuery {
+  /** 空白区切りで AND 検索(全角スペースも区切り) */
   text?: string;
   sort?: SortKey;
   folderId?: number | null;
@@ -54,7 +59,48 @@ export interface VideoQuery {
   /** 尺の範囲(ミリ秒)。指定時、尺が未取得の動画は含まれない */
   minDurationMs?: number;
   maxDurationMs?: number;
+  /** text の検索対象にフルパスも含める */
+  searchPath?: boolean;
+  /** タグが 1 つも付いていない動画だけ */
+  untagged?: boolean;
+  /** 一度も再生していない動画だけ */
+  unwatched?: boolean;
+  /** 解像度の下限(ピクセル)。未取得の動画は含まれない */
+  minWidth?: number;
+  minHeight?: number;
+  /** 映像コーデックで絞る(複数指定は OR) */
+  videoCodecs?: string[];
+  /** ライブラリ追加日の範囲(YYYY-MM-DD。両端を含む) */
+  addedAfter?: string;
+  addedBefore?: string;
+  /** 内容が同一(size + partial_hash が一致)の動画だけ */
+  duplicatesOnly?: boolean;
+  /** tagIds に子孫タグも含めるか(未指定 = 含める) */
+  includeChildTags?: boolean;
+  /** sort = 'random' のときのシャッフル種 */
+  randomSeed?: number;
 }
+
+/** 詳細検索のうち、ツールバー本体に出していない条件だけをまとめたもの */
+export interface AdvancedFilter {
+  searchPath: boolean;
+  untagged: boolean;
+  unwatched: boolean;
+  minHeight: number;
+  videoCodecs: string[];
+  addedAfter: string;
+  addedBefore: string;
+}
+
+export const EMPTY_ADVANCED: AdvancedFilter = {
+  searchPath: false,
+  untagged: false,
+  unwatched: false,
+  minHeight: 0,
+  videoCodecs: [],
+  addedAfter: '',
+  addedBefore: '',
+};
 
 /** 尺フィルタのプリセット */
 export type DurationBucket = 'lt5' | '5to20' | '20to60' | 'gt60';
@@ -63,7 +109,42 @@ export interface Tag {
   id: number;
   name: string;
   color: string | null;
+  /** 親タグ(null = トップレベル)。サイドバーのツリー表示に使う */
+  parentId: number | null;
   videoCount: number;
+}
+
+/** 保存した検索条件。queryJson は VideoQuery をそのまま JSON にしたもの */
+export interface SmartFolder {
+  id: number;
+  name: string;
+  queryJson: string;
+  position: number;
+}
+
+/** 統計の 1 項目(棒グラフ 1 本ぶん) */
+export interface StatBucket {
+  key: string;
+  label: string;
+  count: number;
+}
+
+export interface LibraryStats {
+  videoCount: number;
+  totalSizeBytes: number;
+  totalDurationMs: number;
+  tagCount: number;
+  seriesCount: number;
+  missingCount: number;
+  unwatchedCount: number;
+  untaggedCount: number;
+  duplicateCount: number;
+  /** index = 星の数(0〜5) */
+  ratingCounts: number[];
+  byCodec: StatBucket[];
+  byResolution: StatBucket[];
+  byFolder: StatBucket[];
+  byMonth: StatBucket[];
 }
 
 export interface Series {

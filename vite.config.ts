@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -28,5 +29,11 @@ export default defineConfig(async () => ({
       // 3. tell Vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],
     },
+  },
+
+  // 純関数の単体テスト(vitest)。decidePlayback が canPlayType を触るので DOM が要る
+  test: {
+    environment: "jsdom",
+    include: ["src/**/*.test.ts"],
   },
 }));

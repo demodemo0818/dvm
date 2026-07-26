@@ -1,17 +1,22 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import { advancedCount, buildQuery } from '../lib/query';
 import { useLibrary } from '../store';
 import type { DurationBucket, SortKey } from '../types';
+import { AdvancedSearch } from './AdvancedSearch';
 import { SettingsModal } from './SettingsModal';
+import { StatsModal } from './StatsModal';
 
 export function Toolbar() {
   const {
     text, setText, sort, setSort, scanning, seriesId,
     minRating, setMinRating, durationBucket, setDurationBucket,
-    showAiPanel, toggleAiPanel,
+    showAiPanel, toggleAiPanel, advanced, reshuffle, duplicatesOnly,
+    setShowStats, bumpVersion, pushToast,
   } = useLibrary();
   const [input, setInput] = useState(text);
   const [showSettings, setShowSettings] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // 入力から 300ms 落ち着いたら検索を反映
   useEffect(() => {
@@ -19,15 +24,43 @@ export function Toolbar() {
     return () => clearTimeout(t);
   }, [input, setText]);
 
+  // AI の apply_filter やスマートフォルダで text が外から変わったら入力欄も追従させる
+  useEffect(() => {
+    setInput((cur) => (cur === text ? cur : text));
+  }, [text]);
+
+  const advCount = advancedCount(advanced);
+
+  const saveCurrentAsSmartFolder = async () => {
+    const name = window.prompt('この検索条件に名前を付けて保存します');
+    if (name === null) return;
+    if (!name.trim()) {
+      pushToast('名前を入力してください', 'info');
+      return;
+    }
+    await api.createSmartFolder(name, buildQuery(useLibrary.getState()));
+    bumpVersion();
+  };
+
   return (
     <div className="toolbar">
       <input
         className="search"
         type="search"
-        placeholder="ファイル名・タイトルで検索"
+        placeholder="ファイル名・タイトルで検索(空白区切りで AND)"
         value={input}
         onChange={(e) => setInput(e.target.value)}
       />
+      <div className="adv-anchor">
+        <button
+          title="詳細検索"
+          className={advCount > 0 ? 'active' : ''}
+          onClick={() => setShowAdvanced((v) => !v)}
+        >
+          絞り込み{advCount > 0 ? ` (${advCount})` : ''}
+        </button>
+        {showAdvanced && <AdvancedSearch onClose={() => setShowAdvanced(false)} />}
+      </div>
       <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
         <option value="added_desc">追加日時(新しい順)</option>
         <option value="added_asc">追加日時(古い順)</option>
@@ -37,8 +70,11 @@ export function Toolbar() {
         <option value="duration_desc">長さ(長い順)</option>
         <option value="rating_desc">レーティング順</option>
         <option value="viewed_desc">最近見た順</option>
+        <option value="random">ランダム</option>
         {seriesId !== null && <option value="series_asc">シリーズ順</option>}
+        {duplicatesOnly && <option value="dup">重複をまとめる</option>}
       </select>
+      <button title="並びをシャッフルする" onClick={reshuffle}>🔀</button>
       <select
         value={minRating}
         onChange={(e) => setMinRating(Number(e.target.value))}
@@ -62,9 +98,13 @@ export function Toolbar() {
         <option value="20to60">20〜60 分</option>
         <option value="gt60">60 分以上</option>
       </select>
+      <button title="今の検索条件をスマートフォルダとして保存" onClick={saveCurrentAsSmartFolder}>
+        条件を保存
+      </button>
       <button onClick={() => api.rescanAll()} disabled={scanning}>
         再スキャン
       </button>
+      <button title="統計" onClick={() => setShowStats(true)}>📊</button>
       <button
         title="AI アシスタント"
         className={showAiPanel ? 'active' : ''}
@@ -75,6 +115,7 @@ export function Toolbar() {
       <button title="設定" onClick={() => setShowSettings(true)}>⚙</button>
 
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      <StatsModal />
     </div>
   );
 }

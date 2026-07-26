@@ -98,7 +98,12 @@ export function Inspector() {
       <div className="side-section">タグ</div>
       <div className="chip-list">
         {commonTags.map((t) => (
-          <span key={t.id} className="chip">
+          <span
+            key={t.id}
+            className="chip"
+            // 色付きタグは枠と文字色で示す(塗り潰すと文字が読みにくい色が出るため)
+            style={t.color ? { borderColor: t.color, color: t.color } : undefined}
+          >
             {t.name}
             <button onClick={() => api.untagVideos(ids, t.id).then(bumpVersion)} title="このタグを外す">×</button>
           </span>

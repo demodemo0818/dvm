@@ -4,10 +4,16 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+/// ランダムソートの剰余に使う素数
+const SHUFFLE_MOD: i64 = 1_000_003;
+/// id を散らすための乗数(Knuth の 2^32 黄金比)
+const SHUFFLE_MIX: i64 = 2_654_435_761;
+
 /// UI と AI(MCP)が共有する構造化検索クエリ
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct VideoQuery {
+    /// 空白区切りで AND 検索する(全角スペースも区切りとして扱う)
     pub text: Option<String>,
     pub sort: Option<String>,
     pub folder_id: Option<i64>,
@@ -22,6 +28,28 @@ pub struct VideoQuery {
     /// 尺の下限・上限(ミリ秒)。範囲指定時、duration_ms が NULL(プローブ未了・失敗)の動画は含まれない
     pub min_duration_ms: Option<i64>,
     pub max_duration_ms: Option<i64>,
+
+    // --- v1.7 で追加した条件(すべて未指定なら従来と同じ SQL になること) ---
+    /// text の検索対象にフルパスも含める
+    pub search_path: Option<bool>,
+    /// タグが 1 つも付いていない動画だけ
+    pub untagged: Option<bool>,
+    /// 一度も再生していない動画だけ
+    pub unwatched: Option<bool>,
+    /// 解像度の下限(ピクセル)。未取得の動画は含まれない
+    pub min_width: Option<i64>,
+    pub min_height: Option<i64>,
+    /// 映像コーデックで絞る(小文字で比較。複数指定は OR)
+    pub video_codecs: Option<Vec<String>>,
+    /// ライブラリ追加日の範囲(YYYY-MM-DD。両端を含む)
+    pub added_after: Option<String>,
+    pub added_before: Option<String>,
+    /// size + partial_hash が一致する仲間がいる動画だけ(重複検出)
+    pub duplicates_only: Option<bool>,
+    /// tag_ids に子孫タグも含めるか(未指定 = 含める)
+    pub include_child_tags: Option<bool>,
+    /// sort = "random" のときのシャッフル種。同じ種なら順序が変わらない(ページングのため必須)
+    pub random_seed: Option<i64>,
 }
 
 /// 一覧表示用の 1 行(UI・MCP 共通)
@@ -51,18 +79,31 @@ pub struct VideoRow {
     pub added_at: String,
 }
 
+/// LIKE のワイルドカードを打ち消す(日本語の部分一致はこれで正しく動く)
+fn escape_like(term: &str) -> String {
+    term.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+}
+
 impl VideoQuery {
-    /// WHERE 句と LIKE パラメータを返す
-    pub fn where_clause(&self) -> (String, Option<String>) {
+    /// WHERE 句と、その中の ?1..?N に順番で対応するバインド値を返す
+    pub fn where_clause(&self) -> (String, Vec<String>) {
         let mut conds: Vec<String> = Vec::new();
-        let mut like: Option<String> = None;
+        let mut params: Vec<String> = Vec::new();
 
         if let Some(text) = self.text.as_deref() {
-            let t = text.trim();
-            if !t.is_empty() {
-                let escaped = t.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
-                like = Some(format!("%{escaped}%"));
-                conds.push("(filename LIKE ?1 ESCAPE '\\' OR COALESCE(title,'') LIKE ?1 ESCAPE '\\')".into());
+            // 空白区切りで AND(「日本語 テスト」で両方を含むものだけ)。
+            // split_whitespace は全角スペース(U+3000)も区切りとして扱う
+            for term in text.split_whitespace() {
+                params.push(format!("%{}%", escape_like(term)));
+                let n = params.len();
+                let mut ors = vec![
+                    format!("filename LIKE ?{n} ESCAPE '\\'"),
+                    format!("COALESCE(title,'') LIKE ?{n} ESCAPE '\\'"),
+                ];
+                if self.search_path == Some(true) {
+                    ors.push(format!("path LIKE ?{n} ESCAPE '\\'"));
+                }
+                conds.push(format!("({})", ors.join(" OR ")));
             }
         }
         if let Some(fid) = self.folder_id {
@@ -70,9 +111,20 @@ impl VideoQuery {
         }
         if let Some(tag_ids) = &self.tag_ids {
             // i64 なので直接埋め込んでも安全。タグごとに IN 条件を重ねて AND にする
+            let with_children = self.include_child_tags != Some(false);
             for tid in tag_ids {
+                let tag_set = if with_children {
+                    // 親タグを選んだら子孫タグが付いた動画も出す
+                    format!(
+                        "(WITH RECURSIVE sub(id) AS (
+                            SELECT {tid} UNION SELECT t.id FROM tags t JOIN sub ON t.parent_id = sub.id
+                          ) SELECT id FROM sub)"
+                    )
+                } else {
+                    format!("({tid})")
+                };
                 conds.push(format!(
-                    "id IN (SELECT video_id FROM video_tags WHERE tag_id = {tid})"
+                    "id IN (SELECT video_id FROM video_tags WHERE tag_id IN {tag_set})"
                 ));
             }
         }
@@ -96,13 +148,57 @@ impl VideoQuery {
         if let Some(ms) = self.max_duration_ms {
             conds.push(format!("duration_ms <= {}", ms.max(0)));
         }
+        if self.untagged == Some(true) {
+            conds.push("id NOT IN (SELECT video_id FROM video_tags)".into());
+        }
+        if self.unwatched == Some(true) {
+            conds.push("view_count = 0".into());
+        }
+        if let Some(w) = self.min_width {
+            conds.push(format!("width >= {}", w.max(0)));
+        }
+        if let Some(h) = self.min_height {
+            conds.push(format!("height >= {}", h.max(0)));
+        }
+        if let Some(codecs) = &self.video_codecs {
+            let mut placeholders: Vec<String> = Vec::new();
+            for c in codecs.iter().filter(|c| !c.trim().is_empty()) {
+                params.push(c.trim().to_lowercase());
+                placeholders.push(format!("?{}", params.len()));
+            }
+            if !placeholders.is_empty() {
+                conds.push(format!(
+                    "LOWER(COALESCE(video_codec,'')) IN ({})",
+                    placeholders.join(", ")
+                ));
+            }
+        }
+        // added_at は "YYYY-MM-DD HH:MM:SS" なので date() で日付だけ取り出して比較する
+        if let Some(d) = self.added_after.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
+            params.push(d.to_string());
+            conds.push(format!("date(added_at) >= ?{}", params.len()));
+        }
+        if let Some(d) = self.added_before.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
+            params.push(d.to_string());
+            conds.push(format!("date(added_at) <= ?{}", params.len()));
+        }
+        if self.duplicates_only == Some(true) {
+            // 同じ size + partial_hash を持つ仲間が 2 件以上いるものだけ。
+            // partial_hash 未算出(NULL)は「不明」であって重複ではないので除く
+            conds.push(
+                "(partial_hash IS NOT NULL AND (size, partial_hash) IN (
+                    SELECT size, partial_hash FROM videos WHERE partial_hash IS NOT NULL
+                    GROUP BY size, partial_hash HAVING COUNT(*) > 1))"
+                    .into(),
+            );
+        }
 
         let sql = if conds.is_empty() {
             String::new()
         } else {
             format!("WHERE {}", conds.join(" AND "))
         };
-        (sql, like)
+        (sql, params)
     }
 
     /// ORDER BY 句(ホワイトリスト方式。任意文字列を SQL に混ぜない)
@@ -115,6 +211,16 @@ impl VideoQuery {
                 );
             }
         }
+        if self.sort.as_deref() == Some("random") {
+            // RANDOM() はページごとに順序が変わってページングと両立しないので、
+            // id と種から決定的に並べる。種を変えるとシャッフルし直せる
+            let seed = self.random_seed.unwrap_or(1).rem_euclid(SHUFFLE_MOD).max(1);
+            // 掛け算と剰余だけだと id に対して線形なままで、件数が少ないと id 順が崩れない。
+            // 一度散らした t を t*(t+種) と二乗混ぜして非線形にする。
+            // t < 100 万なので積は 2×10^12 程度に収まり、i64 のまま(浮動小数に落ちない)
+            let t = format!("((id * {SHUFFLE_MIX}) % {SHUFFLE_MOD})");
+            return format!("ORDER BY ({t} * ({t} + {seed})) % {SHUFFLE_MOD}, id");
+        }
         match self.sort.as_deref() {
             Some("name_asc") => "ORDER BY filename COLLATE NOCASE ASC",
             Some("name_desc") => "ORDER BY filename COLLATE NOCASE DESC",
@@ -125,6 +231,8 @@ impl VideoQuery {
             Some("added_asc") => "ORDER BY added_at ASC, id ASC",
             Some("rating_desc") => "ORDER BY rating DESC, added_at DESC, id DESC",
             Some("viewed_desc") => "ORDER BY last_viewed_at DESC NULLS LAST, id DESC",
+            // 重複の並び: 同じファイルが隣り合うように
+            Some("dup") => "ORDER BY size, partial_hash, id",
             _ => "ORDER BY added_at DESC, id DESC",
         }
         .to_string()
@@ -132,12 +240,9 @@ impl VideoQuery {
 }
 
 pub fn count(conn: &Connection, query: &VideoQuery) -> Result<i64> {
-    let (where_sql, like) = query.where_clause();
+    let (where_sql, params) = query.where_clause();
     let sql = format!("SELECT COUNT(*) FROM videos {where_sql}");
-    let count = match &like {
-        Some(l) => conn.query_row(&sql, rusqlite::params![l], |r| r.get(0)),
-        None => conn.query_row(&sql, [], |r| r.get(0)),
-    }?;
+    let count = conn.query_row(&sql, rusqlite::params_from_iter(params), |r| r.get(0))?;
     Ok(count)
 }
 
@@ -169,7 +274,7 @@ pub fn query_rows(
     limit: i64,
     offset: i64,
 ) -> Result<Vec<VideoRow>> {
-    let (where_sql, like) = query.where_clause();
+    let (where_sql, params) = query.where_clause();
     let order = query.order_clause();
     let limit = limit.clamp(1, 1000);
     let offset = offset.max(0);
@@ -190,12 +295,10 @@ pub fn query_rows(
         ))
     }
 
-    let raw: Vec<RawRow> = match &like {
-        Some(l) => stmt.query_map(rusqlite::params![l], map_row),
-        None => stmt.query_map([], map_row),
-    }?
-    .filter_map(|r| r.ok())
-    .collect();
+    let raw: Vec<RawRow> = stmt
+        .query_map(rusqlite::params_from_iter(params), map_row)?
+        .filter_map(|r| r.ok())
+        .collect();
 
     let mut roots = RootCache::default();
     let rows = raw
@@ -219,4 +322,187 @@ pub fn query_rows(
         })
         .collect();
     Ok(rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// SQL が実際に SQLite で通って正しい行を返すかを見たいので、
+    /// 文字列比較ではなくインメモリ DB に本物のスキーマを流して検証する
+    fn setup() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::apply_schema(&conn).unwrap();
+        conn.execute_batch(
+            r#"
+            INSERT INTO videos (id, path, filename, title, size, partial_hash, duration_ms,
+                                width, height, video_codec, rating, view_count, added_at)
+            VALUES
+              (1, 'C:\v\旅行 2024.mp4', '旅行 2024.mp4', NULL, 100, 'aaa', 60000, 1920, 1080, 'h264', 5, 3, '2026-01-10 10:00:00'),
+              (2, 'C:\v\旅行 2025.mkv', '旅行 2025.mkv', NULL, 100, 'aaa', 60000, 1280, 720,  'hevc', 0, 0, '2026-02-10 10:00:00'),
+              (3, 'D:\backup\旅行 2024.mp4', '旅行 2024.mp4', NULL, 200, 'bbb', 60000, 3840, 2160, 'av1', 0, 0, '2026-03-10 10:00:00'),
+              (4, 'C:\v\料理.avi', '料理.avi', 'カレーの作り方', 300, NULL, 60000, 640, 480, 'mpeg4', 2, 1, '2026-04-10 10:00:00');
+
+            INSERT INTO tags (id, name, parent_id) VALUES (1, '家族', NULL), (2, '旅行', 1), (3, '料理', NULL);
+            INSERT INTO video_tags (video_id, tag_id) VALUES (1, 2), (2, 2), (4, 3);
+            "#,
+        )
+        .unwrap();
+        conn
+    }
+
+    fn ids(conn: &Connection, q: &VideoQuery) -> Vec<i64> {
+        query_rows(conn, None, q, 1000, 0)
+            .unwrap()
+            .into_iter()
+            .map(|r| r.id)
+            .collect()
+    }
+
+    #[test]
+    fn empty_query_returns_everything() {
+        let conn = setup();
+        let q = VideoQuery::default();
+        assert_eq!(q.where_clause().0, "", "条件なしのときに WHERE を出してはいけない");
+        assert_eq!(count(&conn, &q).unwrap(), 4);
+    }
+
+    #[test]
+    fn text_terms_are_anded() {
+        let conn = setup();
+        // 「旅行」だけなら 3 件、「旅行 2024」なら両方を含む 2 件
+        let one = VideoQuery { text: Some("旅行".into()), ..Default::default() };
+        assert_eq!(ids(&conn, &one).len(), 3);
+
+        let two = VideoQuery { text: Some("旅行 2024".into()), ..Default::default() };
+        assert_eq!(ids(&conn, &two), vec![3, 1]);
+
+        // 全角スペースも区切りとして扱う
+        let full = VideoQuery { text: Some("旅行　2024".into()), ..Default::default() };
+        assert_eq!(ids(&conn, &full).len(), 2);
+    }
+
+    #[test]
+    fn text_matches_title_and_optionally_path() {
+        let conn = setup();
+        let by_title = VideoQuery { text: Some("カレー".into()), ..Default::default() };
+        assert_eq!(ids(&conn, &by_title), vec![4], "title も検索対象のはず");
+
+        // パス検索を切っていれば backup はヒットしない
+        let off = VideoQuery { text: Some("backup".into()), ..Default::default() };
+        assert!(ids(&conn, &off).is_empty());
+
+        let on = VideoQuery {
+            text: Some("backup".into()),
+            search_path: Some(true),
+            ..Default::default()
+        };
+        assert_eq!(ids(&conn, &on), vec![3]);
+    }
+
+    #[test]
+    fn like_wildcards_are_escaped() {
+        let conn = setup();
+        // "%" がワイルドカードとして効いてしまうと全件ヒットになる
+        let q = VideoQuery { text: Some("%".into()), ..Default::default() };
+        assert!(ids(&conn, &q).is_empty());
+    }
+
+    #[test]
+    fn parent_tag_includes_descendants() {
+        let conn = setup();
+        // 「家族」(親) を選ぶと子の「旅行」が付いた動画も出る
+        let with_children = VideoQuery { tag_ids: Some(vec![1]), ..Default::default() };
+        assert_eq!(ids(&conn, &with_children).len(), 2);
+
+        // 明示的に切れば親タグ直付けのものだけ(このデータでは 0 件)
+        let strict = VideoQuery {
+            tag_ids: Some(vec![1]),
+            include_child_tags: Some(false),
+            ..Default::default()
+        };
+        assert!(ids(&conn, &strict).is_empty());
+    }
+
+    #[test]
+    fn untagged_and_unwatched() {
+        let conn = setup();
+        let untagged = VideoQuery { untagged: Some(true), ..Default::default() };
+        assert_eq!(ids(&conn, &untagged), vec![3]);
+
+        let unwatched = VideoQuery { unwatched: Some(true), ..Default::default() };
+        assert_eq!(ids(&conn, &unwatched).len(), 2);
+    }
+
+    #[test]
+    fn resolution_and_codec_filters() {
+        let conn = setup();
+        let hd = VideoQuery { min_height: Some(1080), ..Default::default() };
+        assert_eq!(ids(&conn, &hd).len(), 2, "1080 と 2160 が残るはず");
+
+        let codec = VideoQuery {
+            // 大文字・前後の空白を渡しても効くこと
+            video_codecs: Some(vec![" H264 ".into(), "av1".into()]),
+            ..Default::default()
+        };
+        assert_eq!(ids(&conn, &codec), vec![3, 1]);
+
+        // 空文字だけを渡したときに条件ごと消える(全件になる)こと
+        let blank = VideoQuery { video_codecs: Some(vec!["".into()]), ..Default::default() };
+        assert_eq!(ids(&conn, &blank).len(), 4);
+    }
+
+    #[test]
+    fn added_date_range_is_inclusive() {
+        let conn = setup();
+        let q = VideoQuery {
+            added_after: Some("2026-02-10".into()),
+            added_before: Some("2026-03-10".into()),
+            ..Default::default()
+        };
+        assert_eq!(ids(&conn, &q).len(), 2, "両端の日を含むはず");
+    }
+
+    #[test]
+    fn duplicates_only_pairs_same_size_and_hash() {
+        let conn = setup();
+        let q = VideoQuery {
+            duplicates_only: Some(true),
+            sort: Some("dup".into()),
+            ..Default::default()
+        };
+        // size=100 + hash='aaa' の 2 件だけ。hash が NULL の 4 は重複ではない
+        assert_eq!(ids(&conn, &q), vec![1, 2]);
+    }
+
+    #[test]
+    fn random_sort_is_stable_across_pages() {
+        let conn = setup();
+        let q = VideoQuery { sort: Some("random".into()), random_seed: Some(12345), ..Default::default() };
+
+        let all = ids(&conn, &q);
+        assert_eq!(all.len(), 4);
+        assert_ne!(all, vec![1, 2, 3, 4], "id 順のままならシャッフルできていない");
+
+        // ページングしても同じ並びになること(RANDOM() だとここが崩れる)
+        let page1: Vec<i64> = query_rows(&conn, None, &q, 2, 0).unwrap().iter().map(|r| r.id).collect();
+        let page2: Vec<i64> = query_rows(&conn, None, &q, 2, 2).unwrap().iter().map(|r| r.id).collect();
+        assert_eq!([page1, page2].concat(), all);
+
+        // 種を変えれば並びが変わること
+        let other = VideoQuery { random_seed: Some(999), ..q.clone() };
+        assert_ne!(ids(&conn, &other), all);
+    }
+
+    #[test]
+    fn filters_combine_with_and() {
+        let conn = setup();
+        let q = VideoQuery {
+            text: Some("旅行".into()),
+            min_rating: Some(1),
+            unwatched: Some(false), // false は条件にしない
+            ..Default::default()
+        };
+        assert_eq!(ids(&conn, &q), vec![1]);
+    }
 }
