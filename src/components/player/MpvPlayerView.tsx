@@ -1,3 +1,4 @@
+import { convertFileSrc } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -201,6 +202,8 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
         isFullscreen={isFullscreen}
         onToggleFullscreen={toggleFullscreen}
         onSetThumbnail={setThumbnail}
+        // 映像は mpv が描いているので、コマ出しは WebView2 側で元動画を開き直す
+        previewSrc={convertFileSrc(video.path)}
         queue={queue}
       />
     </div>

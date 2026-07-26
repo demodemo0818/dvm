@@ -37,6 +37,10 @@ export const api = {
     call<VideoRow[]>('query_videos', { query, limit, offset }),
   registerFiles: (paths: string[]) => call<number>('register_files', { paths }),
   openVideo: (id: number) => call<void>('open_video', { id }),
+  /** 外部プレイヤー設定を無視して Windows の関連付けアプリで開く(右クリックメニュー用) */
+  openWithDefault: (id: number) => call<void>('open_with_default', { id }),
+  /** Windows の「プログラムから開く」ダイアログを出す */
+  openWithDialog: (id: number) => call<void>('open_with_dialog', { id }),
   markViewed: (id: number) => call<void>('mark_viewed', { id }),
   setResume: (id: number, resumeMs: number) => call<void>('set_resume', { id, resumeMs }),
   /**
@@ -114,6 +118,10 @@ export const api = {
     call<OpResult[]>('apply_move', { items, action, actor }),
   classifyPaths: (paths: string[]) =>
     call<{ dirs: string[]; files: string[] }>('classify_paths', { paths }),
+  planTrash: (videoIds: number[]) => call<PlanItem[]>('plan_trash', { videoIds }),
+  /** ごみ箱へ送り、成功したものはライブラリ登録も消す(v1.14) */
+  applyTrash: (items: PlanItem[], actor?: 'user' | 'ai') =>
+    call<OpResult[]>('apply_trash', { items, actor }),
 
   // --- 操作履歴 ---
   listOperations: (limit: number, offset: number) =>

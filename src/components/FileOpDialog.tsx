@@ -12,18 +12,22 @@ const STATUS_LABEL: Record<PlanStatus, string> = {
   unchanged: '変更なし',
 };
 
-export type FileOpKind = 'relink' | 'move' | 'rename';
+export type FileOpKind = 'relink' | 'move' | 'rename' | 'trash';
 
 const TITLE: Record<FileOpKind, string> = {
   relink: 'パスの再リンク',
   move: 'ファイルの移動',
   rename: 'ファイル名の変更',
+  trash: 'ファイルをごみ箱へ',
 };
 
 const DESCRIPTION: Record<FileOpKind, string> = {
   relink: 'データベースのパスだけを書き換えます。ファイルは移動しません。',
   move: '実際のファイルを移動します。取り消しはできません(逆向きの移動で戻せます)。',
   rename: '実際のファイル名を変更します。取り消しはできません。',
+  trash:
+    'ファイルをごみ箱へ送り、続けてライブラリ登録も削除します。' +
+    'ごみ箱から戻して再スキャンすれば表示は戻りますが、タグ・レーティング・視聴回数は復元されません。',
 };
 
 /**
@@ -61,7 +65,9 @@ export function FileOpDialog({
       const r =
         kind === 'relink'
           ? await api.applyRelink(actionable)
-          : await api.applyMove(actionable, kind === 'move' ? 'move_file' : 'rename_file');
+          : kind === 'trash'
+            ? await api.applyTrash(actionable)
+            : await api.applyMove(actionable, kind === 'move' ? 'move_file' : 'rename_file');
       setResults(r);
       const failed = r.filter((x) => !x.ok || x.error);
       if (failed.length > 0) {

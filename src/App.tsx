@@ -17,7 +17,7 @@ import { INSPECTOR_WIDTH, SIDEBAR_WIDTH, useLibrary } from './store';
 export default function App() {
   const {
     bumpVersion, setStatus, status, scanning, setPlayerPath, setPreviewOnHover,
-    setViewMode, setCardWidth, setAutoplayNext,
+    setViewMode, setCardWidth, setAutoplayNext, setSeekPreview,
     setInspectorPinned, setSidebarWidth, setInspectorWidth,
     inspectorPinned, sidebarWidth, inspectorWidth, selection,
   } = useLibrary();
@@ -33,6 +33,8 @@ export default function App() {
       const s = useLibrary.getState();
       // プレイヤー表示中のキー操作は PlayerOverlay 側で一元管理する
       if (s.playingVideo) return;
+      // 右クリックメニュー中の Esc はメニューを閉じるだけ(選択は残す)
+      if (s.contextMenuOpen) return;
       s.clearSelection();
     };
     window.addEventListener('keydown', onKey);
@@ -44,6 +46,8 @@ export default function App() {
     api.getSetting('player_path').then((v) => setPlayerPath(v ?? ''));
     // 既定は ON。明示的に '0' のときだけ OFF
     api.getSetting('preview_on_hover').then((v) => setPreviewOnHover(v !== '0'));
+    // シークバーのコマ出しも既定 ON
+    api.getSetting('seek_preview').then((v) => setSeekPreview(v !== '0'));
     api.getSetting('view_mode').then((v) => {
       if (v === 'list' || v === 'grid') setViewMode(v);
     });
@@ -65,7 +69,7 @@ export default function App() {
       if (Number.isFinite(n) && n > 0) setInspectorWidth(n);
     });
   }, [
-    setPlayerPath, setPreviewOnHover, setViewMode, setCardWidth, setAutoplayNext,
+    setPlayerPath, setPreviewOnHover, setSeekPreview, setViewMode, setCardWidth, setAutoplayNext,
     setInspectorPinned, setSidebarWidth, setInspectorWidth,
   ]);
 

@@ -12,23 +12,63 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { fmtTime } from '../../lib/format';
+import { useLibrary } from '../../store';
+import { SeekPreview } from './SeekPreview';
 import { RATE_OPTIONS } from './types';
 import type { MediaTrack, VideoPlayer } from './types';
 import { useAutoplayToggle, useRepeatToggle } from './usePlayQueue';
 import type { PlayQueueControls } from './usePlayQueue';
 
-/** バッファ帯付きシークバー。ドラッグ中はプレビュー位置を表示し、離した時にシークする */
-function SeekBar({ player }: { player: VideoPlayer }) {
+/** コマ出しの幅(px)。CSS の .seek-preview-video と合わせること(端の回り込みに使う) */
+const PREVIEW_W = 160;
+/**
+ * バーに乗ってからコマを読みに行くまでの待ち(ms)。
+ * ボタンへ向かう途中でバーを横切っただけで、外付け HDD を起こさないための猶予
+ */
+const PREVIEW_DELAY_MS = 80;
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
+
+/**
+ * バッファ帯付きシークバー。ドラッグ中はプレビュー位置を表示し、離した時にシークする。
+ * カーソルを合わせるとその位置の時刻と**コマ**を出す(v1.14)
+ */
+function SeekBar({ player, previewSrc }: { player: VideoPlayer; previewSrc?: string }) {
   const { state, seekTo } = player;
+  const seekPreview = useLibrary((s) => s.seekPreview);
   const barRef = useRef<HTMLDivElement>(null);
   const [dragTime, setDragTime] = useState<number | null>(null);
+  /** カーソル位置。left はバー左端からの px(コマが画面外へ出ないよう寄せてある) */
+  const [hover, setHover] = useState<{ time: number; left: number } | null>(null);
+  /** 待ち時間を過ぎて、実際にコマを読みに行ってよいか */
+  const [loadPreview, setLoadPreview] = useState(false);
+
+  const hovering = hover != null;
+  useEffect(() => {
+    if (!hovering) {
+      setLoadPreview(false);
+      return;
+    }
+    const t = window.setTimeout(() => setLoadPreview(true), PREVIEW_DELAY_MS);
+    return () => window.clearTimeout(t);
+  }, [hovering]);
 
   const timeFromEvent = (clientX: number): number => {
     const rect = barRef.current!.getBoundingClientRect();
-    const ratio = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
+    const ratio = clamp((clientX - rect.left) / rect.width, 0, 1);
     return ratio * state.duration;
+  };
+
+  const updateHover = (clientX: number) => {
+    if (state.duration <= 0) return;
+    const rect = barRef.current!.getBoundingClientRect();
+    const ratio = clamp((clientX - rect.left) / rect.width, 0, 1);
+    setHover({
+      time: ratio * state.duration,
+      left: clamp(ratio * rect.width, PREVIEW_W / 2, rect.width - PREVIEW_W / 2),
+    });
   };
 
   const pos = dragTime ?? state.currentTime;
@@ -46,13 +86,33 @@ function SeekBar({ player }: { player: VideoPlayer }) {
       }}
       onPointerMove={(e) => {
         if (dragTime != null) setDragTime(timeFromEvent(e.clientX));
+        updateHover(e.clientX);
       }}
       onPointerUp={(e) => {
         if (dragTime == null) return;
         seekTo(timeFromEvent(e.clientX));
         setDragTime(null);
+        // ドラッグ中はポインタを捕まえているので pointerleave が来ない。
+        // バーの外で離したならここで消す
+        const r = barRef.current!.getBoundingClientRect();
+        const inside =
+          e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+        if (!inside) setHover(null);
+      }}
+      onPointerLeave={() => {
+        // ドラッグ中の離脱では消さない(掴んだまま外へ振っても位置を見せ続ける)
+        if (dragTime == null) setHover(null);
       }}
     >
+      {hover && state.duration > 0 && (
+        <div className="seek-preview" style={{ left: hover.left }}>
+          {/* 設定オフ・src 無し・読み込み前は時刻だけ出す(枠は出さない) */}
+          {seekPreview && previewSrc && loadPreview && (
+            <SeekPreview src={previewSrc} time={hover.time} />
+          )}
+          <span className="seek-preview-time">{fmtTime(hover.time)}</span>
+        </div>
+      )}
       <div className="seekbar-track">
         <div className="seekbar-buffered" style={{ width: `${bufferedPct}%` }} />
         <div className="seekbar-played" style={{ width: `${playedPct}%` }} />
@@ -100,6 +160,7 @@ export function PlayerControls({
   isFullscreen,
   onToggleFullscreen,
   onSetThumbnail,
+  previewSrc,
   queue,
 }: {
   player: VideoPlayer;
@@ -107,6 +168,12 @@ export function PlayerControls({
   onToggleFullscreen: () => void;
   /** 今見ているコマをサムネイルにする。上のバーに置くと ✕ の誤爆が起きるのでここに置く */
   onSetThumbnail?: () => void;
+  /**
+   * シークバーのコマ出しに使う src(v1.14)。
+   * WebView2 経路では再生中と同じもの(変換済みなら変換キャッシュ)を渡す。
+   * mpv 経路では元動画そのもの — WebView2 が読めない形式なら静かに諦める
+   */
+  previewSrc?: string;
   queue?: PlayQueueControls;
 }) {
   const { state } = player;
@@ -117,7 +184,7 @@ export function PlayerControls({
 
   return (
     <div className="player-controls" onClick={(e) => e.stopPropagation()}>
-      <SeekBar player={player} />
+      <SeekBar player={player} previewSrc={previewSrc} />
       <div className="player-buttons">
         {queue && (
           <button

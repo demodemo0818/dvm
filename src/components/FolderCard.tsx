@@ -40,15 +40,21 @@ function subLabel(entry: FolderEntry): string {
     : `${n.directCount} 件`;
 }
 
+/** フォルダのカード / 行で共通の props */
+interface FolderRowProps {
+  entry: FolderEntry;
+  onOpen: (path: string) => void;
+  onContextMenu: (entry: FolderEntry, e: React.MouseEvent) => void;
+}
+
 /** グリッド表示のフォルダカード。動画カードと同じ高さに収まる */
-export function FolderCard({
-  entry, onOpen,
-}: { entry: FolderEntry; onOpen: (path: string) => void }) {
+export function FolderCard({ entry, onOpen, onContextMenu }: FolderRowProps) {
   return (
     <div
       className={`card folder-card ${entry.up ? 'up' : ''}`}
       title={tooltip(entry)}
       onDoubleClick={() => onOpen(entry.path)}
+      onContextMenu={(e) => onContextMenu(entry, e)}
     >
       <div className="folder-thumb">
         {/* カードのサムネイル枠に合わせて大きく出すので、ここだけ size を明示する */}
@@ -64,14 +70,15 @@ export function FolderCard({
 
 /** 詳細リスト表示のフォルダ行 */
 export function FolderListRow({
-  entry, onOpen, height,
-}: { entry: FolderEntry; onOpen: (path: string) => void; height: number }) {
+  entry, onOpen, onContextMenu, height,
+}: FolderRowProps & { height: number }) {
   return (
     <div
       className={`list-row folder-row ${entry.up ? 'up' : ''}`}
       style={{ height }}
       title={tooltip(entry)}
       onDoubleClick={() => onOpen(entry.path)}
+      onContextMenu={(e) => onContextMenu(entry, e)}
     >
       <div className="list-thumb folder-thumb">
         <span className="folder-glyph">

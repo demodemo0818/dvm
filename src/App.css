@@ -635,28 +635,6 @@ body {
   color: #fff;
 }
 
-.inspector-footer {
-  margin-top: auto;
-  padding-top: 12px;
-}
-
-.inspector-footer .danger {
-  width: 100%;
-  background: #3a2226;
-  border: 1px solid #6b3038;
-  color: #e08a93;
-  padding: 7px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 12px;
-}
-
-.inspector-footer .danger:hover {
-  background: #55272e;
-  color: #fff;
-}
-
 /* ---- レーティング・設定モーダル ---- */
 .stars {
   display: flex;
@@ -1874,28 +1852,6 @@ button.stats-tile:hover {
   color: #8a8f9c;
 }
 
-.inspector-fileops {
-  display: flex;
-  gap: 6px;
-  padding: 0 10px;
-}
-
-.inspector-fileops button {
-  flex: 1;
-  background: #22252d;
-  border: 1px solid #343945;
-  color: #d8dbe2;
-  padding: 5px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 12px;
-}
-
-.inspector-fileops button:hover {
-  border-color: #4a5162;
-}
-
 /* ---- 操作履歴 (v1.9) ---- */
 .history-modal {
   width: 760px;
@@ -2114,4 +2070,203 @@ input[type='range']:focus-visible {
 
 .player-buttons button.active:hover {
   color: #fff;
+}
+
+/* ---- 右クリックメニュー (v1.14) ---- */
+/*
+ * position: fixed で画面座標に置く。**仮想化グリッドの外に描くこと** —
+ * 中に置くと virtualizer の transform が fixed の基準になり、
+ * スクロールに引きずられて位置がずれる
+ */
+.ctx-menu {
+  position: fixed;
+  z-index: 90;
+  min-width: 230px;
+  max-width: 340px;
+  /* 画面より高くなったらメニュー内でスクロールさせる(端で切れて押せなくなるのを防ぐ) */
+  max-height: calc(100vh - 12px);
+  overflow-y: auto;
+  padding: 4px;
+  background: #1d2027;
+  border: 1px solid #343945;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  outline: none;
+}
+
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  color: #d8dbe2;
+  white-space: nowrap;
+}
+
+/* キーボードの現在位置とマウスホバーは同じ見た目にする(.active を付け替えるだけ) */
+.ctx-item.active {
+  background: #2b303a;
+}
+
+.ctx-item.danger {
+  color: #e08a93;
+}
+
+.ctx-item.danger.active {
+  background: #55272e;
+  color: #fff;
+}
+
+/*
+ * 無効項目。pointer-events は殺さない —
+ * title の「なぜ押せないか」をホバーで見せるため
+ */
+.ctx-item.disabled {
+  color: #656b78;
+  cursor: default;
+}
+
+.ctx-item.disabled.active {
+  background: transparent;
+}
+
+/* アイコン欄は幅を固定して、アイコンの無い項目とも文字の頭を揃える */
+.ctx-icon {
+  display: flex;
+  width: 16px;
+  flex: none;
+  color: #8a8f9c;
+}
+
+.ctx-item.danger .ctx-icon {
+  color: inherit;
+}
+
+.ctx-item.disabled .ctx-icon {
+  color: #565c68;
+}
+
+.ctx-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* チェック印とサブメニューの三角。右端に寄せる */
+.ctx-mark {
+  flex: none;
+  color: #8a8f9c;
+}
+
+.ctx-sep {
+  height: 1px;
+  margin: 4px 8px;
+  background: #343945;
+}
+
+/* ---- Delete キーの削除先ダイアログ (v1.14) ---- */
+.delete-modal {
+  width: 420px;
+}
+
+.delete-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0 4px;
+}
+
+/* 選択肢は「見出し + 何が起きるか」の 2 行。押す前に結果が分かるようにする */
+.delete-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: left;
+  padding: 10px 12px;
+  background: #22252d;
+  border: 1px solid #343945;
+  border-radius: 6px;
+  color: #d8dbe2;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.delete-choice:hover {
+  border-color: #4a5162;
+  background: #262a33;
+}
+
+.delete-choice.danger {
+  color: #e08a93;
+  border-color: #6b3038;
+  background: #2c1f23;
+}
+
+.delete-choice.danger:hover {
+  background: #3a2226;
+  border-color: #8a3c47;
+}
+
+.delete-choice > svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.delete-choice-title {
+  display: block;
+  font-weight: 700;
+}
+
+.delete-choice-note {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 400;
+  color: #8a8f9c;
+  line-height: 1.5;
+}
+
+/* ---- シークバーのコマ出し (v1.14) ---- */
+/*
+ * .seekbar が position: relative なのでその中に絶対配置する。
+ * pointer-events: none が要点 — コマがバーの上に重なるので、
+ * 拾ってしまうと自分自身で pointerleave を起こしてちらつく
+ */
+.seek-preview {
+  position: absolute;
+  bottom: 100%;
+  margin-bottom: 8px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  z-index: 5;
+}
+
+/* 幅は PlayerControls.tsx の PREVIEW_W と合わせること(画面端の寄せ計算に使う) */
+.seek-preview-video {
+  width: 160px;
+  height: 90px;
+  /* 縦長・4:3 でも切らずに収める。余白は黒 */
+  object-fit: contain;
+  display: block;
+  background: #000;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
+}
+
+.seek-preview-time {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.8);
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
 }

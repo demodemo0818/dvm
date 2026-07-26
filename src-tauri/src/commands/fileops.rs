@@ -1,7 +1,11 @@
-use crate::core::fileops::{self, OpResult, PlanItem};
+use crate::core::fileops::{self, OpResult, PlanItem, PlanStatus};
+use crate::core::videos;
 use crate::AppState;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
+
+/// ごみ箱送りの PlanItem で「移動先」として見せる文字列(実際のパスは持たない)
+const TRASH_LABEL: &str = "ごみ箱";
 
 /// 移動・リネームの進捗(大きいファイルを別ドライブへ動かすと時間がかかるため)
 #[derive(Clone, Serialize)]
@@ -108,4 +112,79 @@ pub fn classify_paths(paths: Vec<String>) -> ClassifiedPaths {
         }
     }
     ClassifiedPaths { dirs, files }
+}
+
+// --- ごみ箱送り(v1.14。右クリックメニューから使う) ---
+//
+// コアの `videos::plan_trash` / `trash_files` は MCP と共有しているのでそのまま使い、
+// ここで UI 共通の PlanItem / OpResult に詰め替える。
+// コアは「ごみ箱に送ったら is_missing=1 にして DB レコードは残す」方針だが、
+// UI から実行したときは**続けてライブラリ登録も消す**。
+// 「捨てたのに一覧に残っている」のはユーザーには不具合にしか見えないため
+
+#[tauri::command]
+pub fn plan_trash(state: State<AppState>, video_ids: Vec<i64>) -> Result<Vec<PlanItem>, String> {
+    let conn = state.db_read.lock().unwrap();
+    let items = videos::plan_trash(&conn, &video_ids).map_err(|e| e.to_string())?;
+    Ok(items
+        .into_iter()
+        .map(|t| PlanItem {
+            video_id: t.id,
+            from: t.path,
+            to: TRASH_LABEL.to_string(),
+            // オフラインは「消えた」のか「未接続」なのか区別できないので触らない
+            status: if t.is_offline {
+                PlanStatus::Offline
+            } else if !t.exists {
+                PlanStatus::SourceMissing
+            } else {
+                PlanStatus::Ok
+            },
+            note: None,
+        })
+        .collect())
+}
+
+/// ごみ箱へ送り、成功したものはライブラリ登録・サムネイル・変換キャッシュも消す
+#[tauri::command]
+pub async fn apply_trash(
+    app: AppHandle,
+    items: Vec<PlanItem>,
+    actor: Option<String>,
+) -> Result<Vec<OpResult>, String> {
+    let actor = super::validate_actor(actor)?;
+    let ids: Vec<i64> = items.iter().map(|i| i.video_id).collect();
+    // ごみ箱送りは 1 件ずつシェル API を叩くので、件数が多いと待つ。UI を止めない
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let results = {
+            let conn = state.db.lock().unwrap();
+            videos::trash_files(&conn, &actor, &ids).map_err(|e| e.to_string())?
+        };
+
+        let trashed: Vec<i64> = results.iter().filter(|r| r.trashed).map(|r| r.id).collect();
+        if !trashed.is_empty() {
+            {
+                let conn = state.db.lock().unwrap();
+                videos::remove_videos(&conn, &actor, &trashed).map_err(|e| e.to_string())?;
+            }
+            for id in &trashed {
+                let _ = std::fs::remove_file(state.thumbs_dir.join(format!("{id}.jpg")));
+                crate::core::playback::remove_cache_for(&state.transcode_dir, *id);
+            }
+        }
+
+        Ok(results
+            .into_iter()
+            .map(|r| OpResult {
+                video_id: r.id,
+                from: r.path,
+                to: TRASH_LABEL.to_string(),
+                ok: r.trashed,
+                error: r.error,
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

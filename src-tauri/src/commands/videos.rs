@@ -89,6 +89,40 @@ pub async fn set_thumb_time(app: AppHandle, id: i64, at_ms: Option<i64>) -> Resu
     Ok(())
 }
 
+/// DB からパスを引く小道具(open_* 系で共用)
+fn path_of(state: &AppState, id: i64) -> Result<String, String> {
+    let conn = state.db_read.lock().unwrap();
+    conn.query_row("SELECT path FROM videos WHERE id=?1", params![id], |r| r.get(0))
+        .map_err(|e| e.to_string())
+}
+
+/// 外部プレイヤー設定を**無視して**、Windows の関連付けアプリで開く(v1.14)。
+/// `open_video` は「アプリ内でダブルクリックしたときの行き先」で設定に従うが、
+/// 右クリックの「既定のアプリで開く」は名前どおり常に関連付けを使う
+#[tauri::command]
+pub fn open_with_default(state: State<AppState>, id: i64) -> Result<(), String> {
+    let path = path_of(&state, id)?;
+    tauri_plugin_opener::open_path(&path, None::<&str>).map_err(|e| e.to_string())?;
+    // 動画プレイヤーで開かれる想定なので open_video と同じく視聴として数える
+    let conn = state.db.lock().unwrap();
+    let _ = videos::mark_viewed(&conn, id);
+    Ok(())
+}
+
+/// Windows の「プログラムから開く」ダイアログを出す(v1.14)。
+/// アプリ一覧の管理は OS に任せる。何で開くか分からないので視聴カウントは進めない
+#[tauri::command]
+pub fn open_with_dialog(state: State<AppState>, id: i64) -> Result<(), String> {
+    let path = path_of(&state, id)?;
+    // Windows 専用。他 OS では rundll32 が無く spawn が失敗し、UI にトーストで出る
+    std::process::Command::new("rundll32.exe")
+        .arg("shell32.dll,OpenAs_RunDLL")
+        .arg(&path)
+        .spawn()
+        .map_err(|e| format!("「プログラムから開く」を起動できません: {e}"))?;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn open_video(state: State<AppState>, id: i64) -> Result<(), String> {
     let (path, player) = {

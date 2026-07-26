@@ -267,6 +267,8 @@ function Html5PlayerView({ video }: { video: VideoRow }) {
             isFullscreen={isFullscreen}
             onToggleFullscreen={toggleFullscreen}
             onSetThumbnail={setThumbnail}
+            // 再生中と同じ src を使う。変換経路ならキャッシュ mp4 なので確実に読める
+            previewSrc={src}
             queue={queue}
           />
         )}

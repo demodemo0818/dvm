@@ -17,8 +17,11 @@ function fmtSize(bytes: number): string {
   return `${Math.round(bytes / 1024)} KB`;
 }
 
-export function VideoCard({ video, index, selected, focused, onPick, onPlay }: VideoRowProps) {
+export function VideoCard({
+  video, index, selected, focused, onPick, onPlay, onContextMenu,
+}: VideoRowProps) {
   const previewOnHover = useLibrary((s) => s.previewOnHover);
+  const menuOpen = useLibrary((s) => s.contextMenuOpen);
   const [hovering, setHovering] = useState(false);
   const hoverTimer = useRef<number | undefined>(undefined);
 
@@ -27,6 +30,14 @@ export function VideoCard({ video, index, selected, focused, onPick, onPlay }: V
     setHovering(false);
     return () => window.clearTimeout(hoverTimer.current);
   }, [video?.id]);
+
+  // 右クリックメニューを開いたらプレビューを止める。
+  // メニューの裏で動画が鳴り続けるのを防ぐ(v1.14)
+  useEffect(() => {
+    if (!menuOpen) return;
+    window.clearTimeout(hoverTimer.current);
+    setHovering(false);
+  }, [menuOpen]);
 
   if (!video) return <div className="card card-loading" />;
 
@@ -38,12 +49,13 @@ export function VideoCard({ video, index, selected, focused, onPick, onPlay }: V
       title={video.path}
       onClick={(e) => onPick(video, index, e)}
       onDoubleClick={() => onPlay(video, index)}
+      onContextMenu={(e) => onContextMenu(video, index, e)}
     >
       <div
         className="thumb"
         onMouseEnter={() => {
           // オフライン・missing はファイルに触れないのでプレビューしない
-          if (!previewOnHover || !openable) return;
+          if (!previewOnHover || !openable || menuOpen) return;
           hoverTimer.current = window.setTimeout(() => setHovering(true), HOVER_DELAY_MS);
         }}
         onMouseLeave={() => {

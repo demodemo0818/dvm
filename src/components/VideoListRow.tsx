@@ -16,7 +16,7 @@ function fmtSize(bytes: number): string {
  * 元動画を開くことになるため(グリッドのカードは面積が大きいので誤爆しにくい)
  */
 export function VideoListRow({
-  video, index, selected, focused, onPick, onPlay, height,
+  video, index, selected, focused, onPick, onPlay, onContextMenu, height,
 }: VideoRowProps & { height: number }) {
   if (!video) return <div className="list-row list-loading" style={{ height }} />;
 
@@ -27,6 +27,7 @@ export function VideoListRow({
       title={video.path}
       onClick={(e) => onPick(video, index, e)}
       onDoubleClick={() => onPlay(video, index)}
+      onContextMenu={(e) => onContextMenu(video, index, e)}
     >
       <div className="list-thumb">
         {video.thumbPath ? (

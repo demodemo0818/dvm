@@ -17,4 +17,6 @@ export interface VideoRowProps {
   focused: boolean;
   onPick: (video: VideoRow, index: number, e: PickModifiers) => void;
   onPlay: (video: VideoRow, index: number) => void;
+  /** 右クリック。選択の入れ替えとメニュー表示は VideoGrid 側で行う */
+  onContextMenu: (video: VideoRow, index: number, e: React.MouseEvent) => void;
 }

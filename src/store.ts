@@ -85,6 +85,19 @@ interface LibraryState {
   playerPath: string;
   /** カードのホバープレビューを有効にするか(設定で切り替え。既定 ON) */
   previewOnHover: boolean;
+  /**
+   * プレイヤーのシークバーにカーソルを合わせたときコマを出すか(v1.14。設定で切り替え。既定 ON)。
+   * カードのプレビューとは別設定にしている — こちらは再生中に**同じ動画をもう 1 本デコード**
+   * するので、外付け HDD の大きいファイルで本編がカクつくなら単独で切りたい
+   */
+  seekPreview: boolean;
+  /**
+   * 右クリックメニューを開いているか(v1.14)。メニューの中身はグリッド側の
+   * ローカル state で持ち、ここには開閉だけを置く。
+   * 開いている間はグリッドの矢印キーと App の Esc(選択解除)を止めるため、
+   * 複数のコンポーネントから見える場所に置く必要がある
+   */
+  contextMenuOpen: boolean;
   /** AI アシスタントパネルの表示状態 */
   showAiPanel: boolean;
   /** 統計ダッシュボードの表示状態 */
@@ -123,6 +136,8 @@ interface LibraryState {
   setRepeatOne: (repeatOne: boolean) => void;
   setPlayerPath: (playerPath: string) => void;
   setPreviewOnHover: (previewOnHover: boolean) => void;
+  setSeekPreview: (seekPreview: boolean) => void;
+  setContextMenuOpen: (contextMenuOpen: boolean) => void;
   toggleAiPanel: () => void;
   setShowStats: (showStats: boolean) => void;
   /**
@@ -181,6 +196,8 @@ export const useLibrary = create<LibraryState>((set) => ({
   playQueue: null,
   playerPath: '',
   previewOnHover: true,
+  seekPreview: true,
+  contextMenuOpen: false,
   showAiPanel: false,
   showStats: false,
   toasts: [],
@@ -205,6 +222,8 @@ export const useLibrary = create<LibraryState>((set) => ({
   setRepeatOne: (repeatOne) => set({ repeatOne }),
   setPlayerPath: (playerPath) => set({ playerPath }),
   setPreviewOnHover: (previewOnHover) => set({ previewOnHover }),
+  setSeekPreview: (seekPreview) => set({ seekPreview }),
+  setContextMenuOpen: (contextMenuOpen) => set({ contextMenuOpen }),
   toggleAiPanel: () => set((s) => ({ showAiPanel: !s.showAiPanel })),
   setShowStats: (showStats) => set({ showStats }),
   applyFilter: (f) =>

@@ -20,12 +20,14 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [aiKey, setAiKey] = useState('');
   const [aiModel, setAiModel] = useState('');
   const [previewOnHover, setPreviewOnHover] = useState(true);
+  const [seekPreview, setSeekPreview] = useState(true);
   const [autoplayNext, setAutoplayNext] = useState(false);
 
   useEffect(() => {
     api.getSetting('player_path').then((v) => setPlayerPath(v ?? ''));
     // 既定は ON。明示的に '0' のときだけ OFF
     api.getSetting('preview_on_hover').then((v) => setPreviewOnHover(v !== '0'));
+    api.getSetting('seek_preview').then((v) => setSeekPreview(v !== '0'));
     api.getSetting('autoplay_next').then((v) => setAutoplayNext(v === '1'));
     api.getSetting('anthropic_api_key').then((v) => setAiKey(v ?? ''));
     api.getSetting('anthropic_model').then((v) => setAiModel(v ?? ''));
@@ -48,6 +50,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     useLibrary.getState().setPlayerPath(playerPath.trim());
     await api.setSetting('preview_on_hover', previewOnHover ? '1' : '0');
     useLibrary.getState().setPreviewOnHover(previewOnHover);
+    await api.setSetting('seek_preview', seekPreview ? '1' : '0');
+    useLibrary.getState().setSeekPreview(seekPreview);
     await api.setSetting('autoplay_next', autoplayNext ? '1' : '0');
     useLibrary.getState().setAutoplayNext(autoplayNext);
     await api.setSetting('anthropic_api_key', aiKey.trim());
@@ -148,6 +152,14 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
               onChange={(e) => setPreviewOnHover(e.target.checked)}
             />
             カードにカーソルを合わせるとプレビュー再生する(マウスを左右に動かすとシーンを送れます)
+          </label>
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={seekPreview}
+              onChange={(e) => setSeekPreview(e.target.checked)}
+            />
+            再生中、シークバーにカーソルを合わせるとその位置のコマを表示する(重い動画で本編がカクつく場合はオフ)
           </label>
           <label className="settings-check">
             <input

@@ -1,10 +1,19 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { ask, open } from '@tauri-apps/plugin-dialog';
+import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { useVideos } from '../hooks/useVideos';
+import { buildFolderMenu, buildVideoMenu } from '../lib/contextMenu';
+import type { MenuEntry } from '../lib/contextMenu';
+import { parentDir } from '../lib/paths';
 import { buildQuery } from '../lib/query';
 import { useLibrary } from '../store';
-import type { VideoQuery, VideoRow } from '../types';
+import type { PlanItem, VideoQuery, VideoRow } from '../types';
+import { ContextMenu } from './ContextMenu';
+import { DeleteDialog } from './DeleteDialog';
+import { FileOpDialog } from './FileOpDialog';
+import type { FileOpKind } from './FileOpDialog';
 import { FolderCard, FolderListRow, toEntry, upEntry, type FolderEntry } from './FolderCard';
 import { VideoCard } from './VideoCard';
 import { VideoListRow } from './VideoListRow';
@@ -19,13 +28,19 @@ const LIST_ROW_H = 44;
  */
 const SELECT_ALL_LIMIT = 1000;
 
+/** 右クリックメニューの表示状態。対象が動画かサブフォルダかで持ち物が違う */
+type MenuState = { x: number; y: number; entries: MenuEntry[] } & (
+  | { kind: 'video'; video: VideoRow; index: number }
+  | { kind: 'folder'; path: string }
+);
+
 export function VideoGrid() {
   const {
     text, sort, folderId, dirPath, tagIds, seriesId, missingOnly, minRating, durationBucket,
     duplicatesOnly, advanced, randomSeed, version,
     viewMode, cardWidth, selection, anchorIndex, focusIndex,
     clearSelection, setSelection, setFocusIndex, selectOnly, playFromList, toggleDirPath,
-    playerPath, playingVideo, showAiPanel, pushToast,
+    playerPath, playingVideo, showAiPanel, pushToast, contextMenuOpen,
   } = useLibrary();
 
   const query = useMemo<VideoQuery>(() => buildQuery({
@@ -39,6 +54,11 @@ export function VideoGrid() {
 
   const parentRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
+  const [menu, setMenu] = useState<MenuState | null>(null);
+  /** Delete キーで開く「どちらの削除か」の確認 */
+  const [askDelete, setAskDelete] = useState(false);
+  /** dry-run の結果。null の間はダイアログを出さない(プレビューなしに実行させない) */
+  const [fileOp, setFileOp] = useState<{ kind: FileOpKind; plan: PlanItem[] } | null>(null);
 
   useEffect(() => {
     const el = parentRef.current;
@@ -125,6 +145,174 @@ export function VideoGrid() {
     [anchorIndex, getRange, setSelection, selectOnly],
   );
 
+  /**
+   * カードの右クリック(v1.14)。エクスプローラーと同じ挙動にする:
+   * 選択の外を押したらそこへ選択を移し、選択済みを押したら選択を保ったまま全件を対象にする。
+   * メニューを見る前に「何が対象か」が見た目で分かるのが要点
+   */
+  const onCardContextMenu = useCallback(
+    (video: VideoRow, index: number, e: React.MouseEvent) => {
+      e.preventDefault();
+      const current = useLibrary.getState().selection;
+      const inSelection = current.some((v) => v.id === video.id);
+      const targets = inSelection ? current : [video];
+      if (!inSelection) selectOnly(video, index);
+      setMenu({
+        kind: 'video',
+        x: e.clientX,
+        y: e.clientY,
+        video,
+        index,
+        entries: buildVideoMenu(targets, video),
+      });
+    },
+    [selectOnly],
+  );
+
+  const onFolderContextMenu = useCallback(
+    (entry: FolderEntry, e: React.MouseEvent) => {
+      e.preventDefault();
+      // フォルダは選択の対象外。左クリックと同じく動画の選択は解除する
+      clearSelection();
+      setMenu({ kind: 'folder', x: e.clientX, y: e.clientY, path: entry.path, entries: buildFolderMenu() });
+    },
+    [clearSelection],
+  );
+
+  /** クリップボードは Tauri プラグインを足さず WebView の API を使う(失敗は必ず見せる) */
+  const copyToClipboard = useCallback(
+    async (text: string, done: string) => {
+      try {
+        await navigator.clipboard.writeText(text);
+        pushToast(done, 'info');
+      } catch {
+        pushToast('クリップボードにコピーできませんでした');
+      }
+    },
+    [pushToast],
+  );
+
+  /**
+   * ライブラリ登録だけ消す(ファイルは残す)。
+   * confirm=false は呼び出し側で既に確認を取っているとき(Delete キーのダイアログ)
+   */
+  const removeFromLibrary = useCallback(async (confirm: boolean) => {
+    const s = useLibrary.getState();
+    const sel = s.selection;
+    if (sel.length === 0) return;
+    if (confirm) {
+      const yes = await ask(
+        `${sel.length} 件をライブラリから削除しますか?\n(登録とタグ情報が消えます。ファイル自体は削除されません)`,
+        { title: 'ライブラリから削除' },
+      );
+      if (!yes) return;
+    }
+    await api.removeVideos(sel.map((v) => v.id));
+    s.clearSelection();
+    s.bumpVersion();
+  }, []);
+
+  /** ファイルをごみ箱へ。実行前に必ず dry-run の表を見せる(FileOpDialog が承認を取る) */
+  const trashSelection = useCallback(async () => {
+    const sel = useLibrary.getState().selection;
+    if (sel.length === 0) return;
+    setFileOp({ kind: 'trash', plan: await api.planTrash(sel.map((v) => v.id)) });
+  }, []);
+
+  const runVideoAction = useCallback(
+    async (id: string, target: VideoRow, index: number) => {
+      const s = useLibrary.getState();
+      const sel = s.selection;
+      const ids = sel.map((v) => v.id);
+
+      if (id.startsWith('rating:')) {
+        const value = Number(id.slice('rating:'.length));
+        await api.setRating(ids, value);
+        // 再取得までの間に古い星へ戻るのを防ぐ(Inspector と同じ手当て)
+        s.patchSelection({ rating: value });
+        s.bumpVersion();
+        return;
+      }
+
+      switch (id) {
+        case 'play':
+          play(target, index);
+          break;
+        case 'openDefault':
+          await api.openWithDefault(target.id);
+          break;
+        case 'openWith':
+          await api.openWithDialog(target.id);
+          break;
+        case 'reveal':
+          try {
+            await revealItemInDir(target.path);
+          } catch {
+            pushToast('エクスプローラーで表示できませんでした');
+          }
+          break;
+        case 'openFolder': {
+          const dir = parentDir(target.path);
+          if (dir) toggleDirPath(dir);
+          break;
+        }
+        case 'copyPath':
+          await copyToClipboard(
+            sel.map((v) => v.path).join('\r\n'),
+            `${sel.length} 件のパスをコピーしました`,
+          );
+          break;
+        case 'rename': {
+          const name = window.prompt('新しいファイル名', target.filename);
+          if (name === null || name.trim() === '' || name === target.filename) return;
+          setFileOp({ kind: 'rename', plan: [await api.planRename(target.id, name.trim())] });
+          break;
+        }
+        case 'move': {
+          const dest = await open({ directory: true, multiple: false, title: '移動先フォルダ' });
+          if (typeof dest !== 'string') return;
+          setFileOp({ kind: 'move', plan: await api.planMove(ids, dest) });
+          break;
+        }
+        case 'rethumb':
+          // 生成そのものは Rust のワーカーが順にこなす。ここでは予約するだけ
+          for (const v of sel) await api.setThumbTime(v.id);
+          pushToast(`${sel.length} 件のサムネイルを作り直しています`, 'info');
+          break;
+        case 'removeFromLibrary':
+          await removeFromLibrary(true);
+          break;
+        case 'trash':
+          await trashSelection();
+          break;
+        default:
+      }
+    },
+    [play, toggleDirPath, pushToast, copyToClipboard, removeFromLibrary, trashSelection],
+  );
+
+  const runFolderAction = useCallback(
+    async (id: string, path: string) => {
+      switch (id) {
+        case 'folderOpen':
+          toggleDirPath(path);
+          break;
+        case 'folderReveal':
+          try {
+            await revealItemInDir(path);
+          } catch {
+            pushToast('エクスプローラーで表示できませんでした');
+          }
+          break;
+        case 'folderCopyPath':
+          await copyToClipboard(path, 'パスをコピーしました');
+          break;
+        default:
+      }
+    },
+    [toggleDirPath, pushToast, copyToClipboard],
+  );
+
   /** フォーカスを動かして 1 件だけ選択する(Shift 併用なら anchor からの範囲) */
   const moveFocus = useCallback(
     async (next: number, extend: boolean) => {
@@ -158,6 +346,9 @@ export function VideoGrid() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (playingVideo) return;
+      // 右クリックメニューが開いている間のキーはメニュー側が処理する。
+      // ここで横取りすると、メニューを出したまま裏で選択が動いてしまう
+      if (contextMenuOpen) return;
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
@@ -202,19 +393,37 @@ export function VideoGrid() {
           if (v) play(v, focusIndex);
           break;
         }
+        case 'Delete':
+          // ここでは消さない。「ライブラリからか / ごみ箱か」をダイアログで選ばせる
+          if (selection.length === 0) return;
+          e.preventDefault();
+          setAskDelete(true);
+          break;
         default:
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [playingVideo, showAiPanel, focusIndex, cols, total, moveFocus, selectAll, getVideo, play]);
+  }, [
+    playingVideo, showAiPanel, contextMenuOpen, focusIndex, cols, total, selection.length,
+    moveFocus, selectAll, getVideo, play,
+  ]);
+
+  // 選択が空になったら削除の確認は用済み。Esc(App 側で選択解除)でも閉じることになる
+  useEffect(() => {
+    if (selection.length === 0) setAskDelete(false);
+  }, [selection.length]);
 
   const selectedIds = useMemo(() => new Set(selection.map((v) => v.id)), [selection]);
 
   return (
+    <>
     <div
       ref={parentRef}
       className={`grid-scroll ${list ? 'list-mode' : ''}`}
+      // 仮想化しているのでスクロールすると対象のカードが DOM から消える。
+      // 「何に対するメニューか」が分からなくなるので、動かしたら閉じる
+      onScroll={() => menu && setMenu(null)}
       onClick={(e) => {
         // カード以外の余白クリックで選択解除(フォルダは選択の対象外なので押しても解除する)
         const hit = (e.target as HTMLElement).closest('.card, .list-row');
@@ -246,9 +455,20 @@ export function VideoGrid() {
                 const entry = folderEntries[row.index * cols + c];
                 if (!entry) return <div key={c} />;
                 return list ? (
-                  <FolderListRow key={c} entry={entry} onOpen={toggleDirPath} height={LIST_ROW_H} />
+                  <FolderListRow
+                    key={c}
+                    entry={entry}
+                    onOpen={toggleDirPath}
+                    onContextMenu={onFolderContextMenu}
+                    height={LIST_ROW_H}
+                  />
                 ) : (
-                  <FolderCard key={c} entry={entry} onOpen={toggleDirPath} />
+                  <FolderCard
+                    key={c}
+                    entry={entry}
+                    onOpen={toggleDirPath}
+                    onContextMenu={onFolderContextMenu}
+                  />
                 );
               }
               const index = (row.index - folderRows) * cols + c;
@@ -261,6 +481,7 @@ export function VideoGrid() {
                 focused: focusIndex === index,
                 onPick,
                 onPlay: play,
+                onContextMenu: onCardContextMenu,
               };
               return list ? (
                 <VideoListRow key={c} {...props} height={LIST_ROW_H} />
@@ -279,5 +500,40 @@ export function VideoGrid() {
         </div>
       )}
     </div>
+
+    {/* メニューとダイアログはスクロール領域の外に置く。
+        仮想化の transform が position: fixed の基準になってしまうため */}
+    {menu && (
+      <ContextMenu
+        key={`${menu.x},${menu.y}`}
+        x={menu.x}
+        y={menu.y}
+        entries={menu.entries}
+        onClose={() => setMenu(null)}
+        onSelect={(id) => {
+          if (menu.kind === 'video') void runVideoAction(id, menu.video, menu.index);
+          else void runFolderAction(id, menu.path);
+        }}
+      />
+    )}
+    {askDelete && (
+      <DeleteDialog
+        count={selection.length}
+        onClose={() => setAskDelete(false)}
+        // このダイアログ自体が確認なので、ライブラリ削除で二重に尋ねない
+        onLibrary={() => {
+          setAskDelete(false);
+          void removeFromLibrary(false);
+        }}
+        onTrash={() => {
+          setAskDelete(false);
+          void trashSelection();
+        }}
+      />
+    )}
+    {fileOp && (
+      <FileOpDialog kind={fileOp.kind} plan={fileOp.plan} onClose={() => setFileOp(null)} />
+    )}
+    </>
   );
 }
