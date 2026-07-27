@@ -20,7 +20,8 @@ export default function App() {
     bumpVersion, setStatus, status, scanning, setPlayerPath, setPreviewOnHover,
     setViewMode, setCardWidth, setAutoplayNext, setSeekPreview,
     setInspectorPinned, setMediaInfoOpen, setListColumns, setSidebarWidth, setInspectorWidth,
-    inspectorPinned, sidebarWidth, inspectorWidth, selection,
+    setSidebarCollapsed,
+    inspectorPinned, sidebarWidth, inspectorWidth, sidebarCollapsed, selection,
   } = useLibrary();
   const debounceTimer = useRef<number | undefined>(undefined);
 
@@ -64,6 +65,8 @@ export default function App() {
     api.getSetting('media_info_open').then((v) => setMediaInfoOpen(v === '1'));
     // 詳細リストの列構成。壊れた値は parseColumns がすべて既定に落とす
     api.getSetting('list_columns').then((v) => setListColumns(parseColumns(v)));
+    // サイドバーは既定で開く
+    api.getSetting('sidebar_collapsed').then((v) => setSidebarCollapsed(v === '1'));
     // 幅は setter 側で上下限に丸められる
     api.getSetting('sidebar_width').then((v) => {
       const n = Number(v);
@@ -76,6 +79,7 @@ export default function App() {
   }, [
     setPlayerPath, setPreviewOnHover, setSeekPreview, setViewMode, setCardWidth, setAutoplayNext,
     setInspectorPinned, setMediaInfoOpen, setListColumns, setSidebarWidth, setInspectorWidth,
+    setSidebarCollapsed,
   ]);
 
   /**
@@ -132,20 +136,25 @@ export default function App() {
     <>
       {/* mpv 再生中は .app ごと非表示にするため、プレイヤーは .app の外に置く */}
       <div className="app">
-        <Sidebar />
-        <PaneResizer
-          label="サイドバー"
-          edge="left"
-          width={sidebarWidth}
-          min={SIDEBAR_WIDTH.min}
-          max={SIDEBAR_WIDTH.max}
-          defaultWidth={SIDEBAR_WIDTH.default}
-          onResize={setSidebarWidth}
-          // 丸められたあとの値を保存したいので、状態は store から読み直す
-          onCommit={() =>
-            void api.setSetting('sidebar_width', String(useLibrary.getState().sidebarWidth))
-          }
-        />
+        {/* 畳んだら幅を変える帯も一緒に消す(詳細ペインと同じ扱い) */}
+        {!sidebarCollapsed && (
+          <>
+            <Sidebar />
+            <PaneResizer
+              label="サイドバー"
+              edge="left"
+              width={sidebarWidth}
+              min={SIDEBAR_WIDTH.min}
+              max={SIDEBAR_WIDTH.max}
+              defaultWidth={SIDEBAR_WIDTH.default}
+              onResize={setSidebarWidth}
+              // 丸められたあとの値を保存したいので、状態は store から読み直す
+              onCommit={() =>
+                void api.setSetting('sidebar_width', String(useLibrary.getState().sidebarWidth))
+              }
+            />
+          </>
+        )}
         <main className="main">
           <Toolbar />
           <VideoGrid />

@@ -2,6 +2,7 @@ import {
   ChartColumn,
   LayoutGrid,
   List,
+  PanelLeft,
   PanelRight,
   RotateCcwClock,
   Settings,
@@ -26,7 +27,7 @@ export function Toolbar() {
     showAiPanel, toggleAiPanel, advanced, reshuffle, duplicatesOnly,
     setShowStats, bumpVersion, pushToast,
     viewMode, setViewMode, cardWidth, setCardWidth,
-    inspectorPinned, setInspectorPinned,
+    inspectorPinned, setInspectorPinned, sidebarCollapsed, setSidebarCollapsed,
   } = useLibrary();
   const [input, setInput] = useState(text);
   const [showSettings, setShowSettings] = useState(false);
@@ -70,6 +71,21 @@ export function Toolbar() {
 
   return (
     <div className="toolbar">
+      {/*
+        サイドバーを畳むと幅を変える帯ごと消えるので、戻す手段はこのボタンだけ。
+        サイドバー側に置くと畳んだあとに押せなくなる。
+        右端の詳細ペインのボタン(PanelRight)と対になる位置でもある
+      */}
+      <button
+        title={sidebarCollapsed ? 'サイドバーを表示する' : 'サイドバーを隠す'}
+        onClick={() => {
+          const next = !sidebarCollapsed;
+          setSidebarCollapsed(next);
+          void api.setSetting('sidebar_collapsed', next ? '1' : '0');
+        }}
+      >
+        <PanelLeft />
+      </button>
       <input
         className="search"
         type="search"

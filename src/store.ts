@@ -87,6 +87,11 @@ interface LibraryState {
   /** 左サイドバー / 右詳細ペインの幅 px(ドラッグで伸縮。設定に永続化) */
   sidebarWidth: number;
   inspectorWidth: number;
+  /**
+   * サイドバーを畳んでいるか(設定に永続化)。
+   * 畳むと幅を変える帯ごと消えるので、戻す手段はツールバーのボタンだけ
+   */
+  sidebarCollapsed: boolean;
   /** 再生が終わったら次の動画へ進むか(設定に永続化) */
   autoplayNext: boolean;
   /**
@@ -152,6 +157,7 @@ interface LibraryState {
   setListColumns: (listColumns: ColumnKey[]) => void;
   setSidebarWidth: (sidebarWidth: number) => void;
   setInspectorWidth: (inspectorWidth: number) => void;
+  setSidebarCollapsed: (sidebarCollapsed: boolean) => void;
   setAutoplayNext: (autoplayNext: boolean) => void;
   setRepeatOne: (repeatOne: boolean) => void;
   setPlayerPath: (playerPath: string) => void;
@@ -212,6 +218,7 @@ export const useLibrary = create<LibraryState>((set) => ({
   listColumns: DEFAULT_COLUMNS,
   sidebarWidth: SIDEBAR_WIDTH.default,
   inspectorWidth: INSPECTOR_WIDTH.default,
+  sidebarCollapsed: false,
   autoplayNext: false,
   repeatOne: false,
   playingVideo: null,
@@ -242,6 +249,7 @@ export const useLibrary = create<LibraryState>((set) => ({
   setListColumns: (listColumns) => set({ listColumns }),
   setSidebarWidth: (w) => set({ sidebarWidth: clamp(w, SIDEBAR_WIDTH) }),
   setInspectorWidth: (w) => set({ inspectorWidth: clamp(w, INSPECTOR_WIDTH) }),
+  setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
   setAutoplayNext: (autoplayNext) => set({ autoplayNext }),
   setRepeatOne: (repeatOne) => set({ repeatOne }),
   setPlayerPath: (playerPath) => set({ playerPath }),
