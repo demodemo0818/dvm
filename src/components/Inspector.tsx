@@ -3,6 +3,7 @@ import { ListOrdered } from 'lucide-react';
 import { api } from '../api';
 import { useLibrary } from '../store';
 import type { Series, Tag } from '../types';
+import { MediaInfoSection } from './MediaInfoSection';
 
 /**
  * 選択中の動画の詳細とタグ・シリーズ・レーティング編集を行う右パネル。
@@ -183,6 +184,12 @@ export function Inspector() {
           ))}
         </datalist>
       </div>
+
+      {/*
+        展開すると縦に長くなるので一番下に置く(レーティング・タグの位置がずれない)。
+        複数選択では出さない — ffprobe を選択数だけ起動することになるため
+      */}
+      {single && <MediaInfoSection video={single} />}
 
       {!single && (
         <div className="inspector-note">変更は選択中の全動画に適用されます</div>

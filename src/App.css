@@ -556,6 +556,118 @@ body {
   color: #8a8f9c;
 }
 
+/* ---- 詳細ペインの折りたたみセクション / メディア情報 (v1.15) ---- */
+/*
+ * 見出しは .side-section(レーティング・タグ)と同じトーンに揃える。
+ * 違うのは開閉の三角とコピーボタンが載る点だけ
+ */
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 2px 4px;
+}
+
+.section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: #8a8f9c;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.section-toggle:hover {
+  color: #c9cfdb;
+}
+
+/* 開閉でアイコンを差し替えず回す(ツリーの三角と同じ規約) */
+.section-chevron {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+}
+
+.section-toggle:not(.open) .section-chevron {
+  transform: rotate(-90deg);
+}
+
+.section-copy {
+  display: flex;
+  background: none;
+  border: none;
+  padding: 2px;
+  border-radius: 4px;
+  color: #8a8f9c;
+  cursor: pointer;
+}
+
+.section-copy:hover {
+  color: #fff;
+  background: #2a3140;
+}
+
+.section-copy svg.lucide {
+  width: 14px;
+  height: 14px;
+}
+
+.media-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.media-block {
+  background: #181b21;
+  border: 1px solid #2a2e37;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.media-block-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #c9d4e8;
+  margin-bottom: 4px;
+}
+
+.media-row {
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.media-key {
+  flex: 0 0 78px;
+  color: #8a8f9c;
+  word-break: break-all;
+}
+
+/* body が user-select:none なので、値だけドラッグ選択できるようにする(.info-path と同じ) */
+.media-val {
+  flex: 1;
+  min-width: 0;
+  color: #d8dbe2;
+  word-break: break-all;
+  user-select: text;
+}
+
+.media-note {
+  padding: 2px;
+  font-size: 11px;
+  color: #8a8f9c;
+}
+
+.media-note.warn {
+  color: #e0a14a;
+}
+
 .chip-list {
   display: flex;
   flex-wrap: wrap;

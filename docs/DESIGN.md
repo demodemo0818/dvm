@@ -71,7 +71,9 @@ Windows 向け動画管理ソフト(仮称: VideoShelf)。
 ### スキーマ移行(v1.0 から)
 - `PRAGMA user_version` による簡易マイグレーション(`db.rs` の `MIGRATIONS` に v(N)→v(N+1) の差分 SQL を追記していく)
 - **上げるのは列追加のときだけ**。新テーブルは `SCHEMA` に `CREATE TABLE IF NOT EXISTS` を足せばよい
-  (`migrate()` は既存 DB にも `SCHEMA` を流すため)。現行は v3(v1: volume_serial / v2: resume_ms / v3: thumb_time_ms)
+  (`migrate()` は既存 DB にも `SCHEMA` を流すため)。現行は v4
+  (v1: volume_serial / v2: resume_ms / v3: thumb_time_ms / v4: operations_log.undone_at)。
+  v1.15 のメディア情報表示はスキーマを触っていない(結果をキャッシュしないため)
 - 新規 DB は最新スキーマを一括作成。既存 DB は差分を順次適用(ALTER と user_version 更新は同一トランザクション)
 - 新規/既存の判定は `sqlite_master` の videos テーブル有無(user_version 導入前の DB は 0 のため)
 
@@ -426,6 +428,9 @@ mkv を扱えるという読みを実測で確認したため(それまでは無
   候補一覧から選ぶ入力が要るもの(タグ・シリーズは詳細ペインの担当)
 - 目安 12 項目を超えたら、新項目はサブメニューに畳むか既存項目を見直す
 
+判断した実例: **メディア情報の表示は載せていない**(v1.15)。現行がちょうど 12 項目で目安の上限、
+かつ「操作」ではなく読み取り表示なので、詳細ペインの折りたたみセクションに置いた
+
 **依存とコマンド**:
 
 - 「エクスプローラーで表示」は `plugin-opener` の `revealItemInDir`。
@@ -514,6 +519,45 @@ UI のアイコンは **Lucide(`lucide-react`、ISC)に統一**する。**絵文
 - 枠は `:focus-visible` だけに出す(クリックでは出さない)
 - カード幅は 140〜400px を 4px 刻みで動かすので、track を 90px から 110px に伸ばした
   (90px では 1 段が 1.4px しか動かず合わせづらかった)
+
+### メディア情報の表示(v1.15)
+
+詳細ペインに MediaInfo 相当の折りたたみセクションを足した。全ストリーム(映像・音声・字幕)を
+プロファイル / ビット深度 / カラースペース / HDR / チャンネルレイアウト / 言語まで並べる。
+
+- **展開したときだけ ffprobe を叩く**(`core/metadata.rs::media_info`)。閉じている間は元動画に
+  一切触らない。一覧描画やホバーからは絶対に呼ばないこと(パフォーマンス原則 2)
+- **`-show_frames` / `-count_frames` は使わない**。全フレームをデコードするので実用にならない。
+  引数は `-show_format -show_streams -show_chapters` まで。代償として HDR10+ のダイナミック
+  メタデータと厳密なフレーム数は諦める(`nb_frames` とタグの `NUMBER_OF_FRAMES` で代用)。
+  回転と Dolby Vision はストリームの `side_data_list` から拾えるので影響しない
+- **結果はキャッシュしない**。DB テーブルを作った瞬間に鮮度判定(`file_modified_at` 比較)・
+  移動/リネームの追従・`remove_videos` での後始末・孤児掃除が全部付いてくるのに、
+  節約できるのは明示操作 1 回あたり数十〜数百 ms だけ(ヘッダを読むだけでデコードしないため)。
+  **見直す条件**: NAS 上の動画で毎回もたつくと分かったとき。そのとき初めて
+  `id + fileModifiedAt` をキーにした Map をフロントに足す。DB は最後まで不要
+- 代わりに **250ms のデバウンス**を入れる(`MediaInfoSection.PROBE_DELAY_MS`)。
+  開いたまま矢印キーで一覧を流し見すると選択が高速に変わるため。StrictMode の二重マウントも畳まれる。
+  stale なレスポンスは `useEffect` のクリーンアップで捨てる
+- **パースは `serde_json::Value` を受ける純関数**(`parse_media_info`)に切り出してある。
+  ffprobe の起動も実ファイルも要らず `cargo test` で回せる。既存の `probe()` も同じ形に揃えた
+  (`parse_probed`。振る舞いは変えていないので回帰テストで担保)
+- **Rust は ffprobe の生値、日本語化は TypeScript**(`src/lib/mediaInfo.ts`)。
+  識別子(`h264` / `yuv420p` / `bt709` / `5.1(side)`)は訳さない — 変換テーブルは陳腐化するし、
+  ffmpeg のコマンドを組むときやフォーラムで質問するときは生値のほうが役に立つ。
+  変換するのは単位・時間・言語コード・真偽値と、生では読めない値だけ
+  (`level: 40` → `L4.0`、`color_range: tv` → `制限 (tv)`)
+- **表示とコピーは同じ `buildMediaSections()` の結果から作る**。整形コードが 2 つあると
+  「表示中の内容をコピー」がいずれズレるため。コピーは `navigator.clipboard`(VideoGrid と同じ)
+- **埋め込みカバー画像は本編と分けて数える**(`isAttachedPic`)。YouTube 由来の mp4 は
+  サムネイルが PNG の映像ストリームとして入っており、一緒に数えると「映像 2」に見えてしまう
+- **添付ファイル(mkv のフォント)は 1 行にまとめる**。20 本入っていることがあり、
+  1 本ずつブロックにすると肝心の映像・音声がペインから押し出される
+- 開閉状態は設定 `media_info_open`(`inspector_pinned` と同じパターン)。**既定は閉**
+- 将来 MCP に `get_media_info` を出すときは `core::metadata::media_info()` を包むだけでよい
+- ついでに `fmtSize` を `lib/format.ts` に寄せた。ただし **4 か所のうち 2 か所だけ**
+  (VideoCard / SettingsModal。中身が完全一致していた分)。VideoListRow は列が狭いので KB を出さず、
+  StatsModal はライブラリ合計なので TB が要る — 一本化すると表示が変わるので残してある
 
 ### 画面まわりの調整(v1.11)
 
@@ -877,12 +921,18 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
   さらに**シークバーのコマ出し**(見えない `<video>` の `currentTime` を動かす方式)を追加。
   バージョン番号も実態(1.14.0)に揃えた
   (前述「右クリックメニュー」「シークバーのコマ出し」節)
+- **v1.15** ✅(2026-07-27 実装済み): 詳細ペインの**メディア情報**。折りたたみセクションを
+  展開したときだけ ffprobe を叩き、MediaInfo 相当(全ストリーム / プロファイル / ビット深度 /
+  カラースペース / HDR / チャンネルレイアウト / 言語 / チャプター)を並べる。
+  テキストコピー付き。パースは純関数に切り出して `cargo test`、日本語化は TS 側の純関数で
+  `vitest`。DB は変更なし(結果をキャッシュしないため)
+  (前述「メディア情報の表示」節)
 - **将来**: フォールバック側の HLS 追いかけ再生、mac/Linux 対応
 
 ## 今後のタスク
 
 当初の backlog(v1.6 時点の 11 件 + 細かい改善)は v1.7〜v1.9 ですべて消化した。
-残っているのは次の 2 件:
+残っているのは次の 3 件:
 
 - **API キーの暗号化** — 現状は `library.db` に平文。Windows DPAPI で保護する
   (ローカル個人用アプリとして許容中。バックアップにも平文で含まれる点に注意)
@@ -891,3 +941,6 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
   スマートフォルダ・シリーズ、プレイヤー画面、グリッドの余白。
   `ContextMenu.tsx` と `buildXxxMenu()` の形はそのまま使い回せるので、
   足すのは対象ごとの純関数と右クリックハンドラだけで済む
+- **MCP に `get_media_info` を出す** — `core::metadata::media_info()` は UI 非依存なので、
+  `videoshelf-mcp.rs` からそのまま呼べる。ついでに MCP 内にベタ書きの `get_video` の SQL も
+  `core/` に寄せたい(現状は原則 1 から外れている唯一の箇所)

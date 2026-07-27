@@ -1,8 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useLibrary } from './store';
 import type {
-  AppInfo, BackupInfo, FolderNode, LibraryStats, OpEntry, OpResult, PlanItem, Series, SmartFolder,
-  SubfolderView, Tag, VideoQuery, VideoRow, WatchedFolder,
+  AppInfo, BackupInfo, FolderNode, LibraryStats, MediaInfo, OpEntry, OpResult, PlanItem, Series,
+  SmartFolder, SubfolderView, Tag, VideoQuery, VideoRow, WatchedFolder,
 } from './types';
 
 /**
@@ -100,6 +100,12 @@ export const api = {
     call<number>('regenerate_thumbnails', { onlyFailed }),
   /** atMs を省略するとサムネイルのコマ選びを自動に戻す */
   setThumbTime: (id: number, atMs?: number) => call<void>('set_thumb_time', { id, atMs }),
+  /**
+   * ffprobe をその場で起動してメディア情報を取る。
+   * **詳細ペインの「メディア情報」を展開したときだけ**呼ぶこと(元動画を読むため)。
+   * 失敗はセクション内に文言で出すのでトーストは出さない(silent)
+   */
+  getMediaInfo: (id: number) => call<MediaInfo>('get_media_info', { id }, true),
   purgeOrphanThumbnails: () =>
     call<{ removed: number; freedBytes: number }>('purge_orphan_thumbnails'),
   /** 復元の予約。実際の差し替えは次回起動時。戻り値は退避した現行 DB のファイル名 */

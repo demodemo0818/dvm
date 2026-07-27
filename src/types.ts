@@ -258,6 +258,85 @@ export interface FileOpProgress {
   current: string;
 }
 
+// --- メディア情報(詳細ペインの折りたたみセクション。v1.15) ---
+//
+// Rust の core/metadata.rs と手動で同期している(型生成ツールは使っていない)。
+// 値は ffprobe のほぼ生。単位変換・日本語ラベルは lib/mediaInfo.ts の担当
+
+/** ffprobe の tags 1 件。エンコーダ名・作成日時・mkv の BPS などが入る */
+export interface MediaTag {
+  key: string;
+  value: string;
+}
+
+export interface MediaFormat {
+  formatName: string | null;
+  formatLongName: string | null;
+  durationMs: number | null;
+  size: number | null;
+  bitrate: number | null;
+  streamCount: number | null;
+  tags: MediaTag[];
+}
+
+/**
+ * ffprobe の 1 ストリーム。映像 / 音声 / 字幕 / 添付を同じ型で運ぶ
+ * (種別ごとに使うフィールドが違うだけ。取れなかった値は null)
+ */
+export interface MediaStream {
+  index: number;
+  /** 'video' | 'audio' | 'subtitle' | 'attachment' | 'data' */
+  kind: string;
+  codecName: string | null;
+  codecLongName: string | null;
+  codecTag: string | null;
+  profile: string | null;
+  /** codec 依存の生値(h264 の 40 が L4.0)。表示は fmtLevel() で変換する */
+  level: number | null;
+  durationMs: number | null;
+  bitrate: number | null;
+  language: string | null;
+  title: string | null;
+  isDefault: boolean;
+  isForced: boolean;
+  /** 埋め込みのカバー画像(kind は 'video' だが本編ではない) */
+  isAttachedPic: boolean;
+  tags: MediaTag[];
+  width: number | null;
+  height: number | null;
+  displayAspectRatio: string | null;
+  sampleAspectRatio: string | null;
+  pixFmt: string | null;
+  bitDepth: number | null;
+  colorSpace: string | null;
+  colorPrimaries: string | null;
+  colorTransfer: string | null;
+  colorRange: string | null;
+  fieldOrder: string | null;
+  avgFrameRate: number | null;
+  rFrameRate: number | null;
+  frameCount: number | null;
+  rotation: number | null;
+  /** 'HDR10 (PQ)' / 'HLG' / 'Dolby Vision'(フレームを読まずに分かる範囲) */
+  hdr: string | null;
+  sampleRate: number | null;
+  channels: number | null;
+  channelLayout: string | null;
+  sampleFmt: string | null;
+}
+
+export interface MediaChapter {
+  startMs: number;
+  endMs: number;
+  title: string | null;
+}
+
+export interface MediaInfo {
+  format: MediaFormat;
+  streams: MediaStream[];
+  chapters: MediaChapter[];
+}
+
 /** 操作履歴の 1 行 */
 export interface OpEntry {
   id: number;

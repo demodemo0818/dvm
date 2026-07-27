@@ -66,6 +66,11 @@ interface LibraryState {
   cardWidth: number;
   /** 選択が空でも詳細ペインを出したままにする(設定に永続化) */
   inspectorPinned: boolean;
+  /**
+   * 詳細ペインの「メディア情報」を開いているか(設定に永続化)。
+   * 開いている間は選択を変えるたびに ffprobe が走るので既定は閉じる
+   */
+  mediaInfoOpen: boolean;
   /** 左サイドバー / 右詳細ペインの幅 px(ドラッグで伸縮。設定に永続化) */
   sidebarWidth: number;
   inspectorWidth: number;
@@ -130,6 +135,7 @@ interface LibraryState {
   setViewMode: (viewMode: ViewMode) => void;
   setCardWidth: (cardWidth: number) => void;
   setInspectorPinned: (inspectorPinned: boolean) => void;
+  setMediaInfoOpen: (mediaInfoOpen: boolean) => void;
   setSidebarWidth: (sidebarWidth: number) => void;
   setInspectorWidth: (inspectorWidth: number) => void;
   setAutoplayNext: (autoplayNext: boolean) => void;
@@ -188,6 +194,7 @@ export const useLibrary = create<LibraryState>((set) => ({
   viewMode: 'grid',
   cardWidth: CARD_WIDTH_DEFAULT,
   inspectorPinned: false,
+  mediaInfoOpen: false,
   sidebarWidth: SIDEBAR_WIDTH.default,
   inspectorWidth: INSPECTOR_WIDTH.default,
   autoplayNext: false,
@@ -216,6 +223,7 @@ export const useLibrary = create<LibraryState>((set) => ({
   setCardWidth: (cardWidth) =>
     set({ cardWidth: Math.min(Math.max(Math.round(cardWidth), CARD_WIDTH_MIN), CARD_WIDTH_MAX) }),
   setInspectorPinned: (inspectorPinned) => set({ inspectorPinned }),
+  setMediaInfoOpen: (mediaInfoOpen) => set({ mediaInfoOpen }),
   setSidebarWidth: (w) => set({ sidebarWidth: clamp(w, SIDEBAR_WIDTH) }),
   setInspectorWidth: (w) => set({ inspectorWidth: clamp(w, INSPECTOR_WIDTH) }),
   setAutoplayNext: (autoplayNext) => set({ autoplayNext }),

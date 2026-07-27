@@ -1,5 +1,5 @@
 use crate::core::query::{self, VideoQuery, VideoRow};
-use crate::core::{library, videos};
+use crate::core::{library, metadata, videos};
 use crate::AppState;
 use rusqlite::params;
 use tauri::{AppHandle, Manager, State};
@@ -87,6 +87,23 @@ pub async fn set_thumb_time(app: AppHandle, id: i64, at_ms: Option<i64>) -> Resu
     let app2 = app.clone();
     tauri::async_runtime::spawn_blocking(move || library::process_pending(&app2, vec![id]));
     Ok(())
+}
+
+/// 詳細ペインの「メディア情報」を展開したときだけ呼ばれる(ffprobe を 1 回起動する)。
+/// 一覧の描画やホバーからは**絶対に呼ばないこと** — 元動画に触るため
+/// (CLAUDE.md パフォーマンス原則 2)。
+/// 結果はキャッシュしない(理由は DESIGN.md「メディア情報の表示」)
+#[tauri::command]
+pub async fn get_media_info(app: AppHandle, id: i64) -> Result<metadata::MediaInfo, String> {
+    // ffprobe を待つ前に State を手放す(State は await をまたげない)
+    let (path, ff) = {
+        let state = app.state::<AppState>();
+        (path_of(&state, id)?, state.ffmpeg.clone())
+    };
+    tauri::async_runtime::spawn_blocking(move || metadata::media_info(&ff, &path))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
 }
 
 /// DB からパスを引く小道具(open_* 系で共用)

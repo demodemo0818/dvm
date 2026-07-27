@@ -18,7 +18,7 @@ export default function App() {
   const {
     bumpVersion, setStatus, status, scanning, setPlayerPath, setPreviewOnHover,
     setViewMode, setCardWidth, setAutoplayNext, setSeekPreview,
-    setInspectorPinned, setSidebarWidth, setInspectorWidth,
+    setInspectorPinned, setMediaInfoOpen, setSidebarWidth, setInspectorWidth,
     inspectorPinned, sidebarWidth, inspectorWidth, selection,
   } = useLibrary();
   const debounceTimer = useRef<number | undefined>(undefined);
@@ -59,6 +59,8 @@ export default function App() {
     api.getSetting('autoplay_next').then((v) => setAutoplayNext(v === '1'));
     // 詳細ペインの固定は既定 OFF(従来どおり選択中だけ出る)
     api.getSetting('inspector_pinned').then((v) => setInspectorPinned(v === '1'));
+    // メディア情報も既定 OFF(開いていると選択のたびに ffprobe が走る)
+    api.getSetting('media_info_open').then((v) => setMediaInfoOpen(v === '1'));
     // 幅は setter 側で上下限に丸められる
     api.getSetting('sidebar_width').then((v) => {
       const n = Number(v);
@@ -70,7 +72,7 @@ export default function App() {
     });
   }, [
     setPlayerPath, setPreviewOnHover, setSeekPreview, setViewMode, setCardWidth, setAutoplayNext,
-    setInspectorPinned, setSidebarWidth, setInspectorWidth,
+    setInspectorPinned, setMediaInfoOpen, setSidebarWidth, setInspectorWidth,
   ]);
 
   /**

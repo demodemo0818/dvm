@@ -127,6 +127,7 @@ pub fn run() {
             commands::videos::set_rating,
             commands::videos::remove_videos,
             commands::videos::set_thumb_time,
+            commands::videos::get_media_info,
             commands::tags::list_tags,
             commands::tags::tag_videos,
             commands::tags::untag_videos,
