@@ -1,6 +1,7 @@
 import {
   BookmarkPlus,
   ChartColumn,
+  Check,
   Funnel,
   LayoutGrid,
   List,
@@ -12,16 +13,24 @@ import {
   Shuffle,
   Sparkles,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { api } from '../api';
 import { CURATED_SORTS, sortLabel } from '../lib/listColumns';
 import { advancedCount, buildQuery } from '../lib/query';
+import { splitToolbar, TOOLBAR_ITEMS, toolbarKeys } from '../lib/toolbarItems';
+import type { ToolbarItemKey } from '../lib/toolbarItems';
 import { CARD_WIDTH_MAX, CARD_WIDTH_MIN, useLibrary } from '../store';
 import type { DurationBucket, SortKey } from '../types';
 import { AdvancedSearch } from './AdvancedSearch';
 import { HistoryModal } from './HistoryModal';
 import { SettingsModal } from './SettingsModal';
 import { StatsModal } from './StatsModal';
+import { ToolbarOverflow } from './ToolbarOverflow';
+
+/** 部品をバーに置くか、≫ メニューの中に置くか */
+type Place = 'bar' | 'menu';
 
 export function Toolbar() {
   const {
@@ -36,15 +45,46 @@ export function Toolbar() {
   const [showSettings, setShowSettings] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const advBtnRef = useRef<HTMLButtonElement>(null);
   const [advAt, setAdvAt] = useState({ x: 0, y: 0 });
 
-  // 開くたびにボタンの位置を測り直す。ポップオーバーは画面基準で描くため
+  const barRef = useRef<HTMLDivElement>(null);
+  /** ツールバーの内寸。測れるまでは null = 全項目を出す */
+  const [avail, setAvail] = useState<number | null>(null);
+
+  /*
+   * 幅を測って、入りきらない項目を ≫ に畳む。
+   *
+   * useEffect ではなく useLayoutEffect なのは、初回に「全部出た姿」が 1 フレーム
+   * 見えてしまうため(VideoGrid の列数計算は 1 フレームずれても目立たないので
+   * あちらは useEffect のままでよい)。
+   *
+   * 初期値を null(= 全部出す)にしているのは、畳まれた姿から広がるより
+   * 目に付きにくいから。「全部畳む」を初期値にすると起動時に必ずガタつく
+   */
+  useLayoutEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const update = () => setAvail(el.clientWidth);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // 幅が変わるとバーと ≫ の中身が入れ替わる。開いたまま項目が消えるのを防ぐ
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [avail]);
+
+  // 開くたびにボタンの位置を測り直す。ポップオーバーは画面基準で描くため。
+  // 幅が変わると検索欄が伸縮してボタンの x が動くので avail も見る
   useLayoutEffect(() => {
     if (!showAdvanced) return;
     const r = advBtnRef.current?.getBoundingClientRect();
     if (r) setAdvAt({ x: r.left, y: r.bottom + 6 });
-  }, [showAdvanced]);
+  }, [showAdvanced, avail]);
 
   // 入力から 300ms 落ち着いたら検索を反映
   useEffect(() => {
@@ -72,170 +112,400 @@ export function Toolbar() {
     bumpVersion();
   };
 
-  return (
-    <div className="toolbar">
-      {/*
-        サイドバーを畳むと幅を変える帯ごと消えるので、戻す手段はこのボタンだけ。
-        サイドバー側に置くと畳んだあとに押せなくなる。
-        右端の詳細ペインのボタン(PanelRight)と対になる位置でもある
-      */}
-      <button
-        className="tb-icon"
-        title={sidebarCollapsed ? 'サイドバーを表示する' : 'サイドバーを隠す'}
-        onClick={() => {
-          const next = !sidebarCollapsed;
-          setSidebarCollapsed(next);
-          void api.setSetting('sidebar_collapsed', next ? '1' : '0');
-        }}
-      >
-        <PanelLeft />
-      </button>
-      <input
-        className="search"
-        type="search"
-        // 狭いと切れるので短くし、説明は title に回す
-        placeholder="検索(空白区切りで AND)"
-        title="ファイル名・タイトルで検索(空白区切りで AND)"
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-      />
-      {/* 件数はアイコンの右上にバッジで重ねる。文字を並べる場所が無いため */}
-      <button
-        ref={advBtnRef}
-        className={`tb-icon${advCount > 0 ? ' active' : ''}`}
-        title={advCount > 0 ? `詳細検索(${advCount} 件の条件)` : '詳細検索'}
-        onClick={() => setShowAdvanced((v) => !v)}
-      >
-        <Funnel />
-        {advCount > 0 && <span className="tb-badge">{advCount}</span>}
-      </button>
-      {showAdvanced && <AdvancedSearch at={advAt} onClose={() => setShowAdvanced(false)} />}
-      {/*
-        並び順はグリッドとリストで共有の 1 つ。詳細リストの列ヘッダで選べる並びは
-        26 種あり全部は並べられないので、ここは代表的なものだけを常設し、
-        列ヘッダで選ばれた並びは「今それが選ばれている間だけ」項目を足して見せる
-        (シリーズ順・重複まとめと同じ作法)
-      */}
-      <select
-        className="sort-select"
-        value={sort}
-        onChange={(e) => setSort(e.target.value as SortKey)}
-        title="並び順"
-      >
-        {CURATED_SORTS.map((key) => (
-          <option key={key} value={key}>{sortLabel(key)}</option>
-        ))}
-        {seriesId !== null && <option value="series_asc">シリーズ順</option>}
-        {duplicatesOnly && <option value="dup">重複をまとめる</option>}
-        {!CURATED_SORTS.includes(sort) && sort !== 'series_asc' && sort !== 'dup' && (
-          <option value={sort}>{sortLabel(sort)}</option>
-        )}
-      </select>
-      <button className="tb-icon" title="並びをシャッフルする" onClick={reshuffle}>
-        <Shuffle />
-      </button>
-      <select
-        className="rating-select"
-        value={minRating}
-        onChange={(e) => setMinRating(Number(e.target.value))}
-        title="レーティングで絞り込み"
-      >
-        <option value={0}>★ 指定なし</option>
-        <option value={1}>★1 以上</option>
-        <option value={2}>★2 以上</option>
-        <option value={3}>★3 以上</option>
-        <option value={4}>★4 以上</option>
-        <option value={5}>★5</option>
-      </select>
-      <select
-        className="duration-select"
-        value={durationBucket ?? ''}
-        onChange={(e) => setDurationBucket((e.target.value || null) as DurationBucket | null)}
-        title="長さで絞り込み"
-      >
-        <option value="">長さ指定なし</option>
-        <option value="lt5">5 分未満</option>
-        <option value="5to20">5〜20 分</option>
-        <option value="20to60">20〜60 分</option>
-        <option value="gt60">60 分以上</option>
-      </select>
-      <button
-        className="tb-icon"
-        title="今の検索条件をスマートフォルダとして保存"
-        onClick={saveCurrentAsSmartFolder}
-      >
-        <BookmarkPlus />
-      </button>
-      <button
-        className="tb-icon"
-        title={viewMode === 'grid' ? '詳細リスト表示に切り替え' : 'サムネイル表示に切り替え'}
-        onClick={() => {
-          const next = viewMode === 'grid' ? 'list' : 'grid';
-          setViewMode(next);
-          void api.setSetting('view_mode', next);
-        }}
-      >
-        {viewMode === 'grid' ? <List /> : <LayoutGrid />}
-      </button>
-      {viewMode === 'grid' && (
-        <input
-          className="card-size"
-          type="range"
-          min={CARD_WIDTH_MIN}
-          max={CARD_WIDTH_MAX}
-          step={4}
-          value={cardWidth}
-          onChange={(e) => setCardWidth(Number(e.target.value))}
-          // ドラッグ中に毎回書き込まない(離したときだけ保存する)
-          onPointerUp={() => void api.setSetting('card_width', String(cardWidth))}
-          // 左側の塗り。ネイティブの range は「ここまで塗る」を CSS だけでは表せない
-          style={{ '--fill': `${cardWidthPct}%` } as React.CSSProperties}
-          title="サムネイルの大きさ"
-        />
-      )}
-      <button
-        className="tb-icon"
-        title="再スキャン"
-        onClick={() => api.rescanAll()}
-        disabled={scanning}
-      >
-        <RefreshCw />
-      </button>
-      <button className="tb-icon" title="統計" onClick={() => setShowStats(true)}>
-        <ChartColumn />
-      </button>
-      <button className="tb-icon" title="操作履歴" onClick={() => setShowHistory(true)}>
-        <RotateCcwClock />
-      </button>
-      <button
-        className={`tb-icon${inspectorPinned ? ' active' : ''}`}
-        title={
-          inspectorPinned
-            ? '詳細ペインの固定を解除(選択中だけ表示に戻す)'
-            : '詳細ペインを常に表示する'
-        }
-        onClick={() => {
-          const next = !inspectorPinned;
-          setInspectorPinned(next);
-          void api.setSetting('inspector_pinned', next ? '1' : '0');
-        }}
-      >
-        <PanelRight />
-      </button>
-      <button
-        className={`tb-icon${showAiPanel ? ' active' : ''}`}
-        title="AI アシスタント"
-        onClick={toggleAiPanel}
-      >
-        <Sparkles />
-      </button>
-      <button className="tb-icon" title="設定" onClick={() => setShowSettings(true)}>
-        <Settings />
-      </button>
+  /**
+   * 1 項目を描く。**同じ項目の JSX を 2 か所に書かない** —— バーと ≫ メニューの
+   * 違いは ToolButton / ToolSelect / ToolSlider の中だけに閉じ込める
+   */
+  const renderItem = (key: ToolbarItemKey, place: Place): ReactNode => {
+    const { label } = TOOLBAR_ITEMS[key];
+    /*
+     * メニューの項目を押したら閉じてから実行する。「条件を保存」の window.prompt は
+     * 同期的にスレッドを止めるので、閉じる描画を先に済ませないとメニューが
+     * 出たままダイアログが開く(右クリックメニューと同じ理由)
+     */
+    const act = (fn: () => void) => () => {
+      if (place !== 'menu') {
+        fn();
+        return;
+      }
+      setMenuOpen(false);
+      window.setTimeout(fn, 0);
+    };
 
+    switch (key) {
+      case 'sidebarToggle':
+        /*
+          サイドバーを畳むと幅を変える帯ごと消えるので、戻す手段はこのボタンだけ。
+          サイドバー側に置くと畳んだあとに押せなくなる。だから畳まない項目にしてある
+        */
+        return (
+          <ToolButton
+            key={key}
+            place={place}
+            icon={PanelLeft}
+            label={sidebarCollapsed ? 'サイドバーを表示する' : 'サイドバーを隠す'}
+            onClick={act(() => {
+              const next = !sidebarCollapsed;
+              setSidebarCollapsed(next);
+              void api.setSetting('sidebar_collapsed', next ? '1' : '0');
+            })}
+          />
+        );
+
+      case 'search':
+        // 畳まないので place は必ず 'bar'
+        return (
+          <input
+            key={key}
+            className="search"
+            type="search"
+            // 狭いと切れるので短くし、説明は title に回す
+            placeholder="検索(空白区切りで AND)"
+            title="ファイル名・タイトルで検索(空白区切りで AND)"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+          />
+        );
+
+      case 'advanced':
+        /*
+          畳まない。ポップオーバーを ≫ メニューの中から開くと、互いの
+          「外側クリックで閉じる」が食い合って開いた瞬間に閉じる。
+          件数はアイコンの右上にバッジで重ねる(文字を並べる場所が無いため)
+        */
+        return (
+          <button
+            key={key}
+            ref={advBtnRef}
+            className={`tb-icon${advCount > 0 ? ' active' : ''}`}
+            title={advCount > 0 ? `詳細検索(${advCount} 件の条件)` : '詳細検索'}
+            onClick={() => setShowAdvanced((v) => !v)}
+          >
+            <Funnel />
+            {advCount > 0 && <span className="tb-badge">{advCount}</span>}
+          </button>
+        );
+
+      case 'sort':
+        /*
+          並び順はグリッドとリストで共有の 1 つ。詳細リストの列ヘッダで選べる並びは
+          26 種あり全部は並べられないので、ここは代表的なものだけを常設し、
+          列ヘッダで選ばれた並びは「今それが選ばれている間だけ」項目を足して見せる
+          (シリーズ順・重複まとめと同じ作法)
+        */
+        return (
+          <ToolSelect
+            key={key}
+            place={place}
+            label={label}
+            className="sort-select"
+            value={sort}
+            onChange={(v) => setSort(v as SortKey)}
+          >
+            {CURATED_SORTS.map((k) => (
+              <option key={k} value={k}>{sortLabel(k)}</option>
+            ))}
+            {seriesId !== null && <option value="series_asc">シリーズ順</option>}
+            {duplicatesOnly && <option value="dup">重複をまとめる</option>}
+            {!CURATED_SORTS.includes(sort) && sort !== 'series_asc' && sort !== 'dup' && (
+              <option value={sort}>{sortLabel(sort)}</option>
+            )}
+          </ToolSelect>
+        );
+
+      case 'shuffle':
+        return (
+          <ToolButton
+            key={key}
+            place={place}
+            icon={Shuffle}
+            label="並びをシャッフルする"
+            onClick={act(reshuffle)}
+          />
+        );
+
+      case 'rating':
+        return (
+          <ToolSelect
+            key={key}
+            place={place}
+            label="レーティングで絞り込み"
+            className="rating-select"
+            value={minRating}
+            onChange={(v) => setMinRating(Number(v))}
+          >
+            <option value={0}>★ 指定なし</option>
+            <option value={1}>★1 以上</option>
+            <option value={2}>★2 以上</option>
+            <option value={3}>★3 以上</option>
+            <option value={4}>★4 以上</option>
+            <option value={5}>★5</option>
+          </ToolSelect>
+        );
+
+      case 'duration':
+        return (
+          <ToolSelect
+            key={key}
+            place={place}
+            label="長さで絞り込み"
+            className="duration-select"
+            value={durationBucket ?? ''}
+            onChange={(v) => setDurationBucket((v || null) as DurationBucket | null)}
+          >
+            <option value="">長さ指定なし</option>
+            <option value="lt5">5 分未満</option>
+            <option value="5to20">5〜20 分</option>
+            <option value="20to60">20〜60 分</option>
+            <option value="gt60">60 分以上</option>
+          </ToolSelect>
+        );
+
+      case 'saveQuery':
+        return (
+          <ToolButton
+            key={key}
+            place={place}
+            icon={BookmarkPlus}
+            label="今の検索条件をスマートフォルダとして保存"
+            onClick={act(() => void saveCurrentAsSmartFolder())}
+          />
+        );
+
+      case 'viewMode':
+        return (
+          <ToolButton
+            key={key}
+            place={place}
+            icon={viewMode === 'grid' ? List : LayoutGrid}
+            label={viewMode === 'grid' ? '詳細リスト表示に切り替え' : 'サムネイル表示に切り替え'}
+            onClick={act(() => {
+              const next = viewMode === 'grid' ? 'list' : 'grid';
+              setViewMode(next);
+              void api.setSetting('view_mode', next);
+            })}
+          />
+        );
+
+      case 'cardSize':
+        return (
+          <ToolSlider
+            key={key}
+            place={place}
+            label={label}
+            value={cardWidth}
+            pct={cardWidthPct}
+            onChange={setCardWidth}
+            onCommit={() => void api.setSetting('card_width', String(cardWidth))}
+          />
+        );
+
+      case 'rescan':
+        return (
+          <ToolButton
+            key={key}
+            place={place}
+            icon={RefreshCw}
+            label={label}
+            disabled={scanning}
+            onClick={act(() => void api.rescanAll())}
+          />
+        );
+
+      case 'stats':
+        return (
+          <ToolButton
+            key={key}
+            place={place}
+            icon={ChartColumn}
+            label={label}
+            onClick={act(() => setShowStats(true))}
+          />
+        );
+
+      case 'history':
+        return (
+          <ToolButton
+            key={key}
+            place={place}
+            icon={RotateCcwClock}
+            label={label}
+            onClick={act(() => setShowHistory(true))}
+          />
+        );
+
+      case 'inspectorPin':
+        return (
+          <ToolButton
+            key={key}
+            place={place}
+            icon={PanelRight}
+            active={inspectorPinned}
+            label={
+              inspectorPinned
+                ? '詳細ペインの固定を解除(選択中だけ表示に戻す)'
+                : '詳細ペインを常に表示する'
+            }
+            onClick={act(() => {
+              const next = !inspectorPinned;
+              setInspectorPinned(next);
+              void api.setSetting('inspector_pinned', next ? '1' : '0');
+            })}
+          />
+        );
+
+      case 'aiPanel':
+        return (
+          <ToolButton
+            key={key}
+            place={place}
+            icon={Sparkles}
+            active={showAiPanel}
+            label={label}
+            onClick={act(toggleAiPanel)}
+          />
+        );
+
+      case 'settings':
+        return (
+          <ToolButton
+            key={key}
+            place={place}
+            icon={Settings}
+            label={label}
+            onClick={act(() => setShowSettings(true))}
+          />
+        );
+    }
+  };
+
+  const { bar, menu } = splitToolbar(toolbarKeys(viewMode), avail);
+  /*
+   * 畳んだ中に効いている絞り込みがあれば ≫ 自体を光らせる。
+   * これが無いと「一覧の件数が少ない理由が分からない」事故が起きる
+   */
+  const hiddenFilter =
+    (menu.includes('rating') && minRating > 0)
+    || (menu.includes('duration') && durationBucket !== null);
+
+  return (
+    <div className="toolbar" ref={barRef}>
+      {bar.map((key) => renderItem(key, 'bar'))}
+      {menu.length > 0 && (
+        <ToolbarOverflow open={menuOpen} onOpenChange={setMenuOpen} active={hiddenFilter}>
+          {menu.map((key) => renderItem(key, 'menu'))}
+        </ToolbarOverflow>
+      )}
+
+      {/*
+        モーダルとポップオーバーは項目マップの外に置く。トリガーがバーにあっても
+        ≫ の中にあっても、開いている間はレンダーされ続ける必要があるため
+      */}
+      {showAdvanced && <AdvancedSearch at={advAt} onClose={() => setShowAdvanced(false)} />}
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
       {showHistory && <HistoryModal onClose={() => setShowHistory(false)} />}
       <StatsModal />
     </div>
+  );
+}
+
+/**
+ * バーではアイコンだけ、≫ メニューではアイコン + ラベル。
+ * 押した状態はバーでは青塗り(.active)、メニューでは右端のチェック印で示す
+ */
+function ToolButton({
+  place, label, icon: Icon, active, disabled, onClick,
+}: {
+  place: Place;
+  label: string;
+  icon: LucideIcon;
+  active?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  if (place === 'menu') {
+    return (
+      <button className="tb-menu-item" disabled={disabled} onClick={onClick}>
+        <Icon />
+        <span className="tb-menu-label">{label}</span>
+        {active && <Check className="tb-menu-mark" />}
+      </button>
+    );
+  }
+  return (
+    <button
+      className={`tb-icon${active ? ' active' : ''}`}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <Icon />
+    </button>
+  );
+}
+
+/** メニューでは「ラベル : コントロール」の 1 行にする。裸の select だと何の select か分からない */
+function ToolSelect({
+  place, label, className, value, onChange, children,
+}: {
+  place: Place;
+  label: string;
+  className: string;
+  value: string | number;
+  onChange: (value: string) => void;
+  children: ReactNode;
+}) {
+  const select = (
+    <select
+      className={className}
+      value={value}
+      title={place === 'bar' ? label : undefined}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      {children}
+    </select>
+  );
+  if (place === 'bar') return select;
+  return (
+    <label className="tb-menu-row">
+      <span className="tb-menu-label">{label}</span>
+      {select}
+    </label>
+  );
+}
+
+/** サムネイルの大きさ。グリッド表示のときだけ出る */
+function ToolSlider({
+  place, label, value, pct, onChange, onCommit,
+}: {
+  place: Place;
+  label: string;
+  value: number;
+  /** 左側の塗りの割合。ネイティブの range は「ここまで塗る」を CSS だけでは表せない */
+  pct: number;
+  onChange: (value: number) => void;
+  onCommit: () => void;
+}) {
+  const slider = (
+    <input
+      className="card-size"
+      type="range"
+      min={CARD_WIDTH_MIN}
+      max={CARD_WIDTH_MAX}
+      step={4}
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+      // ドラッグ中に毎回書き込まない(離したときだけ保存する)
+      onPointerUp={onCommit}
+      style={{ '--fill': `${pct}%` } as React.CSSProperties}
+      title={place === 'bar' ? label : undefined}
+    />
+  );
+  if (place === 'bar') return slider;
+  return (
+    <label className="tb-menu-row">
+      <span className="tb-menu-label">{label}</span>
+      {slider}
+    </label>
   );
 }
