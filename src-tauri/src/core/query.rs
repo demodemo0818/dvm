@@ -83,6 +83,14 @@ pub struct VideoRow {
     pub thumb_state: i64,
     pub thumb_path: Option<String>,
     pub added_at: String,
+    // --- v1.16 でリストの列にするために足した(いずれも既存の DB 列) ---
+    /// ファイルの作成時刻。**登録時に一度だけ**入り、以後更新されない。
+    /// Windows ではコピーやダウンロードでリセットされるので「動画が作られた日」ではない
+    pub file_created_at: Option<String>,
+    /// ファイルの最終更新時刻(再スキャンで追従する)
+    pub file_modified_at: Option<String>,
+    pub fps: Option<f64>,
+    pub bitrate: Option<i64>,
 }
 
 /// LIKE のワイルドカードを打ち消す(日本語の部分一致はこれで正しく動く)
@@ -245,22 +253,71 @@ impl VideoQuery {
             let t = format!("((id * {SHUFFLE_MIX}) % {SHUFFLE_MOD})");
             return format!("ORDER BY ({t} * ({t} + {seed})) % {SHUFFLE_MOD}, id");
         }
-        match self.sort.as_deref() {
-            Some("name_asc") => "ORDER BY filename COLLATE NOCASE ASC",
-            Some("name_desc") => "ORDER BY filename COLLATE NOCASE DESC",
-            Some("size_asc") => "ORDER BY size ASC",
-            Some("size_desc") => "ORDER BY size DESC",
-            Some("duration_asc") => "ORDER BY duration_ms ASC NULLS FIRST",
-            Some("duration_desc") => "ORDER BY duration_ms DESC NULLS LAST",
-            Some("added_asc") => "ORDER BY added_at ASC, id ASC",
-            Some("rating_desc") => "ORDER BY rating DESC, added_at DESC, id DESC",
-            Some("viewed_desc") => "ORDER BY last_viewed_at DESC NULLS LAST, id DESC",
+        // 列ヘッダのソート(v1.16)。規則は 2 つ:
+        //   * NULL は昇順・降順どちらでも**常に末尾**。SQLite は ASC の既定が NULLS FIRST なので、
+        //     昇順側には必ず NULLS LAST を書く(書き忘れると未視聴や尺未取得が先頭を埋める)
+        //   * すべて `, id` で終わる。同値の行が複数あるとき、これが無いとページを
+        //     またいだ順序が安定せず、仮想化した一覧で行が入れ替わって見える
+        let expr: &str = match self.sort.as_deref() {
+            Some("name_asc") => "filename COLLATE NOCASE ASC",
+            Some("name_desc") => "filename COLLATE NOCASE DESC",
+            Some("size_asc") => "size ASC",
+            Some("size_desc") => "size DESC",
+            Some("duration_asc") => "duration_ms ASC NULLS LAST",
+            Some("duration_desc") => "duration_ms DESC NULLS LAST",
+            Some("added_asc") => "added_at ASC",
+            Some("added_desc") => "added_at DESC",
+            Some("rating_asc") => "rating ASC",
+            Some("rating_desc") => "rating DESC, added_at DESC",
+            Some("viewed_asc") => "last_viewed_at ASC NULLS LAST",
+            Some("viewed_desc") => "last_viewed_at DESC NULLS LAST",
+            Some("views_asc") => "view_count ASC",
+            Some("views_desc") => "view_count DESC",
+            // 解像度は縦横どちらかだけでは比べられないので画素数で並べる
+            Some("res_asc") => "(width * height) ASC NULLS LAST",
+            Some("res_desc") => "(width * height) DESC NULLS LAST",
+            Some("ext_asc") => return format!("ORDER BY {} ASC, id ASC", ext_expr()),
+            Some("ext_desc") => return format!("ORDER BY {} DESC, id DESC", ext_expr()),
+            Some("codec_asc") => "video_codec COLLATE NOCASE ASC NULLS LAST",
+            Some("codec_desc") => "video_codec COLLATE NOCASE DESC NULLS LAST",
+            Some("acodec_asc") => "audio_codec COLLATE NOCASE ASC NULLS LAST",
+            Some("acodec_desc") => "audio_codec COLLATE NOCASE DESC NULLS LAST",
+            // フルパスで並べるとフォルダごとにまとまり、中はファイル名順になる
+            Some("folder_asc") => "path COLLATE NOCASE ASC",
+            Some("folder_desc") => "path COLLATE NOCASE DESC",
+            Some("fmodified_asc") => "file_modified_at ASC NULLS LAST",
+            Some("fmodified_desc") => "file_modified_at DESC NULLS LAST",
+            Some("fcreated_asc") => "file_created_at ASC NULLS LAST",
+            Some("fcreated_desc") => "file_created_at DESC NULLS LAST",
+            Some("fps_asc") => "fps ASC NULLS LAST",
+            Some("fps_desc") => "fps DESC NULLS LAST",
+            Some("bitrate_asc") => "bitrate ASC NULLS LAST",
+            Some("bitrate_desc") => "bitrate DESC NULLS LAST",
             // 重複の並び: 同じファイルが隣り合うように
-            Some("dup") => "ORDER BY size, partial_hash, id",
-            _ => "ORDER BY added_at DESC, id DESC",
-        }
-        .to_string()
+            Some("dup") => return "ORDER BY size, partial_hash, id".to_string(),
+            _ => "added_at DESC",
+        };
+        // 降順の並びは id も降順にしておくと、同値の塊の中も見た目の向きが揃う。
+        // 向きはキー名の接尾辞で決める(未指定・未知のキーは既定の added_desc なので降順)
+        let tie = match self.sort.as_deref() {
+            Some(s) if s.ends_with("_asc") => "id ASC",
+            _ => "id DESC",
+        };
+        format!("ORDER BY {expr}, {tie}")
     }
+}
+
+/// ファイル名から拡張子を取り出す SQL 式(小文字)。
+///
+/// SQLite に「右から探す」関数が無いので既知のイディオムを使う。
+/// `rtrim(filename, <ドットを除いた文字集合>)` が最後のドットまでの前置部分を残すので、
+/// それを空に置換すると拡張子だけが残る("a.b.mp4" → "mp4")。
+/// ドットが無いと前置部分が空文字になり、SQLite の replace は空文字を探すと
+/// 元の文字列をそのまま返すため、名前が丸ごと拡張子として出てしまう。instr でガードする
+fn ext_expr() -> &'static str {
+    "CASE WHEN instr(filename, '.') = 0 THEN ''
+          ELSE lower(replace(filename, rtrim(filename, replace(filename, '.', '')), ''))
+     END"
 }
 
 pub fn count(conn: &Connection, query: &VideoQuery) -> Result<i64> {
@@ -270,25 +327,41 @@ pub fn count(conn: &Connection, query: &VideoQuery) -> Result<i64> {
     Ok(count)
 }
 
-type RawRow = (
-    i64,            // id
-    String,         // path
-    String,         // filename
-    Option<String>, // title
-    i64,            // size
-    Option<i64>,    // duration_ms
-    Option<i64>,    // width
-    Option<i64>,    // height
-    i64,            // rating
-    i64,            // view_count
-    Option<String>, // last_viewed_at
-    i64,            // resume_ms
-    Option<String>, // video_codec
-    Option<String>, // audio_codec
-    i64,            // is_missing
-    i64,            // thumb_state
-    String,         // added_at
-);
+/// SELECT の列と `map_row` の添字はここで 1 対 1 に対応する。片方だけ触らないこと
+const SELECT_COLUMNS: &str = "id, path, filename, title, size, duration_ms, width, height,
+     rating, view_count, last_viewed_at, resume_ms, video_codec, audio_codec,
+     is_missing, thumb_state, added_at, file_created_at, file_modified_at, fps, bitrate";
+
+/// 1 行を VideoRow に写す。オフライン判定とサムネイルパスだけは
+/// 行をまたぐ状態(RootCache)と設定が要るので、呼び出し側で後から埋める
+fn map_row(r: &rusqlite::Row) -> rusqlite::Result<VideoRow> {
+    Ok(VideoRow {
+        id: r.get(0)?,
+        path: r.get(1)?,
+        filename: r.get(2)?,
+        title: r.get(3)?,
+        size: r.get(4)?,
+        duration_ms: r.get(5)?,
+        width: r.get(6)?,
+        height: r.get(7)?,
+        rating: r.get(8)?,
+        view_count: r.get(9)?,
+        last_viewed_at: r.get(10)?,
+        resume_ms: r.get(11)?,
+        video_codec: r.get(12)?,
+        audio_codec: r.get(13)?,
+        is_missing: r.get::<_, i64>(14)? != 0,
+        thumb_state: r.get(15)?,
+        added_at: r.get(16)?,
+        file_created_at: r.get(17)?,
+        file_modified_at: r.get(18)?,
+        fps: r.get(19)?,
+        bitrate: r.get(20)?,
+        // 後段で埋める
+        is_offline: false,
+        thumb_path: None,
+    })
+}
 
 /// 検索を実行して一覧行を返す。thumbs_dir が None のときはサムネイルパスを解決しない(MCP 用)
 pub fn query_rows(
@@ -303,48 +376,25 @@ pub fn query_rows(
     let limit = limit.clamp(1, 1000);
     let offset = offset.max(0);
     let sql = format!(
-        "SELECT id, path, filename, title, size, duration_ms, width, height, rating,
-                view_count, last_viewed_at, resume_ms, video_codec, audio_codec,
-                is_missing, thumb_state, added_at
-         FROM videos {where_sql} {order} LIMIT {limit} OFFSET {offset}"
+        "SELECT {SELECT_COLUMNS} FROM videos {where_sql} {order} LIMIT {limit} OFFSET {offset}"
     );
 
     let mut stmt = conn.prepare(&sql)?;
-
-    fn map_row(r: &rusqlite::Row) -> rusqlite::Result<RawRow> {
-        Ok((
-            r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?,
-            r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?,
-            r.get(14)?, r.get(15)?, r.get(16)?,
-        ))
-    }
-
-    let raw: Vec<RawRow> = stmt
+    let mut rows: Vec<VideoRow> = stmt
         .query_map(rusqlite::params_from_iter(params), map_row)?
         .filter_map(|r| r.ok())
         .collect();
 
     let mut roots = RootCache::default();
-    let rows = raw
-        .into_iter()
-        .map(|(id, path, filename, title, size, duration_ms, width, height, rating, view_count, last_viewed_at, resume_ms, video_codec, audio_codec, is_missing, thumb_state, added_at)| {
-            // 実在確認(exists)はしない。1 ページぶんで数百回のファイル I/O になるうえ、
-            // thumb_state=1 なら生成済みのはず。万一読めなかったときはフロント側の
-            // img onError でプレースホルダに落とす
-            let thumb_path = thumbs_dir
-                .filter(|_| thumb_state == 1)
-                .map(|dir| dir.join(format!("{id}.jpg")).to_string_lossy().to_string());
-            VideoRow {
-                is_offline: !roots.is_online(&path),
-                thumb_path,
-                id, path, filename, title, size, duration_ms, width, height, rating,
-                view_count, last_viewed_at, resume_ms, video_codec, audio_codec,
-                is_missing: is_missing != 0,
-                thumb_state,
-                added_at,
-            }
-        })
-        .collect();
+    for row in &mut rows {
+        row.is_offline = !roots.is_online(&row.path);
+        // 実在確認(exists)はしない。1 ページぶんで数百回のファイル I/O になるうえ、
+        // thumb_state=1 なら生成済みのはず。万一読めなかったときはフロント側の
+        // img onError でプレースホルダに落とす
+        row.thumb_path = thumbs_dir
+            .filter(|_| row.thumb_state == 1)
+            .map(|dir| dir.join(format!("{}.jpg", row.id)).to_string_lossy().to_string());
+    }
     Ok(rows)
 }
 
@@ -587,6 +637,127 @@ mod tests {
         let q = VideoQuery { dir_path: Some("   ".into()), ..Default::default() };
         assert_eq!(q.where_clause().0, "", "空文字は条件にしない");
         assert_eq!(count(&conn, &q).unwrap(), 7);
+    }
+
+    /// v1.16 の列ヘッダソート用。NULL・同値・拡張子の揺れを混ぜてある
+    fn setup_sorts() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::apply_schema(&conn).unwrap();
+        conn.execute_batch(
+            r#"
+            INSERT INTO videos (id, path, filename, size, duration_ms, width, height,
+                                video_codec, audio_codec, fps, bitrate, rating, view_count,
+                                last_viewed_at, file_created_at, file_modified_at, added_at)
+            VALUES
+              (1, 'C:\a\x.MKV',      'x.MKV',      10, 1000, 1920, 1080, 'h264', 'aac',  30.0, 500, 3, 7,
+               '2026-05-01 10:00:00', '2026-01-01 10:00:00', '2026-02-01 10:00:00', '2026-01-10 10:00:00'),
+              (2, 'C:\b\y.mp4',      'y.mp4',      10, NULL, NULL, NULL, NULL,   NULL,   NULL, NULL, 0, 0,
+               NULL,                  NULL,                  NULL,                  '2026-01-10 10:00:00'),
+              (3, 'C:\a\z.tar.gz.mp4','z.tar.gz.mp4',30, 3000, 3840, 2160, 'hevc', 'eac3', 60.0, 900, 5, 2,
+               '2026-04-01 10:00:00', '2026-03-01 10:00:00', '2026-04-01 10:00:00', '2026-02-10 10:00:00'),
+              (4, 'C:\a\noext',      'noext',      20, 2000, 1280, 720,  'av1',  'opus', 24.0, 700, 1, 5,
+               '2026-06-01 10:00:00', '2026-02-01 10:00:00', '2026-03-01 10:00:00', '2026-03-10 10:00:00');
+            "#,
+        )
+        .unwrap();
+        conn
+    }
+
+    /// フロントの listColumns.ts が投げうるキーを全部並べたもの。
+    /// SQL の構文ミスは 1 個ずつ目視するより、まとめて実行して落ちないことで見る
+    const ALL_SORTS: &[&str] = &[
+        "name_asc", "name_desc", "size_asc", "size_desc", "duration_asc", "duration_desc",
+        "added_asc", "added_desc", "rating_asc", "rating_desc", "viewed_asc", "viewed_desc",
+        "views_asc", "views_desc", "res_asc", "res_desc", "ext_asc", "ext_desc",
+        "codec_asc", "codec_desc", "acodec_asc", "acodec_desc", "folder_asc", "folder_desc",
+        "fmodified_asc", "fmodified_desc", "fcreated_asc", "fcreated_desc",
+        "fps_asc", "fps_desc", "bitrate_asc", "bitrate_desc",
+        "dup", "random", "series_asc",
+    ];
+
+    #[test]
+    fn every_sort_key_produces_valid_sql() {
+        let conn = setup_sorts();
+        for key in ALL_SORTS {
+            let q = VideoQuery { sort: Some((*key).into()), ..Default::default() };
+            let got = query_rows(&conn, None, &q, 100, 0);
+            assert!(got.is_ok(), "{key} の SQL が実行できない: {:?}", got.err());
+            assert_eq!(got.unwrap().len(), 4, "{key} で件数が変わってはいけない");
+        }
+    }
+
+    /// SQLite は ASC の既定が NULLS FIRST。書き忘れると未視聴や尺未取得が先頭を埋める
+    #[test]
+    fn nulls_always_sort_last() {
+        let conn = setup_sorts();
+        // id=2 だけが duration / last_viewed_at / fps / 解像度 を持たない
+        for key in ["duration_asc", "duration_desc", "viewed_asc", "viewed_desc",
+                    "fps_asc", "fps_desc", "res_asc", "res_desc",
+                    "fcreated_asc", "fmodified_desc", "codec_asc", "bitrate_asc"] {
+            let q = VideoQuery { sort: Some(key.into()), ..Default::default() };
+            let got = ids(&conn, &q);
+            assert_eq!(*got.last().unwrap(), 2, "{key}: NULL の行は末尾に来るはず(実際 {got:?})");
+        }
+    }
+
+    #[test]
+    fn extension_sort_uses_the_last_dot() {
+        let conn = setup_sorts();
+        let asc = ids(&conn, &VideoQuery { sort: Some("ext_asc".into()), ..Default::default() });
+        // 拡張子なし('')→ mkv(大文字でも小文字として比較)→ mp4 × 2(id 昇順)
+        // z.tar.gz.mp4 は最後のドットだけを見るので mp4
+        assert_eq!(asc, vec![4, 1, 2, 3]);
+
+        let desc = ids(&conn, &VideoQuery { sort: Some("ext_desc".into()), ..Default::default() });
+        assert_eq!(*desc.last().unwrap(), 4, "拡張子なしは降順では末尾");
+    }
+
+    #[test]
+    fn resolution_sort_compares_pixel_count() {
+        let conn = setup_sorts();
+        let desc = ids(&conn, &VideoQuery { sort: Some("res_desc".into()), ..Default::default() });
+        // 3840×2160 > 1920×1080 > 1280×720 > 未取得
+        assert_eq!(desc, vec![3, 1, 4, 2]);
+    }
+
+    #[test]
+    fn folder_sort_groups_by_directory() {
+        let conn = setup_sorts();
+        let asc = ids(&conn, &VideoQuery { sort: Some("folder_asc".into()), ..Default::default() });
+        // C:\a\ の 3 件が先に固まり、その中はファイル名順。C:\b\ が最後
+        assert_eq!(asc, vec![4, 1, 3, 2]);
+    }
+
+    /// 同値の行が複数あるとき、`, id` が無いとページをまたいだ順序が保証されない
+    #[test]
+    fn sort_is_stable_across_pages() {
+        let conn = setup_sorts();
+        // size は id=1 と id=2 が同値(10)
+        for key in ["size_asc", "size_desc", "added_asc", "added_desc", "duration_asc"] {
+            let q = VideoQuery { sort: Some(key.into()), ..Default::default() };
+            let all = ids(&conn, &q);
+            let mut paged: Vec<i64> = Vec::new();
+            for offset in [0, 2] {
+                paged.extend(
+                    query_rows(&conn, None, &q, 2, offset).unwrap().iter().map(|r| r.id),
+                );
+            }
+            assert_eq!(paged, all, "{key}: ページングで順序が崩れている");
+        }
+    }
+
+    #[test]
+    fn ascending_and_descending_are_mirrored() {
+        let conn = setup_sorts();
+        for (asc, desc) in [
+            ("rating_asc", "rating_desc"), ("views_asc", "views_desc"),
+            ("size_asc", "size_desc"), ("name_asc", "name_desc"),
+        ] {
+            let a = ids(&conn, &VideoQuery { sort: Some(asc.into()), ..Default::default() });
+            let mut d = ids(&conn, &VideoQuery { sort: Some(desc.into()), ..Default::default() });
+            d.reverse();
+            assert_eq!(a, d, "{asc} と {desc} が逆順になっていない");
+        }
     }
 
     #[test]

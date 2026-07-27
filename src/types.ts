@@ -20,6 +20,16 @@ export interface VideoRow {
   thumbState: number;
   thumbPath: string | null;
   addedAt: string;
+  // --- v1.16 でリストの列にするために足した(Rust の core/query.rs と手動同期) ---
+  /**
+   * ファイルの作成時刻。**登録時に一度だけ**入り、以後更新されない。
+   * Windows ではコピーやダウンロードでリセットされるので「動画が作られた日」ではない
+   */
+  fileCreatedAt: string | null;
+  /** ファイルの最終更新時刻(再スキャンで追従する) */
+  fileModifiedAt: string | null;
+  fps: number | null;
+  bitrate: number | null;
 }
 
 export interface WatchedFolder {

@@ -9,6 +9,7 @@ function row(path: string, videoCodec: string | null, audioCodec: string | null)
     width: null, height: null, rating: 0, viewCount: 0, lastViewedAt: null,
     resumeMs: 0, videoCodec, audioCodec, isMissing: false, isOffline: false,
     thumbState: 0, thumbPath: null, addedAt: '',
+    fileCreatedAt: null, fileModifiedAt: null, fps: null, bitrate: null,
   };
 }
 

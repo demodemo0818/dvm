@@ -9,7 +9,8 @@ function row(patch: Partial<VideoRow> = {}): VideoRow {
     id: 1, path: 'C:\\動画\\サンプル.mp4', filename: 'サンプル.mp4', title: null, size: 0,
     durationMs: null, width: null, height: null, rating: 0, viewCount: 0, lastViewedAt: null,
     resumeMs: 0, videoCodec: null, audioCodec: null, isMissing: false, isOffline: false,
-    thumbState: 0, thumbPath: null, addedAt: '', ...patch,
+    thumbState: 0, thumbPath: null, addedAt: '',
+    fileCreatedAt: null, fileModifiedAt: null, fps: null, bitrate: null, ...patch,
   };
 }
 
