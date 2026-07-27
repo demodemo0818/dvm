@@ -13,15 +13,16 @@ import { Sidebar } from './components/Sidebar';
 import { Toasts } from './components/Toast';
 import { Toolbar } from './components/Toolbar';
 import { VideoGrid } from './components/VideoGrid';
-import { INSPECTOR_WIDTH, SIDEBAR_WIDTH, useLibrary } from './store';
+import { AI_PANEL_WIDTH, INSPECTOR_WIDTH, SIDEBAR_WIDTH, useLibrary } from './store';
 
 export default function App() {
   const {
     bumpVersion, setStatus, status, scanning, setPlayerPath, setPreviewOnHover,
     setViewMode, setCardWidth, setAutoplayNext, setSeekPreview,
     setInspectorPinned, setMediaInfoOpen, setListColumns, setSidebarWidth, setInspectorWidth,
-    setSidebarCollapsed,
+    setSidebarCollapsed, setAiPanelWidth,
     inspectorPinned, sidebarWidth, inspectorWidth, sidebarCollapsed, selection,
+    showAiPanel, aiPanelWidth,
   } = useLibrary();
   const debounceTimer = useRef<number | undefined>(undefined);
 
@@ -76,10 +77,14 @@ export default function App() {
       const n = Number(v);
       if (Number.isFinite(n) && n > 0) setInspectorWidth(n);
     });
+    api.getSetting('ai_panel_width').then((v) => {
+      const n = Number(v);
+      if (Number.isFinite(n) && n > 0) setAiPanelWidth(n);
+    });
   }, [
     setPlayerPath, setPreviewOnHover, setSeekPreview, setViewMode, setCardWidth, setAutoplayNext,
     setInspectorPinned, setMediaInfoOpen, setListColumns, setSidebarWidth, setInspectorWidth,
-    setSidebarCollapsed,
+    setSidebarCollapsed, setAiPanelWidth,
   ]);
 
   /**
@@ -175,6 +180,20 @@ export default function App() {
           />
         )}
         <Inspector />
+        {showAiPanel && (
+          <PaneResizer
+            label="AI パネル"
+            edge="right"
+            width={aiPanelWidth}
+            min={AI_PANEL_WIDTH.min}
+            max={AI_PANEL_WIDTH.max}
+            defaultWidth={AI_PANEL_WIDTH.default}
+            onResize={setAiPanelWidth}
+            onCommit={() =>
+              void api.setSetting('ai_panel_width', String(useLibrary.getState().aiPanelWidth))
+            }
+          />
+        )}
         <AiPanel />
       </div>
       <PlayerOverlay />

@@ -16,7 +16,7 @@ interface ChatItem {
 }
 
 export function AiPanel() {
-  const { showAiPanel } = useLibrary();
+  const { showAiPanel, aiPanelWidth } = useLibrary();
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [model, setModel] = useState(DEFAULT_MODEL);
   const [chat, setChat] = useState<ChatItem[]>([]);
@@ -112,7 +112,8 @@ export function AiPanel() {
   };
 
   return (
-    <aside className="ai-panel">
+    // 幅はドラッグで変えられる。min-width も同じ値にして flex に縮められないようにする
+    <aside className="ai-panel" style={{ width: aiPanelWidth, minWidth: aiPanelWidth }}>
       <div className="ai-header">
         <span>AI アシスタント</span>
         <button

@@ -16,9 +16,10 @@ export const CARD_WIDTH_MIN = 140;
 export const CARD_WIDTH_MAX = 400;
 export const CARD_WIDTH_DEFAULT = 224;
 
-/** サイドバー / 詳細ペインの幅(px)。ドラッグの上下限と初期値 */
+/** サイドバー / 詳細ペイン / AI パネルの幅(px)。ドラッグの上下限と初期値 */
 export const SIDEBAR_WIDTH = { min: 180, max: 480, default: 240 };
 export const INSPECTOR_WIDTH = { min: 220, max: 520, default: 260 };
+export const AI_PANEL_WIDTH = { min: 260, max: 560, default: 320 };
 
 const clamp = (v: number, { min, max }: { min: number; max: number }) =>
   Math.min(Math.max(Math.round(v), min), max);
@@ -92,6 +93,8 @@ interface LibraryState {
    * 畳むと幅を変える帯ごと消えるので、戻す手段はツールバーのボタンだけ
    */
   sidebarCollapsed: boolean;
+  /** AI パネルの幅 px(ドラッグで伸縮。設定に永続化) */
+  aiPanelWidth: number;
   /** 再生が終わったら次の動画へ進むか(設定に永続化) */
   autoplayNext: boolean;
   /**
@@ -158,6 +161,7 @@ interface LibraryState {
   setSidebarWidth: (sidebarWidth: number) => void;
   setInspectorWidth: (inspectorWidth: number) => void;
   setSidebarCollapsed: (sidebarCollapsed: boolean) => void;
+  setAiPanelWidth: (aiPanelWidth: number) => void;
   setAutoplayNext: (autoplayNext: boolean) => void;
   setRepeatOne: (repeatOne: boolean) => void;
   setPlayerPath: (playerPath: string) => void;
@@ -219,6 +223,7 @@ export const useLibrary = create<LibraryState>((set) => ({
   sidebarWidth: SIDEBAR_WIDTH.default,
   inspectorWidth: INSPECTOR_WIDTH.default,
   sidebarCollapsed: false,
+  aiPanelWidth: AI_PANEL_WIDTH.default,
   autoplayNext: false,
   repeatOne: false,
   playingVideo: null,
@@ -250,6 +255,7 @@ export const useLibrary = create<LibraryState>((set) => ({
   setSidebarWidth: (w) => set({ sidebarWidth: clamp(w, SIDEBAR_WIDTH) }),
   setInspectorWidth: (w) => set({ inspectorWidth: clamp(w, INSPECTOR_WIDTH) }),
   setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
+  setAiPanelWidth: (w) => set({ aiPanelWidth: clamp(w, AI_PANEL_WIDTH) }),
   setAutoplayNext: (autoplayNext) => set({ autoplayNext }),
   setRepeatOne: (repeatOne) => set({ repeatOne }),
   setPlayerPath: (playerPath) => set({ playerPath }),

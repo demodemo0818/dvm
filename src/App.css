@@ -950,8 +950,8 @@ body {
 }
 
 /* ---- AI アシスタントパネル ---- */
+/* 幅は AiPanel.tsx がインラインで指定する(ドラッグで変えられるため) */
 .ai-panel {
-  width: 320px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
