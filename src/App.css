@@ -274,11 +274,26 @@ body {
   white-space: nowrap;
 }
 
+/*
+ * バーの部品はすべて同じ高さにする。放っておくと select だけ 33px、button は 30px に
+ * なり、select が ≫ に畳まれた瞬間にツールバーが 2px 縮んで一覧が跳ねる。
+ * バー直下(>)だけに効かせる —— ≫ メニューの中は行の高さに任せる
+ */
+.toolbar > button,
+.toolbar > select,
+.toolbar > .search {
+  height: 32px;
+}
+
 .search {
   /* 唯一の伸縮枠。180px を切りそうになったら項目を畳み始める(lib/toolbarItems.ts) */
   flex: 1 1 220px;
-  /* 畳みきってもなお足りないときのハードな床 */
-  min-width: 120px;
+  /*
+   * 畳みきってもなお足りないときのハードな床。80px なのは、これ以上大きくすると
+   * サイドバーを開いたまま窓を 500px 近くまで縮めたときに ≫ が右端で切れるため。
+   * 検索欄が痩せるほうが、畳んだ項目に手が届かなくなるより軽い
+   */
+  min-width: 80px;
   max-width: 420px;
   background: #22252d;
   border: 1px solid #343945;
@@ -2687,6 +2702,8 @@ input[type='range']:focus-visible {
 .tb-menu .tb-menu-item {
   display: flex;
   align-items: center;
+  /* .toolbar button の justify-content: center を打ち消す(効いたままだと中央寄せになる) */
+  justify-content: flex-start;
   gap: 9px;
   width: 100%;
   padding: 6px 10px;
@@ -2725,9 +2742,14 @@ input[type='range']:focus-visible {
 
 .tb-menu-row .tb-menu-label {
   flex: none;
-  width: 96px;
+  /* 一番長い「サムネイルの大きさ」が入る幅。min-width: 0 が無いと flex 既定の
+     min-width: auto で内容ぶんまで伸び、行ごとにコントロールの左端がずれる */
+  width: 110px;
+  min-width: 0;
   color: #8a8f9c;
   font-size: 12px;
+  /* .tb-menu-item と違って <label> には nowrap が降りてこないので、ここで止める */
+  white-space: nowrap;
 }
 
 /* バー用の明示幅を打ち消して、メニューでは行いっぱいに伸ばす */

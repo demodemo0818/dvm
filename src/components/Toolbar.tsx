@@ -143,7 +143,7 @@ export function Toolbar() {
             key={key}
             place={place}
             icon={PanelLeft}
-            label={sidebarCollapsed ? 'サイドバーを表示する' : 'サイドバーを隠す'}
+            label={sidebarCollapsed ? 'サイドバーを表示' : 'サイドバーを隠す'}
             onClick={act(() => {
               const next = !sidebarCollapsed;
               setSidebarCollapsed(next);
@@ -219,7 +219,8 @@ export function Toolbar() {
             key={key}
             place={place}
             icon={Shuffle}
-            label="並びをシャッフルする"
+            label={label}
+            title="並びをシャッフルする"
             onClick={act(reshuffle)}
           />
         );
@@ -229,7 +230,8 @@ export function Toolbar() {
           <ToolSelect
             key={key}
             place={place}
-            label="レーティングで絞り込み"
+            label={label}
+            title="レーティングで絞り込み"
             className="rating-select"
             value={minRating}
             onChange={(v) => setMinRating(Number(v))}
@@ -248,7 +250,8 @@ export function Toolbar() {
           <ToolSelect
             key={key}
             place={place}
-            label="長さで絞り込み"
+            label={label}
+            title="長さで絞り込み"
             className="duration-select"
             value={durationBucket ?? ''}
             onChange={(v) => setDurationBucket((v || null) as DurationBucket | null)}
@@ -267,7 +270,8 @@ export function Toolbar() {
             key={key}
             place={place}
             icon={BookmarkPlus}
-            label="今の検索条件をスマートフォルダとして保存"
+            label={label}
+            title="今の検索条件をスマートフォルダとして保存"
             onClick={act(() => void saveCurrentAsSmartFolder())}
           />
         );
@@ -278,7 +282,8 @@ export function Toolbar() {
             key={key}
             place={place}
             icon={viewMode === 'grid' ? List : LayoutGrid}
-            label={viewMode === 'grid' ? '詳細リスト表示に切り替え' : 'サムネイル表示に切り替え'}
+            label={viewMode === 'grid' ? '詳細リスト表示' : 'サムネイル表示'}
+            title={viewMode === 'grid' ? '詳細リスト表示に切り替え' : 'サムネイル表示に切り替え'}
             onClick={act(() => {
               const next = viewMode === 'grid' ? 'list' : 'grid';
               setViewMode(next);
@@ -341,7 +346,8 @@ export function Toolbar() {
             place={place}
             icon={PanelRight}
             active={inspectorPinned}
-            label={
+            label="詳細ペインを常に表示"
+            title={
               inspectorPinned
                 ? '詳細ペインの固定を解除(選択中だけ表示に戻す)'
                 : '詳細ペインを常に表示する'
@@ -414,10 +420,13 @@ export function Toolbar() {
  * 押した状態はバーでは青塗り(.active)、メニューでは右端のチェック印で示す
  */
 function ToolButton({
-  place, label, icon: Icon, active, disabled, onClick,
+  place, label, title, icon: Icon, active, disabled, onClick,
 }: {
   place: Place;
+  /** メニューに出す短い見出し。長いと切れる */
   label: string;
+  /** バーでのツールチップ。省くと label をそのまま使う */
+  title?: string;
   icon: LucideIcon;
   active?: boolean;
   disabled?: boolean;
@@ -435,7 +444,7 @@ function ToolButton({
   return (
     <button
       className={`tb-icon${active ? ' active' : ''}`}
-      title={label}
+      title={title ?? label}
       disabled={disabled}
       onClick={onClick}
     >
@@ -446,10 +455,11 @@ function ToolButton({
 
 /** メニューでは「ラベル : コントロール」の 1 行にする。裸の select だと何の select か分からない */
 function ToolSelect({
-  place, label, className, value, onChange, children,
+  place, label, title, className, value, onChange, children,
 }: {
   place: Place;
   label: string;
+  title?: string;
   className: string;
   value: string | number;
   onChange: (value: string) => void;
@@ -459,7 +469,7 @@ function ToolSelect({
     <select
       className={className}
       value={value}
-      title={place === 'bar' ? label : undefined}
+      title={place === 'bar' ? (title ?? label) : undefined}
       onChange={(e) => onChange(e.target.value)}
     >
       {children}
