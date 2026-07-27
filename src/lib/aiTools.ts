@@ -7,9 +7,17 @@ import type { AdvancedFilter, DurationBucket, SortKey, VideoQuery } from '../typ
 /** ツール実行を UI(チャット内カード)へ通知するコールバック */
 export type ToolNotify = (message: string) => void;
 
+/** Rust の order_clause() と types.ts の SortKey に合わせて手で同期する */
 const SORT_ENUM = [
   'added_desc', 'added_asc', 'name_asc', 'name_desc',
-  'size_desc', 'duration_desc', 'rating_desc', 'viewed_desc', 'random', 'dup',
+  'size_desc', 'size_asc', 'duration_desc', 'duration_asc',
+  'rating_desc', 'rating_asc', 'viewed_desc', 'viewed_asc',
+  'views_desc', 'views_asc', 'res_desc', 'res_asc',
+  'ext_asc', 'ext_desc', 'codec_asc', 'codec_desc', 'acodec_asc', 'acodec_desc',
+  'folder_asc', 'folder_desc',
+  'fmodified_desc', 'fmodified_asc', 'fcreated_desc', 'fcreated_asc',
+  'fps_desc', 'fps_asc', 'bitrate_desc', 'bitrate_asc',
+  'random', 'dup',
 ] as const;
 
 /** search_videos と apply_filter で共通の絞り込み条件(スキーマがずれないよう 1 か所にまとめる) */

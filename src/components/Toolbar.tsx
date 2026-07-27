@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import { CURATED_SORTS, sortLabel } from '../lib/listColumns';
 import { advancedCount, buildQuery } from '../lib/query';
 import { CARD_WIDTH_MAX, CARD_WIDTH_MIN, useLibrary } from '../store';
 import type { DurationBucket, SortKey } from '../types';
@@ -77,18 +78,21 @@ export function Toolbar() {
         </button>
         {showAdvanced && <AdvancedSearch onClose={() => setShowAdvanced(false)} />}
       </div>
+      {/*
+        並び順はグリッドとリストで共有の 1 つ。詳細リストの列ヘッダで選べる並びは
+        26 種あり全部は並べられないので、ここは代表的なものだけを常設し、
+        列ヘッダで選ばれた並びは「今それが選ばれている間だけ」項目を足して見せる
+        (シリーズ順・重複まとめと同じ作法)
+      */}
       <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
-        <option value="added_desc">追加日時(新しい順)</option>
-        <option value="added_asc">追加日時(古い順)</option>
-        <option value="name_asc">名前(昇順)</option>
-        <option value="name_desc">名前(降順)</option>
-        <option value="size_desc">サイズ(大きい順)</option>
-        <option value="duration_desc">長さ(長い順)</option>
-        <option value="rating_desc">レーティング順</option>
-        <option value="viewed_desc">最近見た順</option>
-        <option value="random">ランダム</option>
+        {CURATED_SORTS.map((key) => (
+          <option key={key} value={key}>{sortLabel(key)}</option>
+        ))}
         {seriesId !== null && <option value="series_asc">シリーズ順</option>}
         {duplicatesOnly && <option value="dup">重複をまとめる</option>}
+        {!CURATED_SORTS.includes(sort) && sort !== 'series_asc' && sort !== 'dup' && (
+          <option value={sort}>{sortLabel(sort)}</option>
+        )}
       </select>
       <button title="並びをシャッフルする" onClick={reshuffle}>
         <Shuffle />

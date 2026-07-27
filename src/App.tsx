@@ -4,6 +4,7 @@ import { ask } from '@tauri-apps/plugin-dialog';
 import { useCallback, useEffect, useRef } from 'react';
 import './App.css';
 import { api } from './api';
+import { parseColumns } from './lib/listColumns';
 import { AiPanel } from './components/AiPanel';
 import { Inspector } from './components/Inspector';
 import { PaneResizer } from './components/PaneResizer';
@@ -18,7 +19,7 @@ export default function App() {
   const {
     bumpVersion, setStatus, status, scanning, setPlayerPath, setPreviewOnHover,
     setViewMode, setCardWidth, setAutoplayNext, setSeekPreview,
-    setInspectorPinned, setMediaInfoOpen, setSidebarWidth, setInspectorWidth,
+    setInspectorPinned, setMediaInfoOpen, setListColumns, setSidebarWidth, setInspectorWidth,
     inspectorPinned, sidebarWidth, inspectorWidth, selection,
   } = useLibrary();
   const debounceTimer = useRef<number | undefined>(undefined);
@@ -61,6 +62,8 @@ export default function App() {
     api.getSetting('inspector_pinned').then((v) => setInspectorPinned(v === '1'));
     // メディア情報も既定 OFF(開いていると選択のたびに ffprobe が走る)
     api.getSetting('media_info_open').then((v) => setMediaInfoOpen(v === '1'));
+    // 詳細リストの列構成。壊れた値は parseColumns がすべて既定に落とす
+    api.getSetting('list_columns').then((v) => setListColumns(parseColumns(v)));
     // 幅は setter 側で上下限に丸められる
     api.getSetting('sidebar_width').then((v) => {
       const n = Number(v);
@@ -72,7 +75,7 @@ export default function App() {
     });
   }, [
     setPlayerPath, setPreviewOnHover, setSeekPreview, setViewMode, setCardWidth, setAutoplayNext,
-    setInspectorPinned, setMediaInfoOpen, setSidebarWidth, setInspectorWidth,
+    setInspectorPinned, setMediaInfoOpen, setListColumns, setSidebarWidth, setInspectorWidth,
   ]);
 
   /**
