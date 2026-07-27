@@ -249,10 +249,36 @@ body {
   padding: 8px 12px;
   border-bottom: 1px solid #2a2e37;
   align-items: center;
+  /*
+   * 高さは定数にする。折り返して 2 段にすると、そのぶん .grid-scroll が縮む。
+   * 狭い窓ほど一覧が削られることになるので折り返さない(入らないぶんは ≫ に畳む)
+   */
+  flex: none;
+  /*
+   * 畳みきってもなお入らない最後の場合の保険。潰すのではなく切る。
+   * position: fixed の子(モーダル・ポップオーバー・≫ メニュー)はこれでは切られない
+   * —— .toolbar に transform / filter / contain を付けると切られ始めるので付けないこと。
+   * 幅を中身に依存させるのも禁止(width: max-content 等)。ResizeObserver が発振する
+   */
+  overflow: hidden;
+}
+
+/* 伸縮するのは検索欄だけ。:not で詳細度を上げ、.search 側の flex を上書きしない */
+.toolbar > :not(.search) {
+  flex: none;
+}
+
+/* <button> の UA 既定は white-space: normal。日本語ラベルが 2 行に折り返して背が伸びる */
+.toolbar button,
+.toolbar select {
+  white-space: nowrap;
 }
 
 .search {
-  flex: 1;
+  /* 唯一の伸縮枠。180px を切りそうになったら項目を畳み始める(lib/toolbarItems.ts) */
+  flex: 1 1 220px;
+  /* 畳みきってもなお足りないときのハードな床 */
+  min-width: 120px;
   max-width: 420px;
   background: #22252d;
   border: 1px solid #343945;
@@ -1497,12 +1523,6 @@ html.mpv-active .app {
 .adv-actions button:disabled {
   opacity: 0.5;
   cursor: default;
-}
-
-.toolbar button.active {
-  background: #2f66d0;
-  border-color: #2f66d0;
-  color: #fff;
 }
 
 /* ---- タグツリー (v1.7) ---- */
