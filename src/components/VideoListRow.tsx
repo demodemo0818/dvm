@@ -2,6 +2,10 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 import { fmtTime } from '../lib/format';
 import type { VideoRowProps } from './rowProps';
 
+/**
+ * lib/format.ts の fmtSize とはわざと別実装。
+ * サイズ列が狭いので KB を出さず、MB も小数を落として桁を短く保つ
+ */
 function fmtSize(bytes: number): string {
   const GB = 1024 ** 3;
   const MB = 1024 ** 2;

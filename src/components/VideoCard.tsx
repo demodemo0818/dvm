@@ -1,21 +1,13 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { TriangleAlert } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { fmtTime } from '../lib/format';
+import { fmtSize, fmtTime } from '../lib/format';
 import { useLibrary } from '../store';
 import { HoverPreview } from './HoverPreview';
 import type { VideoRowProps } from './rowProps';
 
 /** この時間ホバーし続けたらプレビューを開始する(グリッドを撫でただけで再生しない) */
 const HOVER_DELAY_MS = 400;
-
-function fmtSize(bytes: number): string {
-  const GB = 1024 ** 3;
-  const MB = 1024 ** 2;
-  if (bytes >= GB) return `${(bytes / GB).toFixed(2)} GB`;
-  if (bytes >= MB) return `${(bytes / MB).toFixed(1)} MB`;
-  return `${Math.round(bytes / 1024)} KB`;
-}
 
 export function VideoCard({
   video, index, selected, focused, onPick, onPlay, onContextMenu,

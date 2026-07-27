@@ -1,5 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { fmtTime } from './format';
+import { fmtSize, fmtTime } from './format';
+
+describe('fmtSize', () => {
+  it('単位ごとに丸める', () => {
+    expect(fmtSize(0)).toBe('0 KB');
+    expect(fmtSize(1024)).toBe('1 KB');
+    expect(fmtSize(1024 ** 2)).toBe('1.0 MB');
+    expect(fmtSize(1.5 * 1024 ** 2)).toBe('1.5 MB');
+    expect(fmtSize(1024 ** 3)).toBe('1.00 GB');
+    expect(fmtSize(2.31 * 1024 ** 3)).toBe('2.31 GB');
+  });
+
+  it('境界の直下は下の単位のまま', () => {
+    expect(fmtSize(1024 ** 2 - 1)).toBe('1024 KB');
+    expect(fmtSize(1024 ** 3 - 1)).toBe('1024.0 MB');
+  });
+});
 
 describe('fmtTime', () => {
   it('1 時間未満は m:ss', () => {

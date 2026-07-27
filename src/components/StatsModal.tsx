@@ -4,6 +4,10 @@ import { fmtTime } from '../lib/format';
 import { useLibrary } from '../store';
 import type { LibraryStats, StatBucket } from '../types';
 
+/**
+ * lib/format.ts の fmtSize とはわざと別実装。
+ * ここはライブラリ全体の合計を出すので TB が要り、桁が大きいぶん小数を減らしている
+ */
 function fmtSize(bytes: number): string {
   const TB = 1024 ** 4;
   const GB = 1024 ** 3;

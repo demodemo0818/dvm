@@ -1,16 +1,9 @@
 import { ask, message, open } from '@tauri-apps/plugin-dialog';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import { fmtSize } from '../lib/format';
 import { useLibrary } from '../store';
 import type { AppInfo, BackupInfo } from '../types';
-
-function fmtSize(bytes: number): string {
-  const GB = 1024 ** 3;
-  const MB = 1024 ** 2;
-  if (bytes >= GB) return `${(bytes / GB).toFixed(2)} GB`;
-  if (bytes >= MB) return `${(bytes / MB).toFixed(1)} MB`;
-  return `${Math.round(bytes / 1024)} KB`;
-}
 
 export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [playerPath, setPlayerPath] = useState('');
