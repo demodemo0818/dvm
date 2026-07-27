@@ -8,7 +8,7 @@ import {
   Shuffle,
   Sparkles,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { CURATED_SORTS, sortLabel } from '../lib/listColumns';
 import { advancedCount, buildQuery } from '../lib/query';
@@ -32,6 +32,15 @@ export function Toolbar() {
   const [showSettings, setShowSettings] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const advBtnRef = useRef<HTMLButtonElement>(null);
+  const [advAt, setAdvAt] = useState({ x: 0, y: 0 });
+
+  // 開くたびにボタンの位置を測り直す。ポップオーバーは画面基準で描くため
+  useLayoutEffect(() => {
+    if (!showAdvanced) return;
+    const r = advBtnRef.current?.getBoundingClientRect();
+    if (r) setAdvAt({ x: r.left, y: r.bottom + 6 });
+  }, [showAdvanced]);
 
   // 入力から 300ms 落ち着いたら検索を反映
   useEffect(() => {
@@ -68,16 +77,15 @@ export function Toolbar() {
         value={input}
         onChange={(e) => setInput(e.target.value)}
       />
-      <div className="adv-anchor">
-        <button
-          title="詳細検索"
-          className={advCount > 0 ? 'active' : ''}
-          onClick={() => setShowAdvanced((v) => !v)}
-        >
-          絞り込み{advCount > 0 ? ` (${advCount})` : ''}
-        </button>
-        {showAdvanced && <AdvancedSearch onClose={() => setShowAdvanced(false)} />}
-      </div>
+      <button
+        ref={advBtnRef}
+        title="詳細検索"
+        className={advCount > 0 ? 'active' : ''}
+        onClick={() => setShowAdvanced((v) => !v)}
+      >
+        絞り込み{advCount > 0 ? ` (${advCount})` : ''}
+      </button>
+      {showAdvanced && <AdvancedSearch at={advAt} onClose={() => setShowAdvanced(false)} />}
       {/*
         並び順はグリッドとリストで共有の 1 つ。詳細リストの列ヘッダで選べる並びは
         26 種あり全部は並べられないので、ここは代表的なものだけを常設し、

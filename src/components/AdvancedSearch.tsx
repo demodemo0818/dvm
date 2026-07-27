@@ -2,12 +2,25 @@ import { useEffect, useRef } from 'react';
 import { CODEC_OPTIONS, RESOLUTION_OPTIONS, advancedCount } from '../lib/query';
 import { useLibrary } from '../store';
 
+/** .adv-popover の幅(App.css と対)と、画面端に残す余白 */
+const POPOVER_W = 340;
+const EDGE = 8;
+
 /**
  * ツールバーの「詳細検索」ポップオーバー。
  * よく使う条件(検索・並び・★・長さ)はツールバー本体に置いたままで、
- * ここには使用頻度の低い条件だけをまとめる
+ * ここには使用頻度の低い条件だけをまとめる。
+ *
+ * **位置はボタンの座標を受け取って画面基準(fixed)で決める**。ツールバーは
+ * overflow: hidden なので、中に absolute で置くとそこで切られてしまう。
+ * 列選択ポップオーバー・右クリックメニューと同じ扱い
  */
-export function AdvancedSearch({ onClose }: { onClose: () => void }) {
+export function AdvancedSearch({
+  at, onClose,
+}: {
+  at: { x: number; y: number };
+  onClose: () => void;
+}) {
   const { advanced, setAdvanced, clearAdvanced } = useLibrary();
   const ref = useRef<HTMLDivElement>(null);
 
@@ -32,6 +45,9 @@ export function AdvancedSearch({ onClose }: { onClose: () => void }) {
     };
   }, [onClose]);
 
+  // 画面の右端をはみ出すぶんは左へ寄せる(右クリックメニューと同じ作法)
+  const left = Math.max(EDGE, Math.min(at.x, window.innerWidth - POPOVER_W - EDGE));
+
   const toggleCodec = (codec: string) => {
     const next = advanced.videoCodecs.includes(codec)
       ? advanced.videoCodecs.filter((c) => c !== codec)
@@ -40,7 +56,7 @@ export function AdvancedSearch({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="adv-popover" ref={ref}>
+    <div className="adv-popover" ref={ref} style={{ left, top: at.y }}>
       <div className="adv-title">詳細検索</div>
 
       <label className="adv-check">

@@ -1415,15 +1415,13 @@ html.mpv-active .app {
 }
 
 /* ---- 詳細検索ポップオーバー (v1.7) ---- */
-.adv-anchor {
-  position: relative;
-  display: flex;
-}
-
+/*
+ * ツールバーの overflow に切られるので、画面基準で描く(列選択ポップオーバーと同じ扱い)。
+ * top / left は AdvancedSearch.tsx がボタンの座標から算出して渡す。
+ * 幅を変えるときは同ファイルの POPOVER_W も直すこと(右端の折り返しに使っている)
+ */
 .adv-popover {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
+  position: fixed;
   z-index: 40;
   width: 340px;
   display: flex;
