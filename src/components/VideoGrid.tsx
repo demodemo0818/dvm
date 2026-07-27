@@ -6,6 +6,7 @@ import { api } from '../api';
 import { useVideos } from '../hooks/useVideos';
 import { buildFolderMenu, buildVideoMenu } from '../lib/contextMenu';
 import type { MenuEntry } from '../lib/contextMenu';
+import { GRID_GAP, GRID_PAD, gridMetrics } from '../lib/grid';
 import { gridTemplate, totalWidth } from '../lib/listColumns';
 import { parentDir } from '../lib/paths';
 import { buildQuery } from '../lib/query';
@@ -20,8 +21,6 @@ import { ListHeader } from './ListHeader';
 import { VideoCard } from './VideoCard';
 import { VideoListRow } from './VideoListRow';
 
-/** カード幅に対する 1 行の高さ(16:9 のサムネイル + 名前 2 行ぶん) */
-const rowHeightForCard = (cardWidth: number) => Math.round(cardWidth * 0.5625) + 56;
 /** 詳細リストの行の高さ。サムネイルを外したら文字だけになるので詰める */
 const LIST_ROW_H = 44;
 const LIST_ROW_H_SLIM = 28;
@@ -99,10 +98,12 @@ export function VideoGrid() {
   }, [dirPath, version]);
 
   const list = viewMode === 'list';
-  // リスト表示は 1 行 1 件。グリッドは幅から列数を出す(最低 1 列)
-  const cols = list ? 1 : Math.max(1, Math.floor((width || cardWidth * 4) / cardWidth));
   const listRowH = listColumns.includes('thumb') ? LIST_ROW_H : LIST_ROW_H_SLIM;
-  const rowHeight = list ? listRowH : rowHeightForCard(cardWidth);
+  // まだ測れていないうちは 4 列ぶんの幅と仮定する
+  const grid = gridMetrics(width || cardWidth * 4, cardWidth);
+  // リスト表示は 1 行 1 件
+  const cols = list ? 1 : grid.cols;
+  const rowHeight = list ? listRowH : grid.rowHeight;
 
   // フォルダは動画より前に、独立した行として並べる(1 行の中で混ざらないようにする)。
   // こうしておけば選択・キーボード操作は従来どおり動画の通し番号だけで考えられる
@@ -451,14 +452,15 @@ export function VideoGrid() {
               // リストは列を増やすと可視幅を超えることがある。width:100% のままだと
               // 行が可視幅で切れ、横スクロールしたときにハイライトの右端が途切れる。
               // max-content は使わない(ファイル名の長さで行ごとに幅が変わってしまう)。
-              // +24 は下の padding ぶん(border-box なので幅に含める)
-              width: list ? `max(100%, ${totalWidth(listColumns) + 24}px)` : '100%',
+              // 足しているのは下の padding ぶん(border-box なので幅に含める)
+              width: list ? `max(100%, ${totalWidth(listColumns) + GRID_PAD * 2}px)` : '100%',
               height: rowHeight,
               transform: `translateY(${row.start}px)`,
               display: list ? 'block' : 'grid',
+              // 幅と隙間は lib/grid.ts の寸法計算と対。**片方だけ直さないこと**
               gridTemplateColumns: list ? undefined : `repeat(${cols}, 1fr)`,
-              gap: list ? undefined : 12,
-              padding: '0 12px',
+              gap: list ? undefined : GRID_GAP,
+              padding: `0 ${GRID_PAD}px`,
             }}
           >
             {Array.from({ length: cols }, (_, c) => {
