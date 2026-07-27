@@ -1,9 +1,12 @@
 import {
+  BookmarkPlus,
   ChartColumn,
+  Funnel,
   LayoutGrid,
   List,
   PanelLeft,
   PanelRight,
+  RefreshCw,
   RotateCcwClock,
   Settings,
   Shuffle,
@@ -77,6 +80,7 @@ export function Toolbar() {
         右端の詳細ペインのボタン(PanelRight)と対になる位置でもある
       */}
       <button
+        className="tb-icon"
         title={sidebarCollapsed ? 'サイドバーを表示する' : 'サイドバーを隠す'}
         onClick={() => {
           const next = !sidebarCollapsed;
@@ -89,17 +93,21 @@ export function Toolbar() {
       <input
         className="search"
         type="search"
-        placeholder="ファイル名・タイトルで検索(空白区切りで AND)"
+        // 狭いと切れるので短くし、説明は title に回す
+        placeholder="検索(空白区切りで AND)"
+        title="ファイル名・タイトルで検索(空白区切りで AND)"
         value={input}
         onChange={(e) => setInput(e.target.value)}
       />
+      {/* 件数はアイコンの右上にバッジで重ねる。文字を並べる場所が無いため */}
       <button
         ref={advBtnRef}
-        title="詳細検索"
-        className={advCount > 0 ? 'active' : ''}
+        className={`tb-icon${advCount > 0 ? ' active' : ''}`}
+        title={advCount > 0 ? `詳細検索(${advCount} 件の条件)` : '詳細検索'}
         onClick={() => setShowAdvanced((v) => !v)}
       >
-        絞り込み{advCount > 0 ? ` (${advCount})` : ''}
+        <Funnel />
+        {advCount > 0 && <span className="tb-badge">{advCount}</span>}
       </button>
       {showAdvanced && <AdvancedSearch at={advAt} onClose={() => setShowAdvanced(false)} />}
       {/*
@@ -108,7 +116,12 @@ export function Toolbar() {
         列ヘッダで選ばれた並びは「今それが選ばれている間だけ」項目を足して見せる
         (シリーズ順・重複まとめと同じ作法)
       */}
-      <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
+      <select
+        className="sort-select"
+        value={sort}
+        onChange={(e) => setSort(e.target.value as SortKey)}
+        title="並び順"
+      >
         {CURATED_SORTS.map((key) => (
           <option key={key} value={key}>{sortLabel(key)}</option>
         ))}
@@ -118,10 +131,11 @@ export function Toolbar() {
           <option value={sort}>{sortLabel(sort)}</option>
         )}
       </select>
-      <button title="並びをシャッフルする" onClick={reshuffle}>
+      <button className="tb-icon" title="並びをシャッフルする" onClick={reshuffle}>
         <Shuffle />
       </button>
       <select
+        className="rating-select"
         value={minRating}
         onChange={(e) => setMinRating(Number(e.target.value))}
         title="レーティングで絞り込み"
@@ -134,6 +148,7 @@ export function Toolbar() {
         <option value={5}>★5</option>
       </select>
       <select
+        className="duration-select"
         value={durationBucket ?? ''}
         onChange={(e) => setDurationBucket((e.target.value || null) as DurationBucket | null)}
         title="長さで絞り込み"
@@ -144,10 +159,15 @@ export function Toolbar() {
         <option value="20to60">20〜60 分</option>
         <option value="gt60">60 分以上</option>
       </select>
-      <button title="今の検索条件をスマートフォルダとして保存" onClick={saveCurrentAsSmartFolder}>
-        条件を保存
+      <button
+        className="tb-icon"
+        title="今の検索条件をスマートフォルダとして保存"
+        onClick={saveCurrentAsSmartFolder}
+      >
+        <BookmarkPlus />
       </button>
       <button
+        className="tb-icon"
         title={viewMode === 'grid' ? '詳細リスト表示に切り替え' : 'サムネイル表示に切り替え'}
         onClick={() => {
           const next = viewMode === 'grid' ? 'list' : 'grid';
@@ -173,22 +193,27 @@ export function Toolbar() {
           title="サムネイルの大きさ"
         />
       )}
-      <button onClick={() => api.rescanAll()} disabled={scanning}>
-        再スキャン
+      <button
+        className="tb-icon"
+        title="再スキャン"
+        onClick={() => api.rescanAll()}
+        disabled={scanning}
+      >
+        <RefreshCw />
       </button>
-      <button title="統計" onClick={() => setShowStats(true)}>
+      <button className="tb-icon" title="統計" onClick={() => setShowStats(true)}>
         <ChartColumn />
       </button>
-      <button title="操作履歴" onClick={() => setShowHistory(true)}>
+      <button className="tb-icon" title="操作履歴" onClick={() => setShowHistory(true)}>
         <RotateCcwClock />
       </button>
       <button
+        className={`tb-icon${inspectorPinned ? ' active' : ''}`}
         title={
           inspectorPinned
             ? '詳細ペインの固定を解除(選択中だけ表示に戻す)'
             : '詳細ペインを常に表示する'
         }
-        className={inspectorPinned ? 'active' : ''}
         onClick={() => {
           const next = !inspectorPinned;
           setInspectorPinned(next);
@@ -198,13 +223,13 @@ export function Toolbar() {
         <PanelRight />
       </button>
       <button
+        className={`tb-icon${showAiPanel ? ' active' : ''}`}
         title="AI アシスタント"
-        className={showAiPanel ? 'active' : ''}
         onClick={toggleAiPanel}
       >
         <Sparkles />
       </button>
-      <button title="設定" onClick={() => setShowSettings(true)}>
+      <button className="tb-icon" title="設定" onClick={() => setShowSettings(true)}>
         <Settings />
       </button>
 

@@ -2604,3 +2604,59 @@ input[type='range']:focus-visible {
   border-radius: 4px;
   white-space: nowrap;
 }
+
+/* ---- ツールバーの折りたたみ (v1.17) ---- */
+/*
+ * 幅の予測(lib/toolbarItems.ts)と実寸を一致させるための明示幅。
+ * **片方だけ直さないこと** —— 予測がずれると、入るはずのものが畳まれたり、
+ * 畳んだのに入りきらなかったりする。
+ *
+ * セレクタをバー直下(>)に限るのは、≫ メニューの中では同じ部品を
+ * 行いっぱいに伸ばしたいため
+ */
+.toolbar .tb-icon {
+  width: 32px;
+  padding: 6px 0;
+}
+
+.toolbar > select.sort-select {
+  width: 172px;
+  /* 選択中の項目名が長いときは切る(幅を内容で変えない) */
+  text-overflow: ellipsis;
+}
+
+.toolbar > select.rating-select {
+  width: 106px;
+}
+
+.toolbar > select.duration-select {
+  width: 116px;
+}
+
+/* アイコンだけのボタンには字を並べる場所が無いので、件数は右上に小さく重ねる */
+.toolbar button {
+  position: relative;
+}
+
+.tb-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: #2f66d0;
+  /* ツールバーの下地に抜いて縁取る(隣のボタンと接して見えないように) */
+  border: 1px solid #171a20;
+  color: #fff;
+  font-size: 10px;
+  line-height: 12px;
+  text-align: center;
+}
+
+/* .active のときは下地が青なので、バッジは白抜きにしないと沈む */
+.toolbar button.active .tb-badge {
+  background: #fff;
+  color: #2f66d0;
+}
