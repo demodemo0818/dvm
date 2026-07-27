@@ -1,4 +1,6 @@
 import { Folder, FolderUp } from 'lucide-react';
+import { layout } from '../lib/listColumns';
+import type { ColumnKey } from '../lib/listColumns';
 import type { FolderNode } from '../types';
 
 /**
@@ -68,10 +70,14 @@ export function FolderCard({ entry, onOpen, onContextMenu }: FolderRowProps) {
   );
 }
 
-/** 詳細リスト表示のフォルダ行 */
+/**
+ * 詳細リスト表示のフォルダ行。動画行と同じ grid に乗せ、値の無いセルは空欄にする。
+ * 件数は列ではなく名前セルの中に入れる — どの列構成でも必ず見えるようにするため
+ */
 export function FolderListRow({
-  entry, onOpen, onContextMenu, height,
-}: FolderRowProps & { height: number }) {
+  entry, onOpen, onContextMenu, height, columns,
+}: FolderRowProps & { height: number; columns: ColumnKey[] }) {
+  const { thumb, rest } = layout(columns);
   return (
     <div
       className={`list-row folder-row ${entry.up ? 'up' : ''}`}
@@ -80,13 +86,20 @@ export function FolderListRow({
       onDoubleClick={() => onOpen(entry.path)}
       onContextMenu={(e) => onContextMenu(entry, e)}
     >
-      <div className="list-thumb folder-thumb">
-        <span className="folder-glyph">
-          {entry.up ? <FolderUp size={18} /> : <Folder size={18} />}
-        </span>
+      {thumb && (
+        <div className="list-thumb folder-thumb">
+          <span className="folder-glyph">
+            {entry.up ? <FolderUp size={18} /> : <Folder size={18} />}
+          </span>
+        </div>
+      )}
+      <div className="list-name">
+        <span className="list-title">{entry.name}</span>
+        <span className="folder-count">{subLabel(entry)}</span>
       </div>
-      <div className="list-name">{entry.name}</div>
-      <div className="list-col folder-count">{subLabel(entry)}</div>
+      {rest.map((key) => (
+        <div key={key} className="list-col" />
+      ))}
     </div>
   );
 }

@@ -459,10 +459,11 @@ body {
   color: #8a8f9c;
 }
 
+/* 名前セルの中に置く(列にすると、その列を隠したとき件数が見えなくなるため) */
 .folder-count {
   color: #8a8f9c;
   flex-shrink: 0;
-  padding-right: 8px;
+  font-size: 11px;
 }
 
 .empty-hint {
@@ -1761,11 +1762,31 @@ button.stats-tile:hover {
 }
 
 /* ---- 詳細リスト表示 (v1.8) ---- */
-.list-row {
-  display: flex;
+/*
+ * 列は CSS grid で並べる(v1.16)。--list-cols は VideoGrid が流し込み、
+ * ヘッダ行・動画行・フォルダ行の 3 つが同じ値を共有するので列がずれない。
+ * flex + 固定 px だと、フォルダ行のように一部のセルが無い行を揃えられない
+ */
+.list-row,
+.list-head {
+  display: grid;
+  grid-template-columns: var(--list-cols);
   align-items: center;
   gap: 10px;
   padding: 0 8px;
+}
+
+/*
+ * ヘッダは行と違って仮想化のラッパ(padding: 0 12px)の外側にいる。
+ * その 12px を自分で持たないと、見出しが値より 12px 左にずれる。
+ * 透明ボーダーは .list-row のフォーカス枠ぶん(これが無いと 1px ずれる)
+ */
+.list-head {
+  padding: 0 20px;
+  border-left: 1px solid transparent;
+}
+
+.list-row {
   border-radius: 5px;
   cursor: default;
   font-size: 12px;
@@ -1809,11 +1830,17 @@ button.stats-tile:hover {
 }
 
 .list-name {
-  flex: 1;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 名前セルの中身。フラグや件数と並ぶので、はみ出す本文側だけを省略する */
+.list-title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1833,22 +1860,199 @@ button.stats-tile:hover {
   color: #9bb4dd;
 }
 
+/* 幅は grid 側が持つ。ここは色と揃えだけ(桁を縦に揃えるため tabular-nums) */
 .list-col {
-  flex-shrink: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   text-align: right;
   color: #9aa0ad;
   font-variant-numeric: tabular-nums;
+}
+
+.list-col.left {
+  text-align: left;
 }
 
 .list-row.selected .list-col {
   color: #dfe6f5;
 }
 
-.list-duration { width: 60px; }
-.list-size { width: 70px; }
-.list-res { width: 84px; }
-.list-rating { width: 70px; color: #e0c14a; text-align: left; }
-.list-added { width: 82px; }
+/* ★ だけは数字ではないので専用の色を当てる */
+.list-col.rating {
+  color: #e0c14a;
+}
+
+/* ---- リストの列ヘッダ (v1.16) ---- */
+/*
+ * .grid-scroll の内側に sticky で置く。外に出すとスクロールバーの幅ぶん
+ * 列がずれる。仮想化アイテムとして入れないのは、先頭の folderRows を数える
+ * 添字計算が崩れるため(VideoGrid.tsx)
+ */
+.list-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  /* 列が可視幅を超えたら、ヘッダも行と同じだけ伸ばして列を揃える */
+  min-width: max-content;
+  height: 28px;
+  background: #171a20;
+  border-bottom: 1px solid #2a2e37;
+  font-size: 11px;
+  color: #8a8f9c;
+  user-select: none;
+}
+
+/* ヘッダを出す分の余白はヘッダ自身が持つ(.grid-scroll の padding-top を打ち消す) */
+.grid-scroll.list-mode {
+  padding-top: 0;
+}
+
+.list-head button {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.list-head button:hover {
+  color: #c9cfdb;
+}
+
+.list-head button.right {
+  justify-content: flex-end;
+}
+
+/* 並び替え中の列は見出しも明るくして、矢印だけに頼らせない */
+.list-head button.sorted {
+  color: #dfe6f5;
+}
+
+.list-head .sort-arrow {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+}
+
+.list-head .head-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * 列選択を開くボタン。grid の末尾に空けた余白トラックに入る
+ * (行側はこのトラックを埋めないので、列見出しと重ならない)
+ */
+.list-head .col-menu {
+  justify-content: center;
+  padding: 2px;
+  border-radius: 4px;
+}
+
+.list-head .col-menu:hover {
+  color: #fff;
+  background: #2a3140;
+}
+
+.list-head .col-menu svg.lucide {
+  width: 14px;
+  height: 14px;
+}
+
+/* ---- 列選択ポップオーバー (v1.16) ---- */
+/*
+ * .grid-scroll の overflow に切られるので、スクロール領域の外に fixed で描く
+ * (右クリックメニューと同じ扱い)
+ */
+.col-popover {
+  position: fixed;
+  z-index: 60;
+  width: 220px;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 6px;
+  background: #1e2128;
+  border: 1px solid #3a3f4b;
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+}
+
+.col-popover .col-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px;
+  border-radius: 4px;
+}
+
+.col-popover .col-item:hover {
+  background: #262a33;
+}
+
+.col-popover .col-item label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.col-popover .col-item .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.col-popover .col-move {
+  display: flex;
+  padding: 1px;
+  border-radius: 3px;
+  background: none;
+  border: none;
+  color: #8a8f9c;
+  cursor: pointer;
+}
+
+.col-popover .col-move:hover:not(:disabled) {
+  color: #fff;
+  background: #3a4150;
+}
+
+.col-popover .col-move:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.col-popover .col-move svg.lucide {
+  width: 13px;
+  height: 13px;
+}
+
+.col-popover .col-reset {
+  width: 100%;
+  margin-top: 6px;
+  padding: 4px;
+  background: #2a3140;
+  border: 1px solid #3a3f4b;
+  border-radius: 5px;
+  color: #c3c8d2;
+  font: inherit;
+  cursor: pointer;
+}
+
+.col-popover .col-reset:hover {
+  background: #35405a;
+}
 
 /* 140〜400px を刻むので、90px だと 1 段が 1.4px しか動かず合わせづらかった */
 .card-size {

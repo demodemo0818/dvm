@@ -6,6 +6,7 @@ import { api } from '../api';
 import { useVideos } from '../hooks/useVideos';
 import { buildFolderMenu, buildVideoMenu } from '../lib/contextMenu';
 import type { MenuEntry } from '../lib/contextMenu';
+import { gridTemplate, totalWidth } from '../lib/listColumns';
 import { parentDir } from '../lib/paths';
 import { buildQuery } from '../lib/query';
 import { useLibrary } from '../store';
@@ -15,13 +16,15 @@ import { DeleteDialog } from './DeleteDialog';
 import { FileOpDialog } from './FileOpDialog';
 import type { FileOpKind } from './FileOpDialog';
 import { FolderCard, FolderListRow, toEntry, upEntry, type FolderEntry } from './FolderCard';
+import { ListHeader } from './ListHeader';
 import { VideoCard } from './VideoCard';
 import { VideoListRow } from './VideoListRow';
 
 /** カード幅に対する 1 行の高さ(16:9 のサムネイル + 名前 2 行ぶん) */
 const rowHeightForCard = (cardWidth: number) => Math.round(cardWidth * 0.5625) + 56;
-/** 詳細リストの行の高さ */
+/** 詳細リストの行の高さ。サムネイルを外したら文字だけになるので詰める */
 const LIST_ROW_H = 44;
+const LIST_ROW_H_SLIM = 28;
 /**
  * Ctrl+A で選択できる上限。数万件を state に載せると Inspector の再描画が固まるため。
  * 超えたぶんは黙って捨てずにトーストで知らせる
@@ -38,7 +41,7 @@ export function VideoGrid() {
   const {
     text, sort, folderId, dirPath, tagIds, seriesId, missingOnly, minRating, durationBucket,
     duplicatesOnly, advanced, randomSeed, version,
-    viewMode, cardWidth, selection, anchorIndex, focusIndex,
+    viewMode, cardWidth, listColumns, selection, anchorIndex, focusIndex,
     clearSelection, setSelection, setFocusIndex, selectOnly, playFromList, toggleDirPath,
     playerPath, playingVideo, showAiPanel, pushToast, contextMenuOpen,
   } = useLibrary();
@@ -98,7 +101,8 @@ export function VideoGrid() {
   const list = viewMode === 'list';
   // リスト表示は 1 行 1 件。グリッドは幅から列数を出す(最低 1 列)
   const cols = list ? 1 : Math.max(1, Math.floor((width || cardWidth * 4) / cardWidth));
-  const rowHeight = list ? LIST_ROW_H : rowHeightForCard(cardWidth);
+  const listRowH = listColumns.includes('thumb') ? LIST_ROW_H : LIST_ROW_H_SLIM;
+  const rowHeight = list ? listRowH : rowHeightForCard(cardWidth);
 
   // フォルダは動画より前に、独立した行として並べる(1 行の中で混ざらないようにする)。
   // こうしておけば選択・キーボード操作は従来どおり動画の通し番号だけで考えられる
@@ -421,6 +425,8 @@ export function VideoGrid() {
     <div
       ref={parentRef}
       className={`grid-scroll ${list ? 'list-mode' : ''}`}
+      // ヘッダ行・動画行・フォルダ行が同じ列幅を共有するための CSS 変数
+      style={list ? ({ '--list-cols': gridTemplate(listColumns) } as React.CSSProperties) : undefined}
       // 仮想化しているのでスクロールすると対象のカードが DOM から消える。
       // 「何に対するメニューか」が分からなくなるので、動かしたら閉じる
       onScroll={() => menu && setMenu(null)}
@@ -432,6 +438,8 @@ export function VideoGrid() {
         }
       }}
     >
+      {/* 仮想化コンテナの手前に置く。中に入れると folderRows の添字計算が崩れる */}
+      {list && <ListHeader columns={listColumns} />}
       <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
         {virtualizer.getVirtualItems().map((row) => (
           <div
@@ -440,7 +448,11 @@ export function VideoGrid() {
               position: 'absolute',
               top: 0,
               left: 0,
-              width: '100%',
+              // リストは列を増やすと可視幅を超えることがある。width:100% のままだと
+              // 行が可視幅で切れ、横スクロールしたときにハイライトの右端が途切れる。
+              // max-content は使わない(ファイル名の長さで行ごとに幅が変わってしまう)。
+              // +24 は下の padding ぶん(border-box なので幅に含める)
+              width: list ? `max(100%, ${totalWidth(listColumns) + 24}px)` : '100%',
               height: rowHeight,
               transform: `translateY(${row.start}px)`,
               display: list ? 'block' : 'grid',
@@ -460,7 +472,8 @@ export function VideoGrid() {
                     entry={entry}
                     onOpen={toggleDirPath}
                     onContextMenu={onFolderContextMenu}
-                    height={LIST_ROW_H}
+                    height={listRowH}
+                    columns={listColumns}
                   />
                 ) : (
                   <FolderCard
@@ -484,7 +497,7 @@ export function VideoGrid() {
                 onContextMenu: onCardContextMenu,
               };
               return list ? (
-                <VideoListRow key={c} {...props} height={LIST_ROW_H} />
+                <VideoListRow key={c} {...props} height={listRowH} columns={listColumns} />
               ) : (
                 <VideoCard key={c} {...props} />
               );

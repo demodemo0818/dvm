@@ -71,15 +71,33 @@ export interface SubfolderView {
 /** サイドバー下半分の表示切り替え */
 export type SidebarTab = 'library' | 'folders';
 
+/**
+ * 並び順。Rust の `order_clause()` のホワイトリストと 1 対 1(片方だけ足さないこと)。
+ *
+ * ツールバーの select に出すのは lib/listColumns.ts の CURATED_SORTS だけで、
+ * 残りは詳細リストの列ヘッダから選ぶ
+ */
 export type SortKey =
-  | 'added_desc'
-  | 'added_asc'
-  | 'name_asc'
-  | 'name_desc'
-  | 'size_desc'
-  | 'duration_desc'
-  | 'rating_desc'
-  | 'viewed_desc'
+  | 'added_desc' | 'added_asc'
+  | 'name_asc' | 'name_desc'
+  | 'size_asc' | 'size_desc'
+  | 'duration_asc' | 'duration_desc'
+  | 'rating_asc' | 'rating_desc'
+  /** 最終視聴日。viewed_desc = 「最近見た順」 */
+  | 'viewed_asc' | 'viewed_desc'
+  /** 視聴回数。views_desc = 「よく見た順」 */
+  | 'views_asc' | 'views_desc'
+  /** 解像度(画素数で比較) */
+  | 'res_asc' | 'res_desc'
+  | 'ext_asc' | 'ext_desc'
+  | 'codec_asc' | 'codec_desc'
+  | 'acodec_asc' | 'acodec_desc'
+  /** フルパス順。フォルダごとにまとまり、中はファイル名順になる */
+  | 'folder_asc' | 'folder_desc'
+  | 'fmodified_asc' | 'fmodified_desc'
+  | 'fcreated_asc' | 'fcreated_desc'
+  | 'fps_asc' | 'fps_desc'
+  | 'bitrate_asc' | 'bitrate_desc'
   | 'series_asc'
   /** 重複表示用。同じファイルが隣り合う */
   | 'dup'

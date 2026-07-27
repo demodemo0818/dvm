@@ -1,27 +1,23 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { fmtTime } from '../lib/format';
+import { COLUMNS, layout } from '../lib/listColumns';
+import type { ColumnKey } from '../lib/listColumns';
 import type { VideoRowProps } from './rowProps';
 
 /**
- * lib/format.ts の fmtSize とはわざと別実装。
- * サイズ列が狭いので KB を出さず、MB も小数を落として桁を短く保つ
- */
-function fmtSize(bytes: number): string {
-  const GB = 1024 ** 3;
-  const MB = 1024 ** 2;
-  if (bytes >= GB) return `${(bytes / GB).toFixed(2)} GB`;
-  return `${(bytes / MB).toFixed(0)} MB`;
-}
-
-/**
- * 詳細リスト表示の 1 行(v1.8)。グリッドと同じ仮想化に乗るので、
+ * 詳細リスト表示の 1 行(v1.8、列可変は v1.16)。グリッドと同じ仮想化に乗るので、
  * 数万件でも DOM に載るのは可視分だけ。
+ *
+ * どの列をどの順で出すかは lib/listColumns.ts が持ち、ここは受け取った定義を描くだけ。
+ * 列幅は親が流す CSS 変数 --list-cols で決まる(ヘッダ行・フォルダ行と共有)。
+ *
  * ホバープレビューは付けない — 行が細く、マウスが横切るだけで次々に
  * 元動画を開くことになるため(グリッドのカードは面積が大きいので誤爆しにくい)
  */
 export function VideoListRow({
-  video, index, selected, focused, onPick, onPlay, onContextMenu, height,
-}: VideoRowProps & { height: number }) {
+  video, index, selected, focused, onPick, onPlay, onContextMenu, height, columns,
+}: VideoRowProps & { height: number; columns: ColumnKey[] }) {
+  const { thumb, rest } = layout(columns);
+
   if (!video) return <div className="list-row list-loading" style={{ height }} />;
 
   return (
@@ -33,35 +29,40 @@ export function VideoListRow({
       onDoubleClick={() => onPlay(video, index)}
       onContextMenu={(e) => onContextMenu(video, index, e)}
     >
-      <div className="list-thumb">
-        {video.thumbPath ? (
-          <img
-            src={convertFileSrc(video.thumbPath)}
-            loading="lazy"
-            alt=""
-            draggable={false}
-            onError={(e) => {
-              e.currentTarget.style.visibility = 'hidden';
-            }}
-          />
-        ) : null}
-      </div>
+      {thumb && (
+        <div className="list-thumb">
+          {video.thumbPath ? (
+            <img
+              src={convertFileSrc(video.thumbPath)}
+              loading="lazy"
+              alt=""
+              draggable={false}
+              onError={(e) => {
+                e.currentTarget.style.visibility = 'hidden';
+              }}
+            />
+          ) : null}
+        </div>
+      )}
       <div className="list-name">
-        {video.title ?? video.filename}
+        <span className="list-title">{video.title ?? video.filename}</span>
         {video.isOffline && <span className="list-flag offline">オフライン</span>}
         {video.isMissing && !video.isOffline && (
           <span className="list-flag missing">見つかりません</span>
         )}
       </div>
-      <div className="list-col list-duration">
-        {video.durationMs != null ? fmtTime(video.durationMs / 1000) : '—'}
-      </div>
-      <div className="list-col list-size">{fmtSize(video.size)}</div>
-      <div className="list-col list-res">
-        {video.width && video.height ? `${video.width}×${video.height}` : '—'}
-      </div>
-      <div className="list-col list-rating">{video.rating > 0 ? '★'.repeat(video.rating) : ''}</div>
-      <div className="list-col list-added">{video.addedAt.slice(0, 10)}</div>
+      {rest.map((key) => {
+        const col = COLUMNS[key];
+        const text = col.text(video);
+        return (
+          <div
+            key={key}
+            className={`list-col ${col.align === 'left' ? 'left' : ''} ${key === 'rating' ? 'rating' : ''}`}
+          >
+            {text ?? '—'}
+          </div>
+        );
+      })}
     </div>
   );
 }
