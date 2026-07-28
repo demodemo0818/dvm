@@ -848,6 +848,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
+name = "dvm"
+version = "1.17.0"
+dependencies = [
+ "anyhow",
+ "notify",
+ "rayon",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-libmpv",
+ "tauri-plugin-opener",
+ "trash",
+ "walkdir",
+ "windows-sys 0.60.2",
+ "xxhash-rust",
+]
+
+[[package]]
 name = "dyn-clone"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3562,27 +3583,6 @@ dependencies = [
  "webview2-com",
  "window-vibrancy",
  "windows 0.61.3",
-]
-
-[[package]]
-name = "tauri-app"
-version = "1.17.0"
-dependencies = [
- "anyhow",
- "notify",
- "rayon",
- "rusqlite",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-libmpv",
- "tauri-plugin-opener",
- "trash",
- "walkdir",
- "windows-sys 0.60.2",
- "xxhash-rust",
 ]
 
 [[package]]

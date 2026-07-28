@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "VideoShelf",
+  "productName": "DVM",
   "version": "1.17.0",
-  "identifier": "com.taiki.videoshelf",
+  "identifier": "jp.demo2.dvm",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "VideoShelf",
+        "title": "DVM",
         "width": 1600,
         "height": 950,
         "transparent": true

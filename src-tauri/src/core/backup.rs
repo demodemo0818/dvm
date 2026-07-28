@@ -128,7 +128,7 @@ pub fn request_restore(
                 |r| r.get(0),
             )
             .unwrap_or(false);
-        anyhow::ensure!(has_videos, "VideoShelf のデータベースではないようです");
+        anyhow::ensure!(has_videos, "DVM のデータベースではないようです");
     }
 
     // 今の DB もバックアップとして残す(復元を取り違えても戻せるように)
@@ -192,7 +192,7 @@ mod tests {
     use super::*;
 
     fn workspace(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("videoshelf-test-backup-{name}"));
+        let dir = std::env::temp_dir().join(format!("dvm-test-backup-{name}"));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("backups")).unwrap();
         dir

@@ -177,7 +177,7 @@ mod tests {
     /// (2) 書き込みを拒否すること。WAL の実挙動を見たいので実ファイルで検証する
     #[test]
     fn read_connection_sees_commits_and_refuses_writes() {
-        let dir = std::env::temp_dir().join("videoshelf-test-dbread");
+        let dir = std::env::temp_dir().join("dvm-test-dbread");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("library.db");

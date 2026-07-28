@@ -117,7 +117,7 @@ mod tests {
 
     #[test]
     fn purge_orphans_removes_only_unknown_ids() {
-        let dir = std::env::temp_dir().join("videoshelf-test-thumbs");
+        let dir = std::env::temp_dir().join("dvm-test-thumbs");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 

@@ -368,7 +368,7 @@ mod tests {
     }
 
     fn tmpdir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("videoshelf-test-fileops-{name}"));
+        let dir = std::env::temp_dir().join(format!("dvm-test-fileops-{name}"));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("src")).unwrap();
         std::fs::create_dir_all(dir.join("dst")).unwrap();

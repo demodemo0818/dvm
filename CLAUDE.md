@@ -1,4 +1,4 @@
-# VideoShelf
+# DVM(Demodemo Video Manager)
 
 Windows 向け動画管理ソフト(Tauri 2 + React + TypeScript + Rust)。
 設計の全体像・データモデル・ロードマップは [docs/DESIGN.md](docs/DESIGN.md) を必ず参照すること。

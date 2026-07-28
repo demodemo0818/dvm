@@ -1,29 +1,29 @@
-//! VideoShelf MCP サーバー(stdio トランスポート)
+//! DVM MCP サーバー(stdio トランスポート)
 //!
 //! Claude Code などの MCP クライアントから起動して使う:
-//!   claude mcp add videoshelf -- <path>\videoshelf-mcp.exe
+//!   claude mcp add dvm -- <path>\dvm-mcp.exe
 //!
 //! 既定では DB を読み取り専用で開くため、ライブラリを壊す操作は構造的にできない。
-//! 環境変数 VIDEOSHELF_ALLOW_WRITE=1 を付けて起動したときだけ書き込みツール
+//! 環境変数 DVM_ALLOW_WRITE=1 を付けて起動したときだけ書き込みツール
 //! (タグ・シリーズ・レーティング編集、ごみ箱送りなど)が有効になる。
-//! アプリ(VideoShelf)が起動していなくても動作する。
+//! アプリ(DVM)が起動していなくても動作する。
 
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
-use tauri_app_lib::core::query::{self, VideoQuery};
-use tauri_app_lib::core::{series, stats, tags, videos};
+use dvm_lib::core::query::{self, VideoQuery};
+use dvm_lib::core::{series, stats, tags, videos};
 
 fn default_db_path() -> PathBuf {
     let appdata = std::env::var("APPDATA").expect("APPDATA is not set");
-    PathBuf::from(appdata).join("com.taiki.videoshelf").join("library.db")
+    PathBuf::from(appdata).join("jp.demo2.dvm").join("library.db")
 }
 
 fn main() {
-    let db_path = std::env::var("VIDEOSHELF_DB")
+    let db_path = std::env::var("DVM_DB")
         .map(PathBuf::from)
         .unwrap_or_else(|_| default_db_path());
-    let allow_write = std::env::var("VIDEOSHELF_ALLOW_WRITE").as_deref() == Ok("1");
+    let allow_write = std::env::var("DVM_ALLOW_WRITE").as_deref() == Ok("1");
     // CREATE は付けない(DB が無ければ従来通りエラー終了)
     let flags = if allow_write {
         rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
@@ -65,7 +65,7 @@ fn main() {
                     "protocolVersion": proto,
                     "capabilities": { "tools": {} },
                     "serverInfo": {
-                        "name": "videoshelf",
+                        "name": "dvm",
                         "version": env!("CARGO_PKG_VERSION"),
                     },
                 }))
@@ -295,7 +295,7 @@ fn call_tool(
         "set_rating", "set_video_info", "remove_from_library", "trash_video_files",
     ];
     if WRITE_TOOLS.contains(&name) && !allow_write {
-        anyhow::bail!("書き込みは無効です。環境変数 VIDEOSHELF_ALLOW_WRITE=1 を付けて起動してください");
+        anyhow::bail!("書き込みは無効です。環境変数 DVM_ALLOW_WRITE=1 を付けて起動してください");
     }
     match name {
         "search_videos" => {
@@ -480,7 +480,7 @@ fn call_tool(
 
 /// DB と同じデータフォルダ配下の thumbs ディレクトリ
 fn default_thumbs_dir() -> Option<PathBuf> {
-    let db_path = std::env::var("VIDEOSHELF_DB")
+    let db_path = std::env::var("DVM_DB")
         .map(PathBuf::from)
         .unwrap_or_else(|_| default_db_path());
     db_path.parent().map(|p| p.join("thumbs"))

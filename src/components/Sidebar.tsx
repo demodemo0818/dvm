@@ -179,7 +179,7 @@ export function Sidebar() {
   return (
     // 幅はドラッグで変えられる。min-width も同じ値にして flex に縮められないようにする
     <aside className="sidebar" style={{ width: sidebarWidth, minWidth: sidebarWidth }}>
-      <div className="sidebar-title">VideoShelf</div>
+      <div className="sidebar-title">DVM</div>
       <button
         className={`side-item ${folderId === null && dirPath === null && !missingOnly ? 'active' : ''}`}
         onClick={() => {

@@ -299,7 +299,7 @@ export async function buildSystemPrompt(): Promise<string> {
     filters.push(`追加日 ${s.advanced.addedAfter || '…'}〜${s.advanced.addedBefore || '…'}`);
   }
 
-  return `あなたは Windows 向け動画管理ソフト「VideoShelf」のアシスタントです。ユーザーの動画ライブラリの検索・整理(タグ付け・レーティング・シリーズ管理)を手伝います。
+  return `あなたは Windows 向け動画管理ソフト「DVM」のアシスタントです。ユーザーの動画ライブラリの検索・整理(タグ付け・レーティング・シリーズ管理)を手伝います。
 
 指針:
 - 検索結果をユーザーに見せたいときは apply_filter を使う(グリッドが絞り込まれる)。データとして参照したいだけなら search_videos を使う

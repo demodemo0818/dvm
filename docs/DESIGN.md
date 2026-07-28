@@ -1,12 +1,18 @@
-# VideoShelf 設計ドキュメント
+# DVM 設計ドキュメント
 
-Windows 向け動画管理ソフト(仮称: VideoShelf)。
+Windows 向け動画管理ソフト DVM(Demodemo Video Manager)。
 参考: ホワイトブラウザ / TMPGEnc KARMA / Eagle / XnView / foobar2000
+
+**v1.17 で VideoShelf から改名した**。あわせて識別子を所有ドメイン基準の
+`jp.demo2.dvm` にしたので、**データ置き場が `%APPDATA%\com.taiki.videoshelf` から
+`%APPDATA%\jp.demo2.dvm` に移った**。MCP も `dvm-mcp.exe` / `DVM_DB` /
+`DVM_ALLOW_WRITE` に揃えてある(旧名で登録した MCP サーバーは登録し直しが要る)。
 
 ## 決定事項(2026-07-23)
 
 - **配布**: 当面は自分用。FFmpeg 同梱のライセンス対応は公開を決めた時点で見直す
-- **データ置き場**: SQLite / サムネイルキャッシュは `%APPDATA%\VideoShelf` 配下。将来「場所の変更」機能を追加予定
+- **データ置き場**: SQLite / サムネイルキャッシュは `%APPDATA%\jp.demo2.dvm` 配下(Tauri の
+  `identifier`。v1.17 で `com.taiki.videoshelf` から改名)。将来「場所の変更」機能を追加予定
 - **UI 言語**: 日本語のみ(i18n 分離はしない)
 - **外付け HDD / NAS 上の動画を管理対象とする**(オフライン検出を v0.1 から実装。下記参照)
 
@@ -342,7 +348,7 @@ mkv を扱えるという読みを実測で確認したため(それまでは無
 
 ### 事前変換キャッシュ(`core/playback.rs`)
 
-- キャッシュ: `%APPDATA%\com.taiki.videoshelf\transcode\{video_id}.mp4`(ASCII 名なので日本語パスの影響なし)。書き込み中は `{id}.tmp.mp4` → 成功時 rename(部分ファイルを配信しない)。キャッシュの mtime ≥ 元ファイルの mtime なら再利用(再視聴は待ちゼロ)
+- キャッシュ: `%APPDATA%\jp.demo2.dvm\transcode\{video_id}.mp4`(ASCII 名なので日本語パスの影響なし)。書き込み中は `{id}.tmp.mp4` → 成功時 rename(部分ファイルを配信しない)。キャッシュの mtime ≥ 元ファイルの mtime なら再利用(再視聴は待ちゼロ)
 - ffmpeg 引数: `-map 0:v:0 -map 0:a:0?` で映像・音声 1 本に限定(字幕・複数音声の mp4 化エラー回避)、`-movflags +faststart`。remux は `-c:v copy`(hevc は `-tag:v hvc1`)+ 音声 aac/mp3 なら copy それ以外 AAC 化。transcode は `-pix_fmt yuv420p`(10bit 対応)+ AAC 192k
 - HW エンコーダ: 初回に 1 フレームのテストエンコードで nvenc → qsv → amf の順に実証し、settings `hw_encoder` に保存。実変換で失敗したら libx264 に書き換えて 1 回だけ再試行
 - 進捗: `-progress pipe:1` の `out_time_us` ÷ duration_ms を 500ms 間隔で `transcode:progress` イベント通知(尺不明時はスピナー)
@@ -882,12 +888,12 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
 
 ### MCP サーバー(実装済み)
 
-- 別バイナリ `videoshelf-mcp.exe`(stdio トランスポート)。アプリが起動していなくても動く
+- 別バイナリ `dvm-mcp.exe`(stdio トランスポート)。アプリが起動していなくても動く
 - **既定は読み取り専用**: DB を読み取り専用フラグで開くため、AI からライブラリを変更することは構造的に不可能
 - **ファイル操作系(リネーム・移動・再リンク)は MCP に公開していない**。dry-run のプレビューを
   人が承認する前提の機能なので、AI から直接呼べる形にはしない(v1.9)
 - 読み取りツール: `search_videos`(構造化クエリ。text / search_path / dir_path / tag / series / missing / untagged / unwatched / duplicates_only / min_rating / min_duration_sec / max_duration_sec / min_width / min_height / video_codecs / added_after / added_before / sort / limit)/ `get_video` / `list_tags` / `list_series` / `library_stats`
-- **書き込みモード(v1.1)**: 環境変数 `VIDEOSHELF_ALLOW_WRITE=1` を付けて起動したときだけ、DB を読み書きで開き(`foreign_keys=ON`・`busy_timeout 5s`)、次のツールを追加公開する:
+- **書き込みモード(v1.1)**: 環境変数 `DVM_ALLOW_WRITE=1` を付けて起動したときだけ、DB を読み書きで開き(`foreign_keys=ON`・`busy_timeout 5s`)、次のツールを追加公開する:
   - `tag_videos` / `untag_videos` / `add_to_series` / `remove_from_series` / `set_rating` / `set_video_info`(タイトル・コメント)
   - `remove_from_library`(登録削除。ファイルは残す)
   - `trash_video_files`(**dry_run 必須引数**。true でプレビュー、false でごみ箱送り。実行後は missing 状態で DB に残し、ごみ箱から戻せば再スキャンで復帰できる)
@@ -905,11 +911,11 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
   - 表示: `apply_filter` — Zustand の `applyFilter` でグリッドを直接絞り込み、件数を返す(自然言語検索の中核)
   - 書き込み: `tag_videos` / `set_rating` / `add_to_series` — actor="ai" で operations_log に記録。すべて可逆なメタデータ操作のため確認なしで実行し、チャット内カードで結果を必ず表示する。破壊的操作(ごみ箱送り等)はツールに含めない
 - システムプロンプトに選択中の動画(ファイル名・尺・タグ等)と現在のフィルタ状態を毎回注入 →「この動画にタグを提案して」が成立する
-- ビルド: `cd src-tauri && cargo build --bin videoshelf-mcp`
+- ビルド: `cd src-tauri && cargo build --bin dvm-mcp`
 - Claude Code への登録例:
-  `claude mcp add videoshelf -- <repo>\src-tauri\target\debug\videoshelf-mcp.exe`
-  (書き込みを許可する場合は `claude mcp add videoshelf -e VIDEOSHELF_ALLOW_WRITE=1 -- ...`)
-- DB の場所は既定(%APPDATA%\com.taiki.videoshelf\library.db)。環境変数 `VIDEOSHELF_DB` で上書き可
+  `claude mcp add dvm -- <repo>\src-tauri\target\debug\dvm-mcp.exe`
+  (書き込みを許可する場合は `claude mcp add dvm -e DVM_ALLOW_WRITE=1 -- ...`)
+- DB の場所は既定(%APPDATA%\jp.demo2.dvm\library.db)。環境変数 `DVM_DB` で上書き可
 
 ## ファイル操作(v1.9)
 
@@ -963,7 +969,7 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
 ## DB バックアップ(v1.0 実装済み)
 
 - 方式: `VACUUM INTO`(WAL 非依存の単一ファイルを出力。断片化も解消される)
-- 保存先: `%APPDATA%\com.taiki.videoshelf\backups\`
+- 保存先: `%APPDATA%\jp.demo2.dvm\backups\`
 - 起動時自動バックアップ: 前回から 24 時間以上経過していたら `auto-YYYYMMDD-HHMMSS.db` を作成し、auto は新しい順 5 世代だけ残す(manual は削除しない)
 - 手動バックアップ: 設定画面から `manual-...db` を作成。一覧表示・フォルダを開くも設定画面から
 
@@ -1020,7 +1026,7 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
 - **v0.3** ✅(2026-07-24 実装済み): シリーズ管理(登録順の並び保持)、星レーティング、外部プレイヤー設定(settings テーブル)、視聴履歴表示、レーティング/視聴日時ソート
 - **v0.4** ✅(2026-07-24 実装済み): ファイル監視(notify、1.5 秒デバウンスで自動取り込み)、missing 絞り込みとライブラリからの削除 UI、読み取り専用 MCP サーバー
 - **v1.0** ✅(2026-07-24 実装済み): 設定画面(外部プレイヤー・データ保存場所の表示・サムネイル一括再生成・バックアップ管理)、DB バックアップ(下記)、ドライブレター変動対策(ボリュームシリアル記録、v0.4 繰り越し分)、検索強化(レーティング下限・尺範囲フィルタを UI と MCP の両方に追加)、user_version による簡易マイグレーション機構
-- **v1.1** ✅(2026-07-26 実装済み): 書き込み系 MCP(`VIDEOSHELF_ALLOW_WRITE=1` でオプトイン。タグ・シリーズ・レーティング・情報編集、登録削除、dry-run 付きごみ箱送り。actor='ai' で監査ログ)、data_version 監視による外部変更の UI 自動反映
+- **v1.1** ✅(2026-07-26 実装済み): 書き込み系 MCP(`DVM_ALLOW_WRITE=1` でオプトイン。タグ・シリーズ・レーティング・情報編集、登録削除、dry-run 付きごみ箱送り。actor='ai' で監査ログ)、data_version 監視による外部変更の UI 自動反映
 - **v1.2** ✅(2026-07-26 実装済み): アプリ内再生(WebView2 ネイティブ、非対応形式は onError で外部フォールバック、視聴カウントは再生成功時のみ)
 - **v1.3** ✅(2026-07-26 実装済み): アプリ内 AI アシスタント(✨ パネル。自然言語検索 → apply_filter でグリッド反映、タグ提案・付与、actor='ai' 監査ログ)
 - **v1.4** ✅(2026-07-26 実装済み): アプリ内再生の強化(3 段判定 + FFmpeg 事前変換キャッシュで mkv/HEVC 対応、自前プレイヤー UI + ショートカット、レジューム + カード進捗バー)
@@ -1107,5 +1113,5 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
   `ContextMenu.tsx` と `buildXxxMenu()` の形はそのまま使い回せるので、
   足すのは対象ごとの純関数と右クリックハンドラだけで済む
 - **MCP に `get_media_info` を出す** — `core::metadata::media_info()` は UI 非依存なので、
-  `videoshelf-mcp.rs` からそのまま呼べる。ついでに MCP 内にベタ書きの `get_video` の SQL も
+  `dvm-mcp.rs` からそのまま呼べる。ついでに MCP 内にベタ書きの `get_video` の SQL も
   `core/` に寄せたい(現状は原則 1 から外れている唯一の箇所)

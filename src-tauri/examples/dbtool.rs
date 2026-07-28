@@ -13,7 +13,7 @@ fn main() {
 
     // check は init 経由でマイグレーションを実際に走らせる(本番と同じ経路を通す)
     if args[2] == "check" {
-        let conn = tauri_app_lib::db::init(std::path::Path::new(&args[1])).expect("init db");
+        let conn = dvm_lib::db::init(std::path::Path::new(&args[1])).expect("init db");
         let version: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .expect("user_version");
@@ -29,7 +29,7 @@ fn main() {
             .collect();
         println!("tables = {}", tables.join(", "));
 
-        let stats = tauri_app_lib::core::stats::library_stats(&conn).expect("stats");
+        let stats = dvm_lib::core::stats::library_stats(&conn).expect("stats");
         println!(
             "videos={} missing={} unwatched={} untagged={} duplicates={} tags={} series={}",
             stats.video_count,
@@ -40,7 +40,7 @@ fn main() {
             stats.tag_count,
             stats.series_count,
         );
-        println!("smart_folders = {}", tauri_app_lib::core::smart_folders::list(&conn).unwrap().len());
+        println!("smart_folders = {}", dvm_lib::core::smart_folders::list(&conn).unwrap().len());
         return;
     }
 

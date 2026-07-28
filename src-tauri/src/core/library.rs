@@ -463,7 +463,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn setup(name: &str) -> (PathBuf, Connection) {
-        let dir = std::env::temp_dir().join(format!("videoshelf-test-{name}"));
+        let dir = std::env::temp_dir().join(format!("dvm-test-{name}"));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let conn = crate::db::init(&dir.join("library.db")).unwrap();
@@ -495,7 +495,7 @@ mod tests {
         let (dir, conn) = setup("move-across");
         let old = dir.join("A").join("動画.mp4");
         let new = dir.join("B").join("動画.mp4");
-        write_video(&old, b"videoshelf-test-content");
+        write_video(&old, b"dvm-test-content");
 
         let mut roots = offline::RootCache::default();
         upsert_file(&conn, &mut roots, &old, Some(1)).unwrap();
@@ -503,7 +503,7 @@ mod tests {
         conn.execute("UPDATE videos SET rating = 5", []).unwrap();
 
         // 実ファイルを別フォルダへ移動。旧レコードは is_missing=0 のまま
-        write_video(&new, b"videoshelf-test-content");
+        write_video(&new, b"dvm-test-content");
         std::fs::remove_file(&old).unwrap();
         upsert_file(&conn, &mut roots, &new, Some(2)).unwrap();
 
@@ -526,8 +526,8 @@ mod tests {
         let (dir, conn) = setup("copy");
         let a = dir.join("A").join("同じ中身.mp4");
         let b = dir.join("B").join("同じ中身.mp4");
-        write_video(&a, b"videoshelf-test-content");
-        write_video(&b, b"videoshelf-test-content");
+        write_video(&a, b"dvm-test-content");
+        write_video(&b, b"dvm-test-content");
 
         let mut roots = offline::RootCache::default();
         upsert_file(&conn, &mut roots, &a, Some(1)).unwrap();
@@ -543,11 +543,11 @@ mod tests {
         let (dir, conn) = setup("move-missing");
         let old = dir.join("A").join("旧.mp4");
         let new = dir.join("A").join("新.mp4");
-        write_video(&old, b"videoshelf-test-content");
+        write_video(&old, b"dvm-test-content");
 
         let mut roots = offline::RootCache::default();
         upsert_file(&conn, &mut roots, &old, Some(1)).unwrap();
-        write_video(&new, b"videoshelf-test-content");
+        write_video(&new, b"dvm-test-content");
         std::fs::remove_file(&old).unwrap();
         conn.execute("UPDATE videos SET is_missing = 1", []).unwrap();
 
@@ -570,7 +570,7 @@ mod tests {
     fn re_registering_a_watched_folder_reattaches_its_videos() {
         let (dir, conn) = setup("re-register");
         let file = dir.join("A").join("動画.mp4");
-        write_video(&file, b"videoshelf-test-content");
+        write_video(&file, b"dvm-test-content");
 
         let mut roots = offline::RootCache::default();
         upsert_file(&conn, &mut roots, &file, Some(1)).unwrap();
@@ -603,7 +603,7 @@ mod tests {
     fn individual_registration_keeps_existing_ownership() {
         let (dir, conn) = setup("individual");
         let file = dir.join("A").join("動画.mp4");
-        write_video(&file, b"videoshelf-test-content");
+        write_video(&file, b"dvm-test-content");
 
         let mut roots = offline::RootCache::default();
         upsert_file(&conn, &mut roots, &file, Some(1)).unwrap();
