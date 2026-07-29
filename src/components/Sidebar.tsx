@@ -1,11 +1,16 @@
 import { ask, open } from '@tauri-apps/plugin-dialog';
+import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { Copy, FolderSearch, ListOrdered, TriangleAlert } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import { useContextMenu } from '../hooks/useContextMenu';
+import { buildSeriesMenu, buildSmartFolderMenu, buildWatchedFolderMenu } from '../lib/contextMenu';
+import { buildQuery } from '../lib/query';
 import { useLibrary } from '../store';
 import type {
   FolderNode, PlanItem, Series, SidebarTab, SmartFolder, Tag, TagGroup, VideoQuery, WatchedFolder,
 } from '../types';
+import { ContextMenu } from './ContextMenu';
 import { FileOpDialog } from './FileOpDialog';
 import { FolderTree } from './FolderTree';
 import { TagTree } from './TagTree';
@@ -19,6 +24,23 @@ const VIDEO_EXTENSIONS = [
 function folderName(path: string): string {
   const parts = path.replace(/[\\/]+$/, '').split(/[\\/]/);
   return parts[parts.length - 1] || path;
+}
+
+/** 右クリックメニューの対象(v1.20)。タグは TagTree、フォルダーツリーは FolderTree の担当 */
+type MenuTarget =
+  | { kind: 'wf'; folder: WatchedFolder }
+  | { kind: 'sf'; sf: SmartFolder }
+  | { kind: 'series'; series: Series };
+
+/** いま画面に効いている絞り込みを VideoQuery にする(スマートフォルダの上書き用) */
+function currentQuery(): VideoQuery {
+  const s = useLibrary.getState();
+  return buildQuery({
+    text: s.text, sort: s.sort, folderId: s.folderId, dirPath: s.dirPath, tagIds: s.tagIds,
+    seriesId: s.seriesId, missingOnly: s.missingOnly, minRating: s.minRating,
+    durationBucket: s.durationBucket, duplicatesOnly: s.duplicatesOnly, advanced: s.advanced,
+    randomSeed: s.randomSeed,
+  });
 }
 
 export function Sidebar() {
@@ -39,6 +61,7 @@ export function Sidebar() {
   const [missingCount, setMissingCount] = useState(0);
   const [duplicateCount, setDuplicateCount] = useState(0);
   const [relinkPlan, setRelinkPlan] = useState<PlanItem[] | null>(null);
+  const { menu, open: openMenu, close: closeMenu } = useContextMenu<MenuTarget>();
   // ライブラリタブの項目名で絞り込む(v1.19)。DB は引かず手元の配列を絞るだけなので
   // デバウンスは要らない。動画そのものの検索はツールバー側の担当
   const [sideFilter, setSideFilter] = useState('');
@@ -181,6 +204,106 @@ export function Sidebar() {
     bumpVersion();
   };
 
+  const copyPath = async (path: string) => {
+    try {
+      await navigator.clipboard.writeText(path);
+      pushToast('パスをコピーしました', 'info');
+    } catch {
+      pushToast('クリップボードにコピーできませんでした');
+    }
+  };
+
+  const reveal = async (path: string) => {
+    try {
+      await revealItemInDir(path);
+    } catch {
+      pushToast('エクスプローラーで表示できませんでした');
+    }
+  };
+
+  /**
+   * 並べ替えは 1 つ隣と入れ替えるだけ。**絞り込む前の配列**を渡すこと —
+   * 見えている行の index で動かすと、隠れている行を飛び越して並びが壊れる
+   * (メニュー側でも絞り込み中は無効にしてある)
+   */
+  const moveSmartFolder = async (index: number, dir: -1 | 1) => {
+    const next = [...smartFolders];
+    const j = index + dir;
+    if (j < 0 || j >= next.length) return;
+    [next[index], next[j]] = [next[j], next[index]];
+    try {
+      await api.reorderSmartFolders(next.map((sf) => sf.id));
+      bumpVersion();
+    } catch {
+      // トーストは call() の担当
+    }
+  };
+
+  /** 右クリックメニューの実行(v1.20)。削除系は × ボタンと同じ関数を呼ぶ */
+  const runMenuAction = async (id: string, target: MenuTarget) => {
+    try {
+      if (target.kind === 'wf') {
+        const f = target.folder;
+        switch (id) {
+          case 'wf:open': setFolderId(f.id); break;
+          // 配下すべてではなく直下だけ。フォルダーツリー側の絞り込みに切り替わる
+          case 'wf:openDirect': useLibrary.getState().toggleDirPath(f.path); break;
+          case 'wf:reveal': await reveal(f.path); break;
+          case 'wf:copyPath': await copyPath(f.path); break;
+          case 'wf:remove': await removeFolder(f); break;
+          default:
+        }
+        return;
+      }
+
+      if (target.kind === 'sf') {
+        const sf = target.sf;
+        const index = smartFolders.findIndex((x) => x.id === sf.id);
+        switch (id) {
+          case 'sf:open': openSmartFolder(sf); break;
+          case 'sf:rename': {
+            const name = window.prompt('新しい名前', sf.name);
+            if (name === null || name.trim() === '' || name.trim() === sf.name) return;
+            await api.updateSmartFolder(sf.id, name.trim());
+            bumpVersion();
+            break;
+          }
+          case 'sf:overwrite': {
+            const yes = await ask(
+              `「${sf.name}」の条件を、いまの絞り込みで置き換えますか?`,
+              { title: 'スマートフォルダの上書き' },
+            );
+            if (!yes) return;
+            await api.updateSmartFolder(sf.id, undefined, currentQuery());
+            bumpVersion();
+            break;
+          }
+          case 'sf:moveUp': await moveSmartFolder(index, -1); break;
+          case 'sf:moveDown': await moveSmartFolder(index, 1); break;
+          case 'sf:delete': await removeSmartFolder(sf); break;
+          default:
+        }
+        return;
+      }
+
+      const s = target.series;
+      switch (id) {
+        case 'series:filter': toggleSeriesFilter(s.id); break;
+        case 'series:rename': {
+          const name = window.prompt('新しいシリーズ名', s.name);
+          if (name === null || name.trim() === '' || name.trim() === s.name) return;
+          await api.renameSeries(s.id, name.trim());
+          bumpVersion();
+          break;
+        }
+        case 'series:delete': await removeSeries(s); break;
+        default:
+      }
+    } catch {
+      // トーストは call() の担当
+    }
+  };
+
   // ライブラリタブの絞り込み。マッチしないセクションは見出しごと消える
   const needle = sideFilter.trim().toLowerCase();
   const hit = (s: string) => !needle || s.toLowerCase().includes(needle);
@@ -275,6 +398,18 @@ export function Sidebar() {
               key={sf.id}
               className="side-item folder"
               onClick={() => openSmartFolder(sf)}
+              onContextMenu={(e) =>
+                openMenu(
+                  e,
+                  // 並べ替えの index は絞り込む前の並びで数える
+                  buildSmartFolderMenu(
+                    sf,
+                    smartFolders.findIndex((x) => x.id === sf.id),
+                    smartFolders.length,
+                    needle !== '',
+                  ),
+                  { kind: 'sf', sf },
+                )}
               title={`${sf.name}(保存した検索条件を復元します)`}
             >
               <FolderSearch className="tag-mark" />
@@ -302,6 +437,8 @@ export function Sidebar() {
               key={f.id}
               className={`side-item folder ${folderId === f.id ? 'active' : ''}`}
               onClick={() => setFolderId(f.id)}
+              onContextMenu={(e) =>
+                openMenu(e, buildWatchedFolderMenu(f, folderId === f.id), { kind: 'wf', folder: f })}
               title={`${f.path}\nクリックでこのフォルダ配下すべてを表示(サブフォルダ単位で絞るなら「フォルダー」タブ)`}
             >
               <span className={`dot ${f.online ? 'online' : 'offline'}`} />
@@ -334,6 +471,8 @@ export function Sidebar() {
               key={s.id}
               className={`side-item folder ${seriesId === s.id ? 'active' : ''}`}
               onClick={() => toggleSeriesFilter(s.id)}
+              onContextMenu={(e) =>
+                openMenu(e, buildSeriesMenu(s, seriesId === s.id), { kind: 'series', series: s })}
               title={`${s.name}(クリックで絞り込み。シリーズ内は登録順で表示)`}
             >
               <ListOrdered className="tag-mark" />
@@ -361,6 +500,17 @@ export function Sidebar() {
             <div className="side-empty">「{sideFilter.trim()}」に一致する項目はありません</div>
           )}
         </>
+      )}
+
+      {menu && (
+        <ContextMenu
+          key={`${menu.x},${menu.y}`}
+          x={menu.x}
+          y={menu.y}
+          entries={menu.entries}
+          onClose={closeMenu}
+          onSelect={(id) => void runMenuAction(id, menu.target)}
+        />
       )}
 
       {relinkPlan && (

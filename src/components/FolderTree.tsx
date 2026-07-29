@@ -1,7 +1,12 @@
+import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { ChevronDown, Folder } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { api } from '../api';
+import { useContextMenu } from '../hooks/useContextMenu';
+import { buildFolderTreeMenu } from '../lib/contextMenu';
 import { useLibrary } from '../store';
 import type { FolderNode } from '../types';
+import { ContextMenu } from './ContextMenu';
 
 /** Windows のパスは大文字小文字を区別しない。ASCII だけ畳む(Rust / SQL 側の lower に合わせる) */
 const sameDir = (a: string | null, b: string) =>
@@ -61,6 +66,45 @@ export function FolderTree({ nodes }: { nodes: FolderNode[] }) {
       return next;
     });
 
+  const { menu, open: openMenu, close: closeMenu } = useContextMenu<FolderNode>();
+
+  /**
+   * 右クリックメニューの実行(v1.20)。
+   * 「監視対象から外す」は載せていない — 監視フォルダ行(ライブラリタブ)の担当。
+   * あちらは登録動画の扱いも尋ねるので、入口は 1 つに寄せる
+   */
+  const runMenuAction = async (id: string, n: FolderNode) => {
+    const { pushToast, bumpVersion } = useLibrary.getState();
+    try {
+      switch (id) {
+        case 'tree:open': toggleDirPath(n.path); break;
+        case 'tree:expand': toggleExpand(n.path); break;
+        case 'tree:reveal':
+          try {
+            await revealItemInDir(n.path);
+          } catch {
+            pushToast('エクスプローラーで表示できませんでした');
+          }
+          break;
+        case 'tree:copyPath':
+          try {
+            await navigator.clipboard.writeText(n.path);
+            pushToast('パスをコピーしました', 'info');
+          } catch {
+            pushToast('クリップボードにコピーできませんでした');
+          }
+          break;
+        case 'tree:watch':
+          await api.addWatchedFolder(n.path);
+          bumpVersion();
+          break;
+        default:
+      }
+    } catch {
+      // トーストは call() の担当
+    }
+  };
+
   const renderNodes = (list: FolderNode[], depth: number) =>
     list.map((n) => {
       const children = tree.get(n.path) ?? [];
@@ -71,6 +115,12 @@ export function FolderTree({ nodes }: { nodes: FolderNode[] }) {
             className={`side-item folder ${sameDir(dirPath, n.path) ? 'active' : ''}`}
             style={{ paddingLeft: 8 + depth * 14 }}
             onClick={() => toggleDirPath(n.path)}
+            onContextMenu={(e) =>
+              openMenu(
+                e,
+                buildFolderTreeMenu(n, children.length > 0, isOpen, sameDir(dirPath, n.path)),
+                n,
+              )}
             title={`${n.path}\nクリックでこのフォルダ直下の ${n.directCount} 件に絞り込み(もう一度で解除)${
               n.totalCount !== n.directCount ? `\n配下すべてでは ${n.totalCount} 件` : ''
             }`}
@@ -125,6 +175,17 @@ export function FolderTree({ nodes }: { nodes: FolderNode[] }) {
         </div>
       )}
       {renderNodes(others, 0)}
+
+      {menu && (
+        <ContextMenu
+          key={`${menu.x},${menu.y}`}
+          x={menu.x}
+          y={menu.y}
+          entries={menu.entries}
+          onClose={closeMenu}
+          onSelect={(id) => void runMenuAction(id, menu.target)}
+        />
+      )}
     </>
   );
 }

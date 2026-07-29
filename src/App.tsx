@@ -44,6 +44,26 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  /**
+   * WebView2 の既定メニューを画面全体で止める(v1.20)。
+   *
+   * 自前のメニューを付けた場所は各ハンドラが preventDefault するが、
+   * ツールバー・詳細ペイン・モーダルなど付けていない場所では
+   * 「再読み込み」「ページのソースを表示」といったブラウザのメニューが出てしまい、
+   * デスクトップアプリとして明らかに異物になる。
+   *
+   * **入力欄だけは残す** — コピー・貼り付けと IME の変換候補が要るため。
+   * 自前のメニューで置き換えるほどの中身も無い
+   */
+  useEffect(() => {
+    const onContextMenu = (e: MouseEvent) => {
+      if ((e.target as HTMLElement | null)?.closest('input, textarea')) return;
+      e.preventDefault();
+    };
+    document.addEventListener('contextmenu', onContextMenu);
+    return () => document.removeEventListener('contextmenu', onContextMenu);
+  }, []);
+
   // 外部プレイヤー設定(再生分岐)・ホバープレビュー・表示設定をロード
   useEffect(() => {
     api.getSetting('player_path').then((v) => setPlayerPath(v ?? ''));

@@ -6,10 +6,12 @@ import { api } from '../api';
 import { decidePlayback } from '../lib/playback';
 import type { PlayMode } from '../lib/playback';
 import { useLibrary } from '../store';
+import { ContextMenu } from './ContextMenu';
 import { ensureMpv } from './player/mpv';
 import { MpvPlayerView } from './player/MpvPlayerView';
 import { PlayerControls } from './player/PlayerControls';
 import { resumeValueMs, shouldCountView } from './player/types';
+import { usePlayerMenu } from './player/usePlayerMenu';
 import { usePlayerShortcuts } from './player/usePlayerShortcuts';
 import { usePlayQueue } from './player/usePlayQueue';
 import { useVideoPlayer } from './player/useVideoPlayer';
@@ -168,6 +170,9 @@ function Html5PlayerView({ video }: { video: VideoRow }) {
     onSetThumbnail: setThumbnail,
   });
 
+  const { menu, onContextMenu, close: closeMenu, run: runMenu } =
+    usePlayerMenu(video, { wake, onSetThumbnail: setThumbnail, onClose: close });
+
   // レジューム保存: 5 秒ごと + 一時停止・終了時
   const lastSavedSec = useRef(0);
   useEffect(() => {
@@ -208,6 +213,7 @@ function Html5PlayerView({ video }: { video: VideoRow }) {
         ref={innerRef}
         className={`player-inner ${visible ? '' : 'controls-hidden'}`}
         onClick={(e) => e.stopPropagation()}
+        onContextMenu={onContextMenu}
       >
         {src != null ? (
           <video
@@ -285,6 +291,18 @@ function Html5PlayerView({ video }: { video: VideoRow }) {
             // 再生中と同じ src を使う。変換経路ならキャッシュ mp4 なので確実に読める
             previewSrc={src}
             queue={queue}
+          />
+        )}
+
+        {/* **必ず .player-inner の内側**。全画面のトップレイヤーから外れると見えなくなる */}
+        {menu && (
+          <ContextMenu
+            key={`${menu.x},${menu.y}`}
+            x={menu.x}
+            y={menu.y}
+            entries={menu.entries}
+            onClose={closeMenu}
+            onSelect={(id) => void runMenu(id)}
           />
         )}
       </div>

@@ -2731,15 +2731,24 @@ input[type='range']:focus-visible {
   color: #fff;
 }
 
-/* ---- 右クリックメニュー (v1.14) ---- */
+/* ---- 右クリックメニュー (v1.14。適用範囲の拡大は v1.20) ---- */
 /*
  * position: fixed で画面座標に置く。**仮想化グリッドの外に描くこと** —
  * 中に置くと virtualizer の transform が fixed の基準になり、
- * スクロールに引きずられて位置がずれる
+ * スクロールに引きずられて位置がずれる。
+ * 同じ理由で、メニューを描く要素の祖先に transform / filter / contain を付けないこと
+ *
+ * **プレイヤーだけは逆に、オーバーレイの内側に描く**(v1.20)。理由は 3 つとも致命的:
+ *   1. .player-overlay / .mpv-overlay は z-index 200 で、外に描いた 90 は裏に回る
+ *   2. .player-inner は Fullscreen API の全画面要素。トップレイヤーの外に置いた
+ *      fixed 要素は z-index をいくつにしても見えない
+ *   3. mpv 再生中は html.mpv-active .app { display: none } で .app ごと消える
  */
 .ctx-menu {
   position: fixed;
   z-index: 90;
+  /* プレイヤーのコントロールが消えている間は親が cursor: none。メニュー上では戻す */
+  cursor: default;
   min-width: 230px;
   max-width: 340px;
   /* 画面より高くなったらメニュー内でスクロールさせる(端で切れて押せなくなるのを防ぐ) */
@@ -2805,6 +2814,15 @@ input[type='range']:focus-visible {
 
 .ctx-item.disabled .ctx-icon {
   color: #565c68;
+}
+
+/* タグの色サブメニュー(v1.20)。アイコンの代わりに実物の色を出す */
+.ctx-swatch {
+  width: 12px;
+  height: 12px;
+  margin: 2px;
+  border-radius: 50%;
+  flex: none;
 }
 
 .ctx-label {

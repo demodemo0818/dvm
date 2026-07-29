@@ -2,11 +2,12 @@ import { ask } from '@tauri-apps/plugin-dialog';
 import { ChevronDown, Plus } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { api } from '../api';
+import { useContextMenu } from '../hooks/useContextMenu';
+import { buildTagGroupMenu, buildTagMenu } from '../lib/contextMenu';
+import { TAG_PALETTE } from '../lib/tagColors';
 import { useLibrary } from '../store';
 import type { Tag, TagGroup } from '../types';
-
-/** タグに付けられる色。自由入力より選ばせた方が一覧が散らからない */
-const PALETTE = ['#e05252', '#e08c3a', '#d9c04a', '#5aab5a', '#4a9ed9', '#8f6fd0', '#c76fa8'];
+import { ContextMenu } from './ContextMenu';
 
 /** 折りたたんだグループの id。未分類は id を持たないので 0 で表す(グループ id は 1 以上) */
 const UNGROUPED = 0;
@@ -28,6 +29,37 @@ function loadCollapsed(): Set<number> {
   } catch {
     return new Set();
   }
+}
+
+/**
+ * タグの削除。**確認からここに閉じ込める**(v1.20)。
+ * `⋯` の編集パネルと右クリックメニューの両方から呼ぶので、
+ * 文言をコピペすると片方だけ直して挙動がずれる。消えたら true
+ */
+async function confirmDeleteTag(tag: Tag): Promise<boolean> {
+  const yes = await ask(
+    `タグ「${tag.name}」を削除しますか?\n(${tag.videoCount} 件の動画から外れます。動画自体は消えません)`,
+    { title: 'タグの削除' },
+  );
+  if (!yes) return false;
+  const { tagIds, toggleTagFilter, bumpVersion } = useLibrary.getState();
+  await api.deleteTag(tag.id);
+  // 消したタグで絞り込んだままだと 0 件になって戻れなくなる
+  if (tagIds.includes(tag.id)) toggleTagFilter(tag.id);
+  bumpVersion();
+  return true;
+}
+
+/** グループの削除。中のタグは消えず未分類に落ちる。呼び出し口は上と同じ理由で 1 つ */
+async function confirmDeleteGroup(group: TagGroup): Promise<boolean> {
+  const yes = await ask(
+    `グループ「${group.name}」を削除しますか?\n(${group.tagCount} 個のタグは未分類に移ります。動画に付いたタグはそのままです)`,
+    { title: 'グループの削除' },
+  );
+  if (!yes) return false;
+  await api.deleteTagGroup(group.id);
+  useLibrary.getState().bumpVersion();
+  return true;
 }
 
 function TagEditor({ tag, groups, onDone }: { tag: Tag; groups: TagGroup[]; onDone: () => void }) {
@@ -66,13 +98,13 @@ function TagEditor({ tag, groups, onDone }: { tag: Tag; groups: TagGroup[]; onDo
 
       <div className="tag-editor-row">
         <span className="tag-editor-label">色</span>
-        {PALETTE.map((c) => (
+        {TAG_PALETTE.map((c) => (
           <button
-            key={c}
-            className={`tag-swatch ${tag.color === c ? 'on' : ''}`}
-            style={{ background: c }}
-            title={c}
-            onClick={() => apply(() => api.setTagColor(tag.id, c))}
+            key={c.value}
+            className={`tag-swatch ${tag.color === c.value ? 'on' : ''}`}
+            style={{ background: c.value }}
+            title={c.label}
+            onClick={() => apply(() => api.setTagColor(tag.id, c.value))}
           />
         ))}
         <button
@@ -104,16 +136,7 @@ function TagEditor({ tag, groups, onDone }: { tag: Tag; groups: TagGroup[]; onDo
         <button
           className="danger"
           onClick={async () => {
-            const yes = await ask(
-              `タグ「${tag.name}」を削除しますか?\n(${tag.videoCount} 件の動画から外れます。動画自体は消えません)`,
-              { title: 'タグの削除' },
-            );
-            if (!yes) return;
-            const { tagIds, toggleTagFilter } = useLibrary.getState();
-            await api.deleteTag(tag.id);
-            if (tagIds.includes(tag.id)) toggleTagFilter(tag.id);
-            bumpVersion();
-            onDone();
+            if (await confirmDeleteTag(tag)) onDone();
           }}
         >
           タグを削除
@@ -179,14 +202,7 @@ function GroupEditor({
         <button
           className="danger"
           onClick={async () => {
-            const yes = await ask(
-              `グループ「${group.name}」を削除しますか?\n(${group.tagCount} 個のタグは未分類に移ります。動画に付いたタグはそのままです)`,
-              { title: 'グループの削除' },
-            );
-            if (!yes) return;
-            await api.deleteTagGroup(group.id);
-            bumpVersion();
-            onDone();
+            if (await confirmDeleteGroup(group)) onDone();
           }}
         >
           グループを削除
@@ -233,6 +249,23 @@ export function TagTree({
   >(null);
   // ドラッグで終わった pointerup の直後に click が来るので、絞り込みのトグルを 1 回だけ抑える
   const suppressClick = useRef(false);
+
+  /** 右クリックメニュー(v1.20)。対象はタグ 1 個かグループ見出し(未分類は group=null) */
+  const { menu, open: openMenu, close: closeMenu } = useContextMenu<
+    { kind: 'tag'; tag: Tag } | { kind: 'group'; group: TagGroup | null; index: number }
+  >();
+
+  /**
+   * ドラッグ中の右クリックはドラッグを中止してメニューを出さない(エクスプローラーと同じ)。
+   * `onDragPointerDown` が `e.button !== 0` で弾くのでドラッグ自体は始まらないが、
+   * **左ボタンで掴んだままの右クリック**では pointerup が来ず、掴んだ状態が宙に浮く
+   */
+  const cancelDragForMenu = () => {
+    if (!dragStart.current && !dragging) return false;
+    dragStart.current = null;
+    setDragging(null);
+    return true;
+  };
 
   const onDragPointerDown = (e: React.PointerEvent, kind: 'tag' | 'group', id: number) => {
     if (e.button !== 0) return;
@@ -352,6 +385,78 @@ export function TagTree({
     }
   };
 
+  /** グループ見出しのクリックと同じ絞り込み。配下タグをまとめて入れ替える */
+  const toggleGroupFilter = (ids: number[]) => {
+    if (ids.length === 0) return;
+    const allOn = ids.every((id) => tagIds.includes(id));
+    setTagFilter(
+      allOn ? tagIds.filter((id) => !ids.includes(id)) : [...new Set([...tagIds, ...ids])],
+    );
+  };
+
+  /** 右クリックメニューの実行(v1.20)。削除は `⋯` の編集パネルと同じ関数を通す */
+  const runMenuAction = async (
+    id: string,
+    target: { kind: 'tag'; tag: Tag } | { kind: 'group'; group: TagGroup | null; index: number },
+  ) => {
+    try {
+      if (target.kind === 'tag') {
+        const tag = target.tag;
+        if (id.startsWith('tag:color:')) {
+          const v = id.slice('tag:color:'.length);
+          await api.setTagColor(tag.id, v === 'none' ? null : v);
+          bumpVersion();
+          return;
+        }
+        if (id.startsWith('tag:group:')) {
+          const v = id.slice('tag:group:'.length);
+          await api.setTagGroup(tag.id, v === 'none' ? null : Number(v));
+          bumpVersion();
+          return;
+        }
+        switch (id) {
+          case 'tag:filter': toggleTagFilter(tag.id); break;
+          case 'tag:filterOnly': setTagFilter([tag.id]); break;
+          case 'tag:rename': {
+            const name = window.prompt('新しいタグ名', tag.name);
+            if (name === null || name.trim() === '' || name.trim() === tag.name) return;
+            await api.renameTag(tag.id, name.trim());
+            bumpVersion();
+            break;
+          }
+          case 'tag:delete': await confirmDeleteTag(tag); break;
+          default:
+        }
+        return;
+      }
+
+      const { group, index } = target;
+      const key = group?.id ?? UNGROUPED;
+      switch (id) {
+        case 'group:filter':
+          toggleGroupFilter((byGroup.get(key) ?? []).map((t) => t.id));
+          break;
+        case 'group:toggle': toggleCollapse(key); break;
+        case 'group:newTag': startCreate({ kind: 'tag', groupId: group?.id ?? null }); break;
+        case 'group:newGroup': startCreate({ kind: 'group' }); break;
+        case 'group:rename': {
+          if (!group) return;
+          const name = window.prompt('新しいグループ名', group.name);
+          if (name === null || name.trim() === '' || name.trim() === group.name) return;
+          await api.renameTagGroup(group.id, name.trim());
+          bumpVersion();
+          break;
+        }
+        case 'group:moveUp': await moveGroup(index, -1); break;
+        case 'group:moveDown': await moveGroup(index, 1); break;
+        case 'group:delete': if (group) await confirmDeleteGroup(group); break;
+        default:
+      }
+    } catch {
+      // トーストは call() の担当
+    }
+  };
+
   const createForm = (placeholder: string) => (
     <div className="tag-create" onClick={(e) => e.stopPropagation()}>
       <input
@@ -388,6 +493,10 @@ export function TagTree({
           // ドラッグで終わったときは絞り込みを切り替えない
           if (suppressClick.current) return;
           toggleTagFilter(t.id);
+        }}
+        onContextMenu={(e) => {
+          if (cancelDragForMenu()) return;
+          openMenu(e, buildTagMenu(t, groups, tagIds), { kind: 'tag', tag: t });
         }}
         title={`${t.name}(クリックで絞り込み。グループの見出しへドラッグすると移動できます)`}
       >
@@ -474,11 +583,14 @@ export function TagTree({
           onClick={() => {
             // 並べ替えのドラッグで終わったときは絞り込みを切り替えない
             if (suppressClick.current) return;
-            if (ids.length === 0) return;
-            setTagFilter(
-              allOn
-                ? tagIds.filter((id) => !ids.includes(id))
-                : [...new Set([...tagIds, ...ids])],
+            toggleGroupFilter(ids);
+          }}
+          onContextMenu={(e) => {
+            if (cancelDragForMenu()) return;
+            openMenu(
+              e,
+              buildTagGroupMenu(group, index, groups.length, ids.length, allOn, isCollapsed),
+              { kind: 'group', group, index },
             );
           }}
           title={[
@@ -586,6 +698,17 @@ export function TagTree({
         <div className="tag-tree-empty">
           まずグループ(「ジャンル」など)とタグを作ると、動画を選んで詳細ペインから付けられます
         </div>
+      )}
+
+      {menu && (
+        <ContextMenu
+          key={`${menu.x},${menu.y}`}
+          x={menu.x}
+          y={menu.y}
+          entries={menu.entries}
+          onClose={closeMenu}
+          onSelect={(id) => void runMenuAction(id, menu.target)}
+        />
       )}
     </>
   );

@@ -149,6 +149,7 @@ pub fn run() {
             commands::series::list_series,
             commands::series::add_to_series,
             commands::series::remove_from_series,
+            commands::series::rename_series,
             commands::series::delete_series,
             commands::series::series_for_videos,
             commands::settings::get_setting,

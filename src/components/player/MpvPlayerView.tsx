@@ -6,9 +6,11 @@ import { command, listenEvents, setProperty } from 'tauri-plugin-libmpv-api';
 import { api } from '../../api';
 import { useLibrary } from '../../store';
 import type { VideoRow } from '../../types';
+import { ContextMenu } from '../ContextMenu';
 import { PlayerControls } from './PlayerControls';
 import { resumeValueMs, savedMuted, savedVolume, shouldCountView } from './types';
 import { useMpvPlayer } from './useMpvPlayer';
+import { usePlayerMenu } from './usePlayerMenu';
 import { usePlayerShortcuts } from './usePlayerShortcuts';
 import { usePlayQueue } from './usePlayQueue';
 
@@ -201,10 +203,17 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
     onSetThumbnail: setThumbnail,
   });
 
+  const { menu, onContextMenu, close: closeMenu, run: runMenu } =
+    usePlayerMenu(video, { wake, onSetThumbnail: setThumbnail, onClose: close });
+
   const visible = controlsVisible || player.state.paused;
 
   return (
-    <div className={`mpv-overlay ${visible ? '' : 'controls-hidden'}`} onMouseMove={wake}>
+    <div
+      className={`mpv-overlay ${visible ? '' : 'controls-hidden'}`}
+      onMouseMove={wake}
+      onContextMenu={onContextMenu}
+    >
       <div className="mpv-stage" onClick={player.togglePlay} onDoubleClick={toggleFullscreen} />
       <div className="player-top">
         <div className="player-title" title={video.path}>
@@ -223,6 +232,18 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
         previewSrc={convertFileSrc(video.path)}
         queue={queue}
       />
+
+      {/* **必ず .mpv-overlay の内側**。再生中は html.mpv-active が .app ごと消す */}
+      {menu && (
+        <ContextMenu
+          key={`${menu.x},${menu.y}`}
+          x={menu.x}
+          y={menu.y}
+          entries={menu.entries}
+          onClose={closeMenu}
+          onSelect={(id) => void runMenu(id)}
+        />
+      )}
     </div>
   );
 }

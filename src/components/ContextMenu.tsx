@@ -85,17 +85,34 @@ export function ContextMenu({
   // メニューの外を押したら閉じる。別のカードを右クリックしたときも
   // ここで一度閉じてから、グリッド側が新しい位置で開き直す
   useEffect(() => {
+    const inside = (t: EventTarget | null) =>
+      t instanceof Node && (ref.current?.contains(t) || subRef.current?.contains(t));
+
     const onDown = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (ref.current?.contains(t) || subRef.current?.contains(t)) return;
+      if (inside(e.target)) return;
+      onClose();
+    };
+    /**
+     * 裏の一覧・サイドバーがスクロールしたら閉じる(v1.20 でここへ移した)。
+     * fixed で置いているので中身だけが動き、「何に対するメニューか」が分からなくなる。
+     * グリッドは仮想化しているので対象のカード自体が DOM から消えることもある。
+     *
+     * **capture で拾う** — スクロールは bubble しないので、
+     * こうしないとホストごとに onScroll を書く羽目になる。
+     * ただしメニュー自身が縦に長いときは中でスクロールするので、それは除外する
+     */
+    const onScroll = (e: Event) => {
+      if (inside(e.target)) return;
       onClose();
     };
     // ウィンドウの大きさが変われば位置の前提が崩れるので閉じる
     window.addEventListener('mousedown', onDown);
     window.addEventListener('resize', onClose);
+    window.addEventListener('scroll', onScroll, true);
     return () => {
       window.removeEventListener('mousedown', onDown);
       window.removeEventListener('resize', onClose);
+      window.removeEventListener('scroll', onScroll, true);
     };
   }, [onClose]);
 
@@ -181,7 +198,14 @@ export function ContextMenu({
       onMouseEnter={onHover}
       onClick={() => run(item)}
     >
-      <span className="ctx-icon">{item.icon ? <item.icon /> : null}</span>
+      <span className="ctx-icon">
+        {/* 色は名前だけでは選べないので、アイコン枠に実物の色丸を描く(v1.20) */}
+        {item.swatch ? (
+          <span className="ctx-swatch" style={{ background: item.swatch }} />
+        ) : item.icon ? (
+          <item.icon />
+        ) : null}
+      </span>
       <span className="ctx-label">{item.label}</span>
       {item.checked && <Check className="ctx-mark" />}
       {item.submenu && <ChevronRight className="ctx-mark" />}

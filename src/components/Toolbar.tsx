@@ -10,14 +10,13 @@ import {
   RefreshCw,
   RotateCcwClock,
   Settings,
-  Shuffle,
   Sparkles,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { api } from '../api';
-import { CURATED_SORTS, sortLabel } from '../lib/listColumns';
+import { sortLabel, sortOptions } from '../lib/listColumns';
 import { advancedCount, buildQuery } from '../lib/query';
 import { splitToolbar, TOOLBAR_ITEMS, toolbarKeys } from '../lib/toolbarItems';
 import type { ToolbarItemKey } from '../lib/toolbarItems';
@@ -36,7 +35,7 @@ export function Toolbar() {
   const {
     text, setText, sort, setSort, scanning, seriesId,
     minRating, setMinRating, durationBucket, setDurationBucket,
-    showAiPanel, toggleAiPanel, advanced, reshuffle, duplicatesOnly,
+    showAiPanel, toggleAiPanel, advanced, duplicatesOnly,
     setShowStats, bumpVersion, pushToast,
     viewMode, setViewMode, cardWidth, setCardWidth,
     inspectorPinned, setInspectorPinned, sidebarCollapsed, setSidebarCollapsed,
@@ -202,27 +201,11 @@ export function Toolbar() {
             value={sort}
             onChange={(v) => setSort(v as SortKey)}
           >
-            {CURATED_SORTS.map((k) => (
+            {/* 選択肢の組み立ては余白の右クリックメニューと共有する(片方だけ増えるのを防ぐ) */}
+            {sortOptions({ sort, seriesId, duplicatesOnly }).map((k) => (
               <option key={k} value={k}>{sortLabel(k)}</option>
             ))}
-            {seriesId !== null && <option value="series_asc">シリーズ順</option>}
-            {duplicatesOnly && <option value="dup">重複をまとめる</option>}
-            {!CURATED_SORTS.includes(sort) && sort !== 'series_asc' && sort !== 'dup' && (
-              <option value={sort}>{sortLabel(sort)}</option>
-            )}
           </ToolSelect>
-        );
-
-      case 'shuffle':
-        return (
-          <ToolButton
-            key={key}
-            place={place}
-            icon={Shuffle}
-            label={label}
-            title="並びをシャッフルする"
-            onClick={act(reshuffle)}
-          />
         );
 
       case 'rating':

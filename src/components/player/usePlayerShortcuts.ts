@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useLibrary } from '../../store';
 import type { VideoPlayer } from './types';
 import { useAutoplayToggle, useRepeatToggle } from './usePlayQueue';
 
@@ -31,6 +32,13 @@ export function usePlayerShortcuts(
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      /*
+       * 右クリックメニューが開いている間のキーはメニュー側が処理する(v1.20)。
+       * ContextMenu の stopPropagation は React のルートまでしか効かないので、
+       * メニューがフォーカスを失っていると window まで届いてしまう。
+       * **Esc の分岐より前に置くこと** — 後ろだと Esc でプレイヤーごと閉じる
+       */
+      if (useLibrary.getState().contextMenuOpen) return;
       if (e.key === 'Escape') {
         onEscape();
         return;

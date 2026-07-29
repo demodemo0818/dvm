@@ -336,3 +336,20 @@ const SORT_LABELS: Record<SortKey, string> = {
 export function sortLabel(key: SortKey): string {
   return SORT_LABELS[key];
 }
+
+/**
+ * 並び順の選択肢。ツールバーの select と、グリッド余白の右クリックメニュー(v1.20)で共有する。
+ *
+ * シリーズ順・重複順はその絞り込みが効いている間だけ意味を持つので、そのときだけ足す。
+ * CURATED_SORTS に無いキー(列ヘッダから選んだもの)は、選ばれている間だけ末尾に足す —
+ * 足さないと select / メニューが現在値を表現できず、開いた瞬間に別の並びへ飛ぶ
+ */
+export function sortOptions(
+  s: { sort: SortKey; seriesId: number | null; duplicatesOnly: boolean },
+): SortKey[] {
+  const keys = [...CURATED_SORTS];
+  if (s.seriesId !== null) keys.push('series_asc');
+  if (s.duplicatesOnly) keys.push('dup');
+  if (!keys.includes(s.sort)) keys.push(s.sort);
+  return keys;
+}

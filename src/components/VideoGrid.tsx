@@ -3,15 +3,15 @@ import { ask, open } from '@tauri-apps/plugin-dialog';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
+import { useContextMenu } from '../hooks/useContextMenu';
 import { useVideos } from '../hooks/useVideos';
-import { buildFolderMenu, buildVideoMenu } from '../lib/contextMenu';
-import type { MenuEntry } from '../lib/contextMenu';
+import { buildFolderMenu, buildGridBlankMenu, buildVideoMenu } from '../lib/contextMenu';
 import { GRID_GAP, GRID_PAD, gridMetrics } from '../lib/grid';
 import { gridTemplate, totalWidth } from '../lib/listColumns';
 import { parentDir } from '../lib/paths';
 import { buildQuery } from '../lib/query';
 import { useLibrary } from '../store';
-import type { PlanItem, VideoQuery, VideoRow } from '../types';
+import type { PlanItem, SortKey, VideoQuery, VideoRow, ViewMode } from '../types';
 import { ContextMenu } from './ContextMenu';
 import { DeleteDialog } from './DeleteDialog';
 import { FileOpDialog } from './FileOpDialog';
@@ -30,11 +30,11 @@ const LIST_ROW_H_SLIM = 28;
  */
 const SELECT_ALL_LIMIT = 1000;
 
-/** 右クリックメニューの表示状態。対象が動画かサブフォルダかで持ち物が違う */
-type MenuState = { x: number; y: number; entries: MenuEntry[] } & (
+/** 右クリックメニューの対象。動画・サブフォルダ・余白で持ち物が違う */
+type MenuTarget =
   | { kind: 'video'; video: VideoRow; index: number }
   | { kind: 'folder'; path: string }
-);
+  | { kind: 'blank' };
 
 export function VideoGrid() {
   const {
@@ -45,18 +45,20 @@ export function VideoGrid() {
     playerPath, playingVideo, showAiPanel, pushToast, contextMenuOpen,
   } = useLibrary();
 
-  const query = useMemo<VideoQuery>(() => buildQuery({
+  /** 絞り込み一式。buildQuery と余白メニューが同じものを見る */
+  const filters = useMemo(() => ({
     text, sort, folderId, dirPath, tagIds, seriesId, missingOnly, minRating, durationBucket,
     duplicatesOnly, advanced, randomSeed,
   }), [
     text, sort, folderId, dirPath, tagIds, seriesId, missingOnly, minRating, durationBucket,
     duplicatesOnly, advanced, randomSeed,
   ]);
+  const query = useMemo<VideoQuery>(() => buildQuery(filters), [filters]);
   const { total, getVideo, getRange } = useVideos(query, version);
 
   const parentRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
-  const [menu, setMenu] = useState<MenuState | null>(null);
+  const { menu, open: openMenu, close: closeMenu } = useContextMenu<MenuTarget>();
   /** Delete キーで開く「どちらの削除か」の確認 */
   const [askDelete, setAskDelete] = useState(false);
   /** dry-run の結果。null の間はダイアログを出さない(プレビューなしに実行させない) */
@@ -157,31 +159,22 @@ export function VideoGrid() {
    */
   const onCardContextMenu = useCallback(
     (video: VideoRow, index: number, e: React.MouseEvent) => {
-      e.preventDefault();
       const current = useLibrary.getState().selection;
       const inSelection = current.some((v) => v.id === video.id);
       const targets = inSelection ? current : [video];
       if (!inSelection) selectOnly(video, index);
-      setMenu({
-        kind: 'video',
-        x: e.clientX,
-        y: e.clientY,
-        video,
-        index,
-        entries: buildVideoMenu(targets, video),
-      });
+      openMenu(e, buildVideoMenu(targets, video), { kind: 'video', video, index });
     },
-    [selectOnly],
+    [selectOnly, openMenu],
   );
 
   const onFolderContextMenu = useCallback(
     (entry: FolderEntry, e: React.MouseEvent) => {
-      e.preventDefault();
       // フォルダは選択の対象外。左クリックと同じく動画の選択は解除する
       clearSelection();
-      setMenu({ kind: 'folder', x: e.clientX, y: e.clientY, path: entry.path, entries: buildFolderMenu() });
+      openMenu(e, buildFolderMenu(), { kind: 'folder', path: entry.path });
     },
-    [clearSelection],
+    [clearSelection, openMenu],
   );
 
   /** クリップボードは Tauri プラグインを足さず WebView の API を使う(失敗は必ず見せる) */
@@ -347,6 +340,78 @@ export function VideoGrid() {
     }
   }, [total, getRange, setSelection, pushToast]);
 
+  /** 「上のフォルダ」の行き先。フォルダーで絞っていないか、監視フォルダの外に出るときは null */
+  const parentPath = folderEntries[0]?.up ? folderEntries[0].path : null;
+
+  /**
+   * グリッドの余白(v1.20)。カード・行・列ヘッダの上では出さない —
+   * どれも stopPropagation していないので、ここで弾かないと
+   * それぞれのメニューが出た直後にこれで上書きされてしまう
+   */
+  const onBlankContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      if ((e.target as HTMLElement).closest('.card, .list-row, .list-head')) return;
+      openMenu(
+        e,
+        buildGridBlankMenu({
+          total,
+          selectionCount: useLibrary.getState().selection.length,
+          viewMode,
+          parentPath,
+          filters,
+        }),
+        { kind: 'blank' },
+      );
+    },
+    [openMenu, total, viewMode, parentPath, filters],
+  );
+
+  const runBlankAction = useCallback(
+    async (id: string) => {
+      const s = useLibrary.getState();
+
+      if (id.startsWith('blank:view:')) {
+        const next = id.slice('blank:view:'.length) as ViewMode;
+        s.setViewMode(next);
+        void api.setSetting('view_mode', next);
+        return;
+      }
+      if (id.startsWith('blank:sort:')) {
+        s.setSort(id.slice('blank:sort:'.length) as SortKey);
+        return;
+      }
+
+      switch (id) {
+        case 'blank:selectAll':
+          await selectAll();
+          break;
+        case 'blank:clearSelection':
+          s.clearSelection();
+          break;
+        case 'blank:up':
+          if (parentPath) s.toggleDirPath(parentPath);
+          break;
+        case 'blank:reveal':
+          if (!s.dirPath) return;
+          try {
+            await revealItemInDir(s.dirPath);
+          } catch {
+            pushToast('エクスプローラーで表示できませんでした');
+          }
+          break;
+        // 空オブジェクトを渡すと絞り込みだけが既定に戻る(並び順は残る)
+        case 'blank:clearFilters':
+          s.applyFilter({});
+          break;
+        case 'blank:refresh':
+          s.bumpVersion();
+          break;
+        default:
+      }
+    },
+    [selectAll, parentPath, pushToast],
+  );
+
   // キーボード操作。プレイヤー表示中と入力欄にフォーカスがある間は何もしない
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -428,9 +493,8 @@ export function VideoGrid() {
       className={`grid-scroll ${list ? 'list-mode' : ''}`}
       // ヘッダ行・動画行・フォルダ行が同じ列幅を共有するための CSS 変数
       style={list ? ({ '--list-cols': gridTemplate(listColumns) } as React.CSSProperties) : undefined}
-      // 仮想化しているのでスクロールすると対象のカードが DOM から消える。
-      // 「何に対するメニューか」が分からなくなるので、動かしたら閉じる
-      onScroll={() => menu && setMenu(null)}
+      // スクロールしたらメニューを閉じる処理は ContextMenu 側が持つ(v1.20)
+      onContextMenu={onBlankContextMenu}
       onClick={(e) => {
         // カード以外の余白クリックで選択解除(フォルダは選択の対象外なので押しても解除する)
         const hit = (e.target as HTMLElement).closest('.card, .list-row');
@@ -524,10 +588,12 @@ export function VideoGrid() {
         x={menu.x}
         y={menu.y}
         entries={menu.entries}
-        onClose={() => setMenu(null)}
+        onClose={closeMenu}
         onSelect={(id) => {
-          if (menu.kind === 'video') void runVideoAction(id, menu.video, menu.index);
-          else void runFolderAction(id, menu.path);
+          const t = menu.target;
+          if (t.kind === 'video') void runVideoAction(id, t.video, t.index);
+          else if (t.kind === 'folder') void runFolderAction(id, t.path);
+          else void runBlankAction(id);
         }}
       />
     )}

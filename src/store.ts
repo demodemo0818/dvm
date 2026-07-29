@@ -118,12 +118,20 @@ interface LibraryState {
    */
   seekPreview: boolean;
   /**
-   * 右クリックメニューを開いているか(v1.14)。メニューの中身はグリッド側の
-   * ローカル state で持ち、ここには開閉だけを置く。
-   * 開いている間はグリッドの矢印キーと App の Esc(選択解除)を止めるため、
-   * 複数のコンポーネントから見える場所に置く必要がある
+   * 右クリックメニューを開いているか(v1.14)。メニューの中身は**開いた側の**
+   * ローカル state(hooks/useContextMenu.ts)で持ち、ここには開閉だけを置く。
+   * 開いている間はグリッドの矢印キー・App の Esc(選択解除)・
+   * プレイヤーのショートカットを止めるため、複数の場所から見える必要がある
    */
   contextMenuOpen: boolean;
+  /**
+   * 開いているメニューの数(v1.20)。**contextMenuOpen を直接 false にしない**ための内部値。
+   *
+   * 別のホストのメニューへ移ると「新しい方の mount → 古い方の unmount」の順で
+   * 呼ばれることがあり、素直に true/false を書くとそこでフラグが落ちる。
+   * 落ちた瞬間、メニューが出ているのに裏のグリッドが矢印キーを拾い始める
+   */
+  contextMenuDepth: number;
   /** AI アシスタントパネルの表示状態 */
   showAiPanel: boolean;
   /** 統計ダッシュボードの表示状態 */
@@ -147,8 +155,6 @@ interface LibraryState {
   setDurationBucket: (durationBucket: DurationBucket | null) => void;
   setAdvanced: (patch: Partial<AdvancedFilter>) => void;
   clearAdvanced: () => void;
-  /** ランダムソートに切り替える / すでにランダムなら並びを引き直す */
-  reshuffle: () => void;
   bumpVersion: () => void;
   setStatus: (scanning: boolean, status: string) => void;
   setPlayingVideo: (video: VideoRow | null) => void;
@@ -168,7 +174,8 @@ interface LibraryState {
   setPlayerPath: (playerPath: string) => void;
   setPreviewOnHover: (previewOnHover: boolean) => void;
   setSeekPreview: (seekPreview: boolean) => void;
-  setContextMenuOpen: (contextMenuOpen: boolean) => void;
+  /** メニューの mount で true、unmount で false。呼び出し側は入れ子を意識しなくてよい */
+  setContextMenuOpen: (open: boolean) => void;
   toggleAiPanel: () => void;
   setShowStats: (showStats: boolean) => void;
   /**
@@ -233,6 +240,7 @@ export const useLibrary = create<LibraryState>((set) => ({
   previewOnHover: true,
   seekPreview: true,
   contextMenuOpen: false,
+  contextMenuDepth: 0,
   showAiPanel: false,
   showStats: false,
   toasts: [],
@@ -262,7 +270,12 @@ export const useLibrary = create<LibraryState>((set) => ({
   setPlayerPath: (playerPath) => set({ playerPath }),
   setPreviewOnHover: (previewOnHover) => set({ previewOnHover }),
   setSeekPreview: (seekPreview) => set({ seekPreview }),
-  setContextMenuOpen: (contextMenuOpen) => set({ contextMenuOpen }),
+  setContextMenuOpen: (open) =>
+    set((s) => {
+      // 0 を下回らせない。二重に閉じても負の借金が残らないようにする
+      const contextMenuDepth = Math.max(0, s.contextMenuDepth + (open ? 1 : -1));
+      return { contextMenuDepth, contextMenuOpen: contextMenuDepth > 0 };
+    }),
   toggleAiPanel: () => set((s) => ({ showAiPanel: !s.showAiPanel })),
   setShowStats: (showStats) => set({ showStats }),
   applyFilter: (f) =>
@@ -281,8 +294,11 @@ export const useLibrary = create<LibraryState>((set) => ({
       ...CLEARED,
     })),
   setText: (text) => set({ text, ...CLEARED }),
-  // 選択の照合は id の Set なので、並べ替えても正しい行がハイライトされ続ける
-  setSort: (sort) => set({ sort, ...REORDERED }),
+  // 選択の照合は id の Set なので、並べ替えても正しい行がハイライトされ続ける。
+  // 「ランダム」は**選ぶたびに引き直す**(v1.20)。種を据え置くと 2 回目以降が
+  // 同じ並びになり「シャッフルされない」と見える。専用のシャッフルボタンはこれで畳んだ
+  setSort: (sort) =>
+    set(sort === 'random' ? { sort, randomSeed: newSeed(), ...REORDERED } : { sort, ...REORDERED }),
   // フォルダの 2 系統(監視フォルダ配下すべて / フォルダ直下だけ)は同時に使わない。
   // 片方を選んだらもう片方を外す(AND で 0 件になるのを避ける)
   setFolderId: (folderId) => set({ folderId, dirPath: null, ...CLEARED }),
@@ -322,7 +338,6 @@ export const useLibrary = create<LibraryState>((set) => ({
   setAdvanced: (patch) =>
     set((s) => ({ advanced: { ...s.advanced, ...patch }, ...CLEARED })),
   clearAdvanced: () => set({ advanced: EMPTY_ADVANCED, ...CLEARED }),
-  reshuffle: () => set({ sort: 'random', randomSeed: newSeed(), ...CLEARED }),
   toggleSeriesFilter: (seriesId) =>
     set((s) => {
       const next = s.seriesId === seriesId ? null : seriesId;

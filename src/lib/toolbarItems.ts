@@ -21,7 +21,6 @@ export type ToolbarItemKey =
   | 'search'
   | 'advanced'
   | 'sort'
-  | 'shuffle'
   | 'rating'
   | 'duration'
   | 'saveQuery'
@@ -73,8 +72,8 @@ export const TOOLBAR_ITEMS: Record<ToolbarItemKey, ToolbarItemDef> = {
    */
   search: { key: 'search', label: '検索', width: 180, priority: 0 },
   advanced: { key: 'advanced', label: '絞り込み', width: ICON_W, priority: 0 },
+  // 並び順で「ランダム」を選ぶたびにシャッフルし直すので、専用ボタンは持たない(v1.20)
   sort: { key: 'sort', label: '並び順', width: 172, priority: 13 },
-  shuffle: { key: 'shuffle', label: 'シャッフル', width: ICON_W, priority: 4 },
   rating: { key: 'rating', label: 'レーティング', width: 106, priority: 8 },
   duration: { key: 'duration', label: '長さ', width: 116, priority: 7 },
   saveQuery: { key: 'saveQuery', label: '条件を保存', width: ICON_W, priority: 1 },
@@ -98,7 +97,6 @@ export const TOOLBAR_ORDER: ToolbarItemKey[] = [
   'search',
   'advanced',
   'sort',
-  'shuffle',
   'rating',
   'duration',
   'saveQuery',

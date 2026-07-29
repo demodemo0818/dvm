@@ -33,6 +33,12 @@ pub fn remove_from_series(
 }
 
 #[tauri::command]
+pub fn rename_series(state: State<AppState>, series_id: i64, name: String) -> Result<(), String> {
+    let conn = state.db.lock().unwrap();
+    series::rename_series(&conn, "user", series_id, &name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn delete_series(state: State<AppState>, series_id: i64) -> Result<(), String> {
     let conn = state.db.lock().unwrap();
     series::delete_series(&conn, "user", series_id).map_err(|e| e.to_string())

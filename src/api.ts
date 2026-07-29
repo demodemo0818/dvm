@@ -97,6 +97,9 @@ export const api = {
     call<number>('add_to_series', { videoIds, name, actor }),
   removeFromSeries: (videoIds: number[], seriesId: number, actor?: 'user' | 'ai') =>
     call<void>('remove_from_series', { videoIds, seriesId, actor }),
+  /** 同名のシリーズがあると失敗する(series に UNIQUE が無いので Rust 側で弾いている) */
+  renameSeries: (seriesId: number, name: string) =>
+    call<void>('rename_series', { seriesId, name }),
   deleteSeries: (seriesId: number) => call<void>('delete_series', { seriesId }),
   seriesForVideos: (videoIds: number[]) => call<Series[]>('series_for_videos', { videoIds }),
   getSetting: (key: string) => call<string | null>('get_setting', { key }),

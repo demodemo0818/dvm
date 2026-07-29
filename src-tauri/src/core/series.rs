@@ -106,6 +106,36 @@ pub fn remove_videos_from_series(conn: &Connection, actor: &str, video_ids: &[i6
     Ok(())
 }
 
+/// シリーズ名を変える(v1.20。サイドバーの右クリックメニューから)。
+///
+/// **同名チェックはここで持つ**。tags と違って series には UNIQUE 制約が無く
+/// (ensure_series が COLLATE NOCASE の検索で拾っているだけ)、DB は止めてくれない。
+/// 素通しすると同名のシリーズが 2 つ並び、以後 ensure_series は片方しか掴めなくなる
+pub fn rename_series(conn: &Connection, actor: &str, series_id: i64, new_name: &str) -> Result<()> {
+    let new_name = new_name.trim();
+    anyhow::ensure!(!new_name.is_empty(), "シリーズ名が空です");
+    let taken: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM series WHERE name = ?1 COLLATE NOCASE AND id <> ?2",
+            params![new_name, series_id],
+            |r| r.get(0),
+        )
+        .ok();
+    anyhow::ensure!(taken.is_none(), "同じ名前のシリーズがすでにあります");
+    let before: String = conn
+        .query_row("SELECT name FROM series WHERE id = ?1", params![series_id], |r| r.get(0))
+        .unwrap_or_default();
+    conn.execute("UPDATE series SET name = ?1 WHERE id = ?2", params![new_name, series_id])?;
+    db::log_op(
+        conn,
+        actor,
+        "rename_series",
+        &serde_json::json!({ "seriesId": series_id, "before": before, "after": new_name })
+            .to_string(),
+    );
+    Ok(())
+}
+
 pub fn delete_series(conn: &Connection, actor: &str, series_id: i64) -> Result<()> {
     let name: String = conn
         .query_row("SELECT name FROM series WHERE id = ?1", params![series_id], |r| r.get(0))
@@ -149,4 +179,35 @@ pub fn series_for_videos(conn: &Connection, video_ids: &[i64]) -> Result<Vec<Ser
         .filter_map(|r| r.ok())
         .collect();
     Ok(rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn setup() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::apply_schema(&conn).unwrap();
+        conn
+    }
+
+    #[test]
+    fn rename_rejects_duplicate_names() {
+        let conn = setup();
+        let a = ensure_series(&conn, "第 1 期").unwrap();
+        ensure_series(&conn, "第 2 期").unwrap();
+
+        // series には UNIQUE が無いので、ここで弾けないと同名が 2 つ並ぶ
+        assert!(rename_series(&conn, "user", a, "第 2 期").is_err());
+        // 大文字小文字違いも同じ名前とみなす(ensure_series の検索と揃える)
+        ensure_series(&conn, "Season 2").unwrap();
+        assert!(rename_series(&conn, "user", a, "season 2").is_err());
+        assert!(rename_series(&conn, "user", a, "  ").is_err());
+
+        // 自分自身と同じ名前は通す(大文字小文字だけ直したいことがある)
+        assert!(rename_series(&conn, "user", a, "第 1 期").is_ok());
+        assert!(rename_series(&conn, "user", a, "第 1 期(再)").is_ok());
+        let names: Vec<String> = list_series(&conn).unwrap().into_iter().map(|s| s.name).collect();
+        assert!(names.contains(&"第 1 期(再)".to_string()));
+    }
 }
