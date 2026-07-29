@@ -1,6 +1,6 @@
 [package]
 name = "dvm"
-version = "1.17.0"
+version = "1.18.0"
 description = "DVM(Demodemo Video Manager)— Windows 向け動画管理ソフト"
 authors = ["taiki"]
 edition = "2021"

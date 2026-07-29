@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useLibrary } from './store';
 import type {
   AppInfo, BackupInfo, FolderNode, LibraryStats, MediaInfo, OpEntry, OpResult, PlanItem, Series,
-  SmartFolder, SubfolderView, Tag, VideoQuery, VideoRow, WatchedFolder,
+  SmartFolder, SubfolderView, Tag, VideoQuery, VideoRow, ViewEntry, WatchedFolder,
 } from './types';
 
 /**
@@ -36,12 +36,22 @@ export const api = {
   queryVideos: (query: VideoQuery, limit: number, offset: number) =>
     call<VideoRow[]>('query_videos', { query, limit, offset }),
   registerFiles: (paths: string[]) => call<number>('register_files', { paths }),
+  /** id 1 件を一覧と同じ形で引く(視聴履歴からの再生用) */
+  getVideo: (id: number) => call<VideoRow | null>('get_video', { id }),
   openVideo: (id: number) => call<void>('open_video', { id }),
   /** 外部プレイヤー設定を無視して Windows の関連付けアプリで開く(右クリックメニュー用) */
   openWithDefault: (id: number) => call<void>('open_with_default', { id }),
   /** Windows の「プログラムから開く」ダイアログを出す */
   openWithDialog: (id: number) => call<void>('open_with_dialog', { id }),
   markViewed: (id: number) => call<void>('mark_viewed', { id }),
+  /**
+   * 再生が実際に始まった時点で 1 回だけ呼ぶ(v1.18)。返るのは view_history の行 id。
+   * 失敗しても再生には関係ないので silent(トーストを出さない)
+   */
+  markOpened: (id: number) => call<number>('mark_opened', { id }, true),
+  /** 閉じる / 終わるときに到達位置を書き戻す(v1.18)。こちらも silent */
+  finishView: (historyId: number, watchedMs: number) =>
+    call<void>('finish_view', { historyId, watchedMs }, true),
   setResume: (id: number, resumeMs: number) => call<void>('set_resume', { id, resumeMs }),
   /**
    * 再生用変換(remux/transcode)。完了までブロックし、キャッシュ mp4 の絶対パスを返す。
@@ -133,4 +143,8 @@ export const api = {
   listOperations: (limit: number, offset: number) =>
     call<OpEntry[]>('list_operations', { limit, offset }),
   undoOperation: (opId: number) => call<string>('undo_operation', { opId }),
+
+  // --- 視聴履歴(v1.18)---
+  listViewHistory: (limit: number, offset: number) =>
+    call<ViewEntry[]>('list_view_history', { limit, offset }),
 };

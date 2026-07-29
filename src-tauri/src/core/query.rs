@@ -363,6 +363,22 @@ fn map_row(r: &rusqlite::Row) -> rusqlite::Result<VideoRow> {
     })
 }
 
+/// id 1 件を一覧と同じ形で引く(v1.18。視聴履歴からその動画を再生するため)。
+/// 見つからなければ None。整形は query_rows と同じ経路を通す
+pub fn video_by_id(conn: &Connection, thumbs_dir: Option<&Path>, id: i64) -> Result<Option<VideoRow>> {
+    let sql = format!("SELECT {SELECT_COLUMNS} FROM videos WHERE id = ?1");
+    let mut row = match conn.query_row(&sql, [id], map_row) {
+        Ok(row) => row,
+        Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
+    row.is_offline = !RootCache::default().is_online(&row.path);
+    row.thumb_path = thumbs_dir
+        .filter(|_| row.thumb_state == 1)
+        .map(|dir| dir.join(format!("{}.jpg", row.id)).to_string_lossy().to_string());
+    Ok(Some(row))
+}
+
 /// 検索を実行して一覧行を返す。thumbs_dir が None のときはサムネイルパスを解決しない(MCP 用)
 pub fn query_rows(
     conn: &Connection,

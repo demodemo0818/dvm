@@ -82,7 +82,8 @@ export const TOOLBAR_ITEMS: Record<ToolbarItemKey, ToolbarItemDef> = {
   cardSize: { key: 'cardSize', label: 'サムネイルの大きさ', width: 110, priority: 11 },
   rescan: { key: 'rescan', label: '再スキャン', width: ICON_W, priority: 5 },
   stats: { key: 'stats', label: '統計', width: ICON_W, priority: 3 },
-  history: { key: 'history', label: '操作履歴', width: ICON_W, priority: 2 },
+  // v1.18 で視聴履歴のタブが入ったので「操作履歴」ではなくなった
+  history: { key: 'history', label: '履歴', width: ICON_W, priority: 2 },
   inspectorPin: { key: 'inspectorPin', label: '詳細ペイン', width: ICON_W, priority: 10 },
   aiPanel: { key: 'aiPanel', label: 'AI アシスタント', width: ICON_W, priority: 9 },
   settings: { key: 'settings', label: '設定', width: ICON_W, priority: 6 },

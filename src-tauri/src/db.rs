@@ -152,6 +152,20 @@ CREATE TABLE IF NOT EXISTS smart_folders (
   position INTEGER NOT NULL DEFAULT 0
 );
 
+-- 視聴 1 回につき 1 行(v1.18)。videos.last_viewed_at が上書きで最後の 1 点しか
+-- 残さないのに対し、こちらは全回を残す。**v1.18 では書くだけで誰も読まない** —
+-- 後から作っても過去は復元できないため、貯め始めだけ先行させている。
+-- 読み出す UI を作る判断材料は DESIGN.md「視聴履歴の記録」節を見ること
+CREATE TABLE IF NOT EXISTS view_history (
+  id INTEGER PRIMARY KEY,
+  video_id INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+  viewed_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  -- 閉じた時点の再生位置。NULL = 不明(外部プレイヤー / 異常終了)
+  watched_ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_view_history_video ON view_history(video_id);
+CREATE INDEX IF NOT EXISTS idx_view_history_at ON view_history(viewed_at);
+
 CREATE TABLE IF NOT EXISTS operations_log (
   id INTEGER PRIMARY KEY,
   timestamp TEXT NOT NULL DEFAULT (datetime('now','localtime')),

@@ -111,6 +111,39 @@ pub fn mark_viewed(conn: &Connection, video_id: i64) -> Result<()> {
     Ok(())
 }
 
+/// 再生が実際に始まった時点で呼ぶ(v1.18)。
+/// `last_viewed_at` の更新と `view_history` への 1 行追加を同時に行い、履歴の行 id を返す。
+///
+/// **`mark_viewed`(視聴カウント)とは基準が違う**。あちらは尺の 5% or 30 秒を観たときだけ
+/// 進むが、こちらは 1 フレームでも再生されたら必ず記録する。
+/// 「ちょっと開いて閉じたやつ」を探し直せるようにするための区別
+/// (結果として view_count = 0 でも last_viewed_at がある動画が生まれる。これは正しい)。
+///
+/// 記録の基準を 1 つに保ちたいので、2 つの書き込みは 1 トランザクションにまとめる。
+/// ここだけ `unchecked_transaction` を使うのは、再生のたびに通る経路で
+/// `BEGIN` を投げっぱなしにすると以後の書き込みが全部止まるため(drop で自動ロールバックされる)
+pub fn mark_opened(conn: &Connection, video_id: i64) -> Result<i64> {
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "UPDATE videos SET last_viewed_at = datetime('now','localtime') WHERE id = ?1",
+        params![video_id],
+    )?;
+    tx.execute("INSERT INTO view_history (video_id) VALUES (?1)", params![video_id])?;
+    let history_id = tx.last_insert_rowid();
+    tx.commit()?;
+    Ok(history_id)
+}
+
+/// 再生を終える / 閉じるときに呼ぶ(v1.18)。到達位置を履歴の行に書き戻す。
+/// 呼ばれないまま(異常終了・外部プレイヤー)なら watched_ms は NULL のまま = 不明
+pub fn finish_view(conn: &Connection, history_id: i64, watched_ms: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE view_history SET watched_ms = ?1 WHERE id = ?2",
+        params![watched_ms.max(0), history_id],
+    )?;
+    Ok(())
+}
+
 /// ごみ箱送りの dry-run 結果 1 件分
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -199,4 +232,71 @@ pub fn trash_files(conn: &Connection, actor: &str, video_ids: &[i64]) -> Result<
         }
     }
     Ok(results)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 本物のスキーマを流したインメモリ DB で確かめる(SQL の実行結果で見る方針)。
+    /// CASCADE を見たいので foreign_keys は明示的に ON にする(db::init と同じ設定)
+    fn setup() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        db::apply_schema(&conn).unwrap();
+        conn.execute_batch(
+            r#"INSERT INTO videos (id, path, filename, size, added_at)
+               VALUES (1, 'C:\v\a.mp4', 'a.mp4', 100, '2026-01-01 00:00:00');"#,
+        )
+        .unwrap();
+        conn
+    }
+
+    fn scalar(conn: &Connection, sql: &str) -> i64 {
+        conn.query_row(sql, [], |r| r.get(0)).unwrap()
+    }
+
+    /// mark_opened は「開いた」だけを記録する。視聴カウント(5%/30 秒)は動かさない
+    #[test]
+    fn mark_opened_records_the_open_without_counting_a_view() {
+        let conn = setup();
+        mark_opened(&conn, 1).unwrap();
+
+        assert_eq!(scalar(&conn, "SELECT view_count FROM videos WHERE id = 1"), 0);
+        assert_eq!(
+            scalar(&conn, "SELECT COUNT(*) FROM videos WHERE id = 1 AND last_viewed_at IS NOT NULL"),
+            1,
+        );
+        assert_eq!(scalar(&conn, "SELECT COUNT(*) FROM view_history"), 1);
+    }
+
+    /// last_viewed_at は上書きされるが、履歴は 1 回ごとに 1 行貯まる(これが表を足した理由)
+    #[test]
+    fn every_open_adds_a_row_even_though_last_viewed_at_is_overwritten() {
+        let conn = setup();
+        for _ in 0..3 {
+            mark_opened(&conn, 1).unwrap();
+        }
+        assert_eq!(scalar(&conn, "SELECT COUNT(*) FROM view_history WHERE video_id = 1"), 3);
+    }
+
+    /// 閉じるまで watched_ms は NULL(= 不明)のまま。異常終了しても「見た」事実は残る
+    #[test]
+    fn watched_ms_is_null_until_the_view_finishes() {
+        let conn = setup();
+        let id = mark_opened(&conn, 1).unwrap();
+        assert_eq!(scalar(&conn, "SELECT COUNT(*) FROM view_history WHERE watched_ms IS NULL"), 1);
+
+        finish_view(&conn, id, 743_000).unwrap();
+        assert_eq!(scalar(&conn, "SELECT watched_ms FROM view_history WHERE id = 1"), 743_000);
+    }
+
+    /// 動画を消したら履歴も一緒に消える(孤児掃除のワーカーを書かずに済ませている根拠)
+    #[test]
+    fn history_is_removed_with_the_video() {
+        let conn = setup();
+        mark_opened(&conn, 1).unwrap();
+        remove_videos(&conn, "user", &[1]).unwrap();
+        assert_eq!(scalar(&conn, "SELECT COUNT(*) FROM view_history"), 0);
+    }
 }

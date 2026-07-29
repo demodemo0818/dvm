@@ -23,6 +23,9 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
   const player = useMpvPlayer();
   const queue = usePlayQueue();
   const counted = useRef(false);
+  // 視聴履歴の行(v1.18)。id ではなく Promise を持つ —— markOpened の応答が返る前に
+  // 閉じられても、解決してから finishView を投げられるようにするため
+  const history = useRef<Promise<number> | null>(null);
   const restored = useRef(false);
   const advanced = useRef(false);
   const hideTimer = useRef<number | undefined>(undefined);
@@ -74,6 +77,10 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
       if (s.duration > 0) {
         api.setResume(video.id, resumeValueMs(s.currentTime, s.duration)).then(() => bumpVersion());
       }
+      // 視聴履歴に到達位置を書き戻す(v1.18)。resumeValueMs は使わない ——
+      // あれは 90% 超で 0 に丸めるので、最後まで観たときに「0 ms 観た」と記録されてしまう
+      const h = history.current;
+      if (h) void h.then((id) => api.finishView(id, Math.round(s.currentTime * 1000))).catch(() => {});
       void command('stop').catch(() => {});
       void setProperty('pause', true).catch(() => {});
       void getCurrentWindow().setFullscreen(false).catch(() => {});
@@ -92,6 +99,16 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
     const sec = video.resumeMs / 1000;
     if (video.resumeMs > 0 && sec < d - 5) void command('seek', [sec, 'absolute']).catch(() => {});
   }, [player.state.duration, video.resumeMs]);
+
+  // 視聴履歴(v1.18): 実際にデコードが進んだ時点で 1 回だけ記録する。
+  // **視聴カウントとは基準が違う** —— こちらは「開いてすぐ閉じた」ものも残す。
+  // そうしないと「ちょっと開いて違うと思って閉じたやつ」を履歴から探し直せないため
+  useEffect(() => {
+    if (history.current !== null) return;
+    if (player.state.currentTime <= 0) return;
+    history.current = api.markOpened(video.id);
+    void history.current.then(() => bumpVersion()).catch(() => {});
+  }, [player.state.currentTime, video.id, bumpVersion]);
 
   // 視聴カウント: 尺の 5% 以上 or 30 秒以上まで観たら 1 回だけ(v1.8。
   // それまでは「開いてすぐ閉じた」扱いで数えない)

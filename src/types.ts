@@ -163,6 +163,24 @@ export const EMPTY_ADVANCED: AdvancedFilter = {
   addedBefore: '',
 };
 
+/**
+ * 視聴履歴の 1 行(v1.18)。1 視聴 = 1 行なので、同じ動画が何度も出る。
+ * 操作履歴(OpEntry)と違って取り消しの概念は無い
+ */
+export interface ViewEntry {
+  id: number;
+  videoId: number;
+  /** 'YYYY-MM-DD HH:MM:SS'(localtime) */
+  viewedAt: string;
+  /** 閉じた時点の再生位置。null = 不明(外部プレイヤー / 異常終了)。0 とは意味が違う */
+  watchedMs: number | null;
+  filename: string;
+  title: string | null;
+  durationMs: number | null;
+  thumbPath: string | null;
+  isMissing: boolean;
+}
+
 /** 尺フィルタのプリセット */
 export type DurationBucket = 'lt5' | '5to20' | '20to60' | 'gt60';
 

@@ -58,6 +58,9 @@ function Html5PlayerView({ video }: { video: VideoRow }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
   const counted = useRef(false);
+  // 視聴履歴の行(v1.18)。id ではなく Promise を持つ —— markOpened の応答が返る前に
+  // 閉じられても、解決してから finishView を投げられるようにするため
+  const history = useRef<Promise<number> | null>(null);
   const hideTimer = useRef<number | undefined>(undefined);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
@@ -190,6 +193,10 @@ function Html5PlayerView({ video }: { video: VideoRow }) {
       if (ready()) {
         api.setResume(video.id, resumeValueMs(el.currentTime, el.duration)).then(() => bumpVersion());
       }
+      // 視聴履歴に到達位置を書き戻す(v1.18)。resumeValueMs は使わない ——
+      // あれは 90% 超で 0 に丸めるので、最後まで観たときに「0 ms 観た」と記録されてしまう
+      const h = history.current;
+      if (h) void h.then((id) => api.finishView(id, Math.round(el.currentTime * 1000))).catch(() => {});
     };
   }, [video.id, src, bumpVersion]);
 
@@ -217,6 +224,14 @@ function Html5PlayerView({ video }: { video: VideoRow }) {
               const el = e.currentTarget;
               const sec = video.resumeMs / 1000;
               if (video.resumeMs > 0 && sec < el.duration - 5) el.currentTime = sec;
+            }}
+            onPlaying={() => {
+              // 視聴履歴(v1.18): 再生が成功した時点で 1 回だけ記録する。
+              // **視聴カウントとは基準が違う** —— こちらは「開いてすぐ閉じた」ものも残す。
+              // そうしないと「ちょっと開いて違うと思って閉じたやつ」を履歴から探し直せないため
+              if (history.current !== null) return;
+              history.current = api.markOpened(video.id);
+              void history.current.then(() => bumpVersion()).catch(() => {});
             }}
             onTimeUpdate={(e) => {
               // 視聴カウント: 尺の 5% 以上 or 30 秒以上まで観たら 1 回だけ(v1.8)。

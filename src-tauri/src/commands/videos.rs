@@ -68,6 +68,28 @@ pub fn mark_viewed(state: State<AppState>, id: i64) -> Result<(), String> {
     videos::mark_viewed(&conn, id).map_err(|e| e.to_string())
 }
 
+/// id 1 件を一覧と同じ形で引く(v1.18。視聴履歴からその動画を再生するため)
+#[tauri::command]
+pub fn get_video(state: State<AppState>, id: i64) -> Result<Option<VideoRow>, String> {
+    let conn = state.db_read.lock().unwrap();
+    query::video_by_id(&conn, Some(&state.thumbs_dir), id).map_err(|e| e.to_string())
+}
+
+/// 再生が実際に始まったときにフロントから呼ぶ(v1.18)。返り値は view_history の行 id で、
+/// 閉じるときに finish_view へ渡す。`mark_viewed` とは基準が違う(core 側のコメント参照)
+#[tauri::command]
+pub fn mark_opened(state: State<AppState>, id: i64) -> Result<i64, String> {
+    let conn = state.db.lock().unwrap();
+    videos::mark_opened(&conn, id).map_err(|e| e.to_string())
+}
+
+/// 視聴履歴の行に到達位置を書き戻す(v1.18。閉じる / 終わるときに 1 回)
+#[tauri::command]
+pub fn finish_view(state: State<AppState>, history_id: i64, watched_ms: i64) -> Result<(), String> {
+    let conn = state.db.lock().unwrap();
+    videos::finish_view(&conn, history_id, watched_ms).map_err(|e| e.to_string())
+}
+
 /// アプリ内再生のレジューム位置を保存する(再生中に数秒ごと + 閉じる時に呼ぶ)
 #[tauri::command]
 pub fn set_resume(state: State<AppState>, id: i64, resume_ms: i64) -> Result<(), String> {

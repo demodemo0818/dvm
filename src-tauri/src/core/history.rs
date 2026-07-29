@@ -89,6 +89,67 @@ pub fn list_ops(conn: &Connection, limit: i64, offset: i64) -> Result<Vec<OpEntr
     Ok(rows)
 }
 
+/// 視聴履歴 1 行(v1.18)。`view_history` に動画の表示用の値を JOIN したもの。
+/// **取り消しの概念は無い**(観たという事実は操作ではない)ので OpEntry とは別の型にする
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ViewEntry {
+    pub id: i64,
+    pub video_id: i64,
+    /// 'YYYY-MM-DD HH:MM:SS'(localtime)
+    pub viewed_at: String,
+    /// 閉じた時点の再生位置。null = 不明(外部プレイヤー / 異常終了)
+    pub watched_ms: Option<i64>,
+    pub filename: String,
+    pub title: Option<String>,
+    pub duration_ms: Option<i64>,
+    pub thumb_path: Option<String>,
+    /// 再生できない動画はクリックしても開けないので、UI 側で落として見せる
+    pub is_missing: bool,
+}
+
+/// 新しい順に視聴履歴を返す(v1.18)。ページングは operations_log と同じ作法。
+///
+/// **日付ごとのまとめはここでやらない**。区切りの入れ方は表示の都合なので
+/// フロントの純関数(`lib/viewHistory.ts`)に任せ、ここは並んだ行を返すだけにする
+pub fn list_view_history(
+    conn: &Connection,
+    thumbs_dir: Option<&std::path::Path>,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<ViewEntry>> {
+    let limit = limit.clamp(1, 500);
+    // 動画が消えれば履歴も CASCADE で消えるので、JOIN が空振りすることはない
+    let mut stmt = conn.prepare(
+        "SELECT h.id, h.video_id, h.viewed_at, h.watched_ms,
+                v.filename, v.title, v.duration_ms, v.thumb_state, v.is_missing
+         FROM view_history h JOIN videos v ON v.id = h.video_id
+         ORDER BY h.viewed_at DESC, h.id DESC LIMIT ?1 OFFSET ?2",
+    )?;
+    let rows = stmt
+        .query_map(params![limit, offset.max(0)], |r| {
+            let video_id: i64 = r.get(1)?;
+            let thumb_state: i64 = r.get(7)?;
+            Ok(ViewEntry {
+                id: r.get(0)?,
+                video_id,
+                viewed_at: r.get(2)?,
+                watched_ms: r.get(3)?,
+                filename: r.get(4)?,
+                title: r.get(5)?,
+                duration_ms: r.get(6)?,
+                // 一覧と同じく実在確認はしない(行ごとのファイル I/O をしない。原則 7)
+                thumb_path: thumbs_dir
+                    .filter(|_| thumb_state == 1)
+                    .map(|dir| dir.join(format!("{video_id}.jpg")).to_string_lossy().to_string()),
+                is_missing: r.get::<_, i64>(8)? != 0,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(rows)
+}
+
 /// 履歴 1 件を取り消す。取り消し自体も operations_log に記録し、元の行に undone_at を立てる
 pub fn undo_op(conn: &Connection, op_id: i64) -> Result<String> {
     let (action, payload, undone_at): (String, Option<String>, Option<String>) = conn.query_row(
@@ -302,6 +363,33 @@ mod tests {
         let old = last_op(&conn);
         let e = undo_op(&conn, old).unwrap_err().to_string();
         assert!(e.contains("古い形式"), "理由が伝わること: {e}");
+    }
+
+    /// v1.18。同じ動画を複数回観たら、その回数ぶん新しい順に並ぶこと
+    #[test]
+    fn view_history_lists_every_view_newest_first() {
+        let conn = setup();
+        videos::mark_opened(&conn, 1).unwrap();
+        videos::mark_opened(&conn, 2).unwrap();
+        let last = videos::mark_opened(&conn, 1).unwrap();
+        videos::finish_view(&conn, last, 743_000).unwrap();
+
+        let rows = list_view_history(&conn, None, 50, 0).unwrap();
+        assert_eq!(rows.len(), 3, "1 番を 2 回観た記録が畳まれてはいけない");
+        // viewed_at は秒精度で同着になりうるので、同着なら id の降順で新しい順を保つ
+        assert_eq!(rows[0].id, last);
+        assert_eq!(rows[0].video_id, 1);
+        assert_eq!(rows[0].watched_ms, Some(743_000));
+        assert_eq!(rows[1].watched_ms, None, "閉じていない視聴は不明のまま");
+        assert_eq!(rows[0].filename, "a.mp4", "動画側の表示用の値が JOIN されること");
+    }
+
+    /// 視聴は操作ではないので、操作履歴のほうには 1 件も出ないこと
+    #[test]
+    fn views_are_not_mixed_into_the_operations_log() {
+        let conn = setup();
+        videos::mark_opened(&conn, 1).unwrap();
+        assert!(list_ops(&conn, 50, 0).unwrap().is_empty());
     }
 
     #[test]
