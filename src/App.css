@@ -964,6 +964,11 @@ body {
   color: #8a8f9c;
 }
 
+/* 見落とすと設定ファイルを壊す類の注意(サイドバーの ⚠ と同じ色) */
+.settings-note.warn {
+  color: #d9a05a;
+}
+
 .settings-note code {
   background: #22252d;
   border-radius: 4px;

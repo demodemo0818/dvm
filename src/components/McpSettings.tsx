@@ -23,6 +23,15 @@ const HOWTO: Record<Client, string> = {
     'それぞれの設定ファイルに貼り付けてアプリを再起動してください',
 };
 
+/**
+ * JSON を貼り付けるクライアント共通の注意。
+ * 中身が空でない設定ファイルに継ぎ足すとき、直前の行のカンマを忘れるのが定番の事故で、
+ * JSON が壊れると設定を読めずにアプリ自体が起動しなくなる(実際に踏んだので明記する)
+ */
+const JSON_CAVEAT =
+  '設定ファイルに既に中身がある場合、貼り付ける直前の行の末尾に , が要ります。' +
+  'これが抜けると JSON として壊れ、AI アプリが起動時にエラーになります';
+
 export function McpSettings({
   exePath,
   allowWrite,
@@ -106,6 +115,7 @@ export function McpSettings({
             </button>
           </div>
           <div className="settings-note">{HOWTO[client]}</div>
+          {client !== 'code' && <div className="settings-note warn">{JSON_CAVEAT}</div>}
         </>
       )}
     </div>
