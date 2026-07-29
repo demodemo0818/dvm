@@ -1241,11 +1241,58 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
   - `trash_video_files`(**dry_run 必須引数**。true でプレビュー、false でごみ箱送り。実行後は missing 状態で DB に残し、ごみ箱から戻せば再スキャンで復帰できる)
   - すべて operations_log に **actor='ai'** で記録される
 - アプリ側は `PRAGMA data_version` を 2 秒毎に監視し、MCP など外部プロセスのコミットを検知したら `library:changed` を emit して UI に自動反映する
+- DB の場所は既定(`%APPDATA%\jp.demo2.dvm\library.db`)。環境変数 `DVM_DB` で上書き可
+
+### MCP の配布と設定導線(v1.21)
+
+v1.20 まで、MCP サーバーは**開発者が手で `cargo build` して手で登録する**前提だった。
+配布物に入っておらず、手順も設計書の中だけにあったので、**インストーラで入れた人は
+機能に到達できなかった**。加えて登録手順が Claude Code の CLI 前提で、Claude Desktop など
+他のクライアントを使う人には情報が無かった。ここを次の 3 つで塞ぐ:
+
+1. **同梱する** — `tauri.conf.json` の `bundle.resources` に `binaries/dvm-mcp.exe` を追加し、
+   `beforeBuildCommand` から `scripts/build-mcp.ps1`(= `cargo build --release --bin dvm-mcp` して
+   `src-tauri/binaries/` へコピー)を走らせる。ffmpeg と同じ置き場・同じ配られ方にした
+2. **場所をアプリが知っている** — `core/mcp.rs::server_path()` が
+   exe と同じ場所の `binaries/` →(dev 用に)exe と同じ場所 → `src-tauri/binaries/` の順で探す。
+   `FfmpegPaths::resolve()` と同じ発想。結果は `get_app_info` の `mcpPath` に載せる
+   (見つからなければ `null`。設定画面がその旨を出す)
+3. **貼り付ける内容をアプリが出す** — 設定画面の「MCP 連携」で、クライアント別の設定を
+   コピーできる。生成は `lib/mcpConfig.ts` の純関数(`mcpServersJson` / `claudeCodeCommand`)で、
+   パスのエスケープと引用は `JSON.stringify` と `"..."` に任せる(`C:\Program Files\...` が
+   壊れないことを vitest で固定)
+
+**書き込み許可はアプリの設定にしない。** `DVM_ALLOW_WRITE` はクライアント側の設定に載る
+環境変数であって、DVM 側で持っても意味がない。設定画面のチェックボックスは
+**生成するスニペットの内容を変えるだけ**で、`mcp_allow_write` の保存は
+「次に開いたときも同じ内容を出す」ためだけのもの。実際の許可はユーザーが貼り付けた設定で決まる。
+
+`claude mcp add` には `-s user` を付ける。既定の local スコープは起動フォルダ単位で、
+GUI アプリのライブラリを見るサーバーとしては挙動が合わないため。
+
+#### 実装中に踏んだ罠(2 つとも再発しやすい)
+
+**1. `bundle.resources` と dvm-mcp のビルドが循環する。**
+tauri のビルドスクリプトは `bundle.resources` に書いたファイルの**実在を毎回確認して、
+無ければビルドを止める**。`binaries/dvm-mcp.exe` を足すと、その exe を作るための
+`cargo build --bin dvm-mcp` 自体が(`dvm_lib` 経由で同じ build.rs を通るので)先に落ちる。
+glob(`binaries/dvm-mcp*.exe`)にしても「マッチしない」で同じく止まるので逃げられない。
+`scripts/build-mcp.ps1` が**先に空ファイルを置いてから** cargo を呼び、成功したら上書き、
+失敗したら消す形にして回避している。
+根治するなら `core/` を独立クレートに切り出して `dvm-mcp` が `dvm_lib`(= tauri)に
+依存しないようにするしかないが、それは原則 1 の徹底そのものなので別途。
+
+**2. `.ps1` は BOM 付き UTF-8 で保存する。**
+`npm run` から呼ばれる `powershell` は Windows PowerShell 5.1 で、BOM が無い UTF-8 を
+CP932 として読む。日本語コメント末尾の「。」(`E3 80 82`)は CP932 だと `82` が先行バイト扱いになり、
+**直後の改行を食って次の行をコメントに巻き込む**。`param()` の直前にこれがあると
+パラメータブロックごと消えて、引数が黙って無視される(原因が見えないので厄介)。
+`scripts/` の .ps1 は BOM 付きで保存すること(`fetch-ffmpeg.ps1` も同じ理由で BOM を付けた)。
 
 ### アプリ内 AI アシスタント(v1.3 実装済み)
 
 - フロント TypeScript から `@anthropic-ai/sdk`(`dangerouslyAllowBrowser: true`)で Claude API を直接呼ぶ。Rust 側に HTTP クライアントは持たない
-- API キー・モデル名は settings テーブル(`anthropic_api_key` / `anthropic_model`、既定 `claude-opus-4-8`)。設定画面の「AI アシスタント」セクションで入力。**キーは library.db に平文保存され、バックアップにも含まれる**(ローカル個人用アプリとして許容)
+- API キー・モデル名は settings テーブル(`anthropic_api_key` / `anthropic_model`、既定 `claude-opus-5`)。設定画面の「AI アシスタント」セクションで入力。**キーは library.db に平文保存され、バックアップにも含まれる**(ローカル個人用アプリとして許容)
 - UI: ツールバーの ✨ で右ドックパネル(`AiPanel.tsx`)をトグル。会話履歴はパネル内 state のみ(永続化しない)。API 履歴はテキストのみ持ち回す(thinking / tool ブロックの再送問題を回避)
 - ツールループ: `client.beta.messages.toolRunner` + `betaTool`(raw JSON Schema)。`thinking: adaptive`・`stream: true` でテキストをストリーミング表示
 - ツール(`src/lib/aiTools.ts`。既存 Tauri コマンドの薄いラッパ):
@@ -1254,11 +1301,8 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
   - 書き込み: `tag_videos` / `set_rating` / `add_to_series` — actor="ai" で operations_log に記録。すべて可逆なメタデータ操作のため確認なしで実行し、チャット内カードで結果を必ず表示する。破壊的操作(ごみ箱送り等)はツールに含めない
   - **タググループは読ませるが書かせない**(v1.19)。`list_tags` が所属グループを返すのでタグ提案の軸は分かるが、グループの作成・削除・タグの引っ越しは人間だけ。グループはユーザーの分類体系そのもので、AI に再編されると検索挙動(同グループ = OR)が静かに変わってしまうため
 - システムプロンプトに選択中の動画(ファイル名・尺・タグ等)と現在のフィルタ状態を毎回注入 →「この動画にタグを提案して」が成立する
-- ビルド: `cd src-tauri && cargo build --bin dvm-mcp`
-- Claude Code への登録例:
-  `claude mcp add dvm -- <repo>\src-tauri\target\debug\dvm-mcp.exe`
-  (書き込みを許可する場合は `claude mcp add dvm -e DVM_ALLOW_WRITE=1 -- ...`)
-- DB の場所は既定(%APPDATA%\jp.demo2.dvm\library.db)。環境変数 `DVM_DB` で上書き可
+- **Claude Pro / Max のサブスクリプションでは使えない**(Anthropic API は従量課金の別契約)。
+  サブスクだけで使いたいユーザーの経路は MCP のほうなので、設定画面では両者を並べて違いが分かるようにする
 
 ## ファイル操作(v1.9)
 
@@ -1473,6 +1517,15 @@ AI (MCP) ──→ MCP ツール ──────┘      (src-tauri/src/core/
   役割の重なっていた**ツールバーのシャッフルボタンを外した**(並び順「ランダム」が
   選ばれるたびに種を引き直すようにして代替)
   (前述「右クリックメニュー」「右クリックメニューの適用範囲の拡大」節)
+- **v1.21** ✅(2026-07-29 実装済み): **MCP を新規ユーザーに届ける**。
+  それまで MCP サーバーは配布物に入っておらず、手順も設計書の中だけだったため
+  **インストーラで入れた人は機能に到達できなかった**。`dvm-mcp.exe` を bundle.resources で同梱し、
+  `core/mcp.rs::server_path()` で場所を解決して `get_app_info` に載せ、
+  設定画面に「MCP 連携」セクションを追加した(Claude Desktop / Claude Code / その他の
+  タブ切り替えで、貼り付ける内容をそのままコピーできる)。あわせて README を実際の内容に書き直し、
+  **サブスクだけで使えるのは MCP、アプリ内 ✨ は API キーが要る**という違いを両方に明記した。
+  アプリ内アシスタントの既定モデルも `claude-opus-4-8` → `claude-opus-5` に更新
+  (前述「MCP の配布と設定導線」節)
 - **将来**: フォールバック側の HLS 追いかけ再生、mac/Linux 対応
 
 ## 今後のタスク

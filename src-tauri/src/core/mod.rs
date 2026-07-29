@@ -4,6 +4,7 @@ pub mod fileops;
 pub mod folders;
 pub mod history;
 pub mod library;
+pub mod mcp;
 pub mod metadata;
 pub mod offline;
 pub mod playback;

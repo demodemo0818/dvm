@@ -1,4 +1,4 @@
-# FFmpeg / ffprobe を src-tauri/binaries/ に配置するセットアップスクリプト
+﻿# FFmpeg / ffprobe を src-tauri/binaries/ に配置するセットアップスクリプト
 $ErrorActionPreference = 'Stop'
 $dest = Join-Path $PSScriptRoot '..\src-tauri\binaries'
 

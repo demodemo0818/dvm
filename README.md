@@ -1,7 +1,95 @@
-# Tauri + React + Typescript
+# DVM(Demodemo Video Manager)
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+Windows 向けの動画管理ソフトです。動画ファイルを**コピーも移動もせず**、元の場所に置いたまま
+サムネイル・タグ・シリーズ・評価で整理します。外付け HDD や NAS に置いた大量の動画を
+そのまま扱えます。
 
-## Recommended IDE Setup
+- サムネイルグリッド(仮想化済みなので数万件でも軽い)
+- タグ / タググループ / シリーズ / 評価 / スマートフォルダ
+- アプリ内再生(libmpv)、ホバープレビュー、視聴履歴とレジューム
+- 重複検出、見つからないファイルの検出と再リンク
+- **AI からの操作**(下記)
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+## インストール
+
+インストーラを実行するだけです。FFmpeg も MCP サーバーも同梱されているので、
+別途用意するものはありません。
+
+データ(データベースとサムネイル)は `%APPDATA%\jp.demo2.dvm` に保存されます。
+動画ファイル自体には触れません。
+
+## AI から操作する
+
+DVM には AI 連携の入口が 2 つあります。**サブスクリプション(Claude Pro / Max)だけで
+使いたい場合は MCP のほうを選んでください。**
+
+| | MCP 連携 | アプリ内 AI アシスタント |
+|---|---|---|
+| 使う場所 | Claude Desktop など別のアプリ | DVM のツールバー ✨ |
+| 必要なもの | 対応 AI アプリ(サブスクで可) | Anthropic API キー(従量課金) |
+| DVM の起動 | 不要 | 必要 |
+| できること | 検索・統計・タグ付け・評価・シリーズ整理 | 左に同じ + 画面のグリッドを直接絞り込む |
+
+### MCP の設定(推奨)
+
+DVM の **設定 → MCP 連携** を開くと、お使いのアプリに貼り付ける内容がそのまま出ます。
+コピーボタンを押して貼り付けるだけです。
+
+- **Claude Desktop** — 設定 → 開発者 → 「構成を編集」で
+  `%APPDATA%\Claude\claude_desktop_config.json` を開き、表示された JSON を貼り付けて再起動します
+- **Claude Code** — 表示されたコマンド(`claude mcp add dvm -s user -- "..."`)を
+  PowerShell に貼り付けて実行します
+- **その他**(Cursor / Cline / VS Code など)— 同じ `mcpServers` 形式の JSON が使えます
+
+設定できたら、AI にこんなふうに話しかけられます。
+
+- 「ライブラリの統計を見せて」
+- 「タグが付いてない動画を 20 件教えて」
+- 「FHD 以上で 30 分を超える未視聴の動画を探して」
+- 「内容が重複してる動画ある?」
+
+**既定では読み取り専用です。** データベースを読み取り専用で開くため、AI がライブラリを
+変更することは構造的にできません。設定画面の「AI からの変更を許可する」をオンにすると、
+タグ・評価・シリーズの編集もできるようになります(変更はすべて操作履歴に `ai` として残ります)。
+ファイルをごみ箱へ送る操作だけは、オンにしても必ず対象一覧の確認を挟みます。
+
+DB の場所を変えている場合は、設定に環境変数 `DVM_DB` でフルパスを指定してください。
+
+### アプリ内 AI アシスタント
+
+Anthropic の API キー(`sk-ant-...`)が必要です。**Claude Pro / Max のサブスクリプションでは
+使えません**(API は別課金です)。設定 → AI アシスタント にキーを入れると、ツールバーの ✨ から
+使えるようになります。自然言語での検索結果をそのままグリッドに反映できるのがこちらの利点です。
+
+モデルは既定で `claude-opus-5` を使います。費用を抑えたいときは `claude-haiku-4-5` などに
+変更できます。
+
+## 開発
+
+初回だけ、同梱するバイナリを揃えます。**これをやらないと `cargo` のビルドが
+「resource path ... doesn't exist」で止まります**(`tauri.conf.json` の `bundle.resources` に
+書いてあるファイルの実在をビルドスクリプトが確認するため)。
+
+```powershell
+npm install
+powershell -ExecutionPolicy Bypass -File scripts/fetch-ffmpeg.ps1
+npx tauri-plugin-libmpv-api setup-lib
+npm run build:mcp -- -Config debug   # 開発用。配布ビルドでは release 版が自動で作られる
+```
+
+あとは通常どおり起動できます。
+
+```powershell
+npm run tauri dev
+```
+
+| コマンド | 内容 |
+|---|---|
+| `npm run tauri dev` | 開発起動(フロント HMR + Rust 自動再ビルド) |
+| `npm run tauri build` | 配布ビルド(MCP サーバーのビルドと同梱まで自動) |
+| `npm run build:mcp` | MCP サーバーだけをビルドして `src-tauri/binaries/` に配置 |
+| `npm run test` | フロントの純関数テスト(vitest) |
+| `cd src-tauri && cargo test` | コアロジックのテスト |
+| `cd src-tauri && cargo check` | Rust の型チェック |
+
+設計の全体像・データモデル・ロードマップは [docs/DESIGN.md](docs/DESIGN.md) にあります。

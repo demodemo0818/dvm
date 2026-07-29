@@ -6,7 +6,7 @@ import { api } from '../api';
 import { buildSystemPrompt, buildTools } from '../lib/aiTools';
 import { useLibrary } from '../store';
 
-const DEFAULT_MODEL = 'claude-opus-4-8';
+const DEFAULT_MODEL = 'claude-opus-5';
 
 interface ChatItem {
   role: 'user' | 'assistant';

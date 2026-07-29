@@ -964,6 +964,50 @@ body {
   color: #8a8f9c;
 }
 
+.settings-note code {
+  background: #22252d;
+  border-radius: 4px;
+  padding: 1px 4px;
+  color: #d8dbe2;
+}
+
+/* ---- MCP 連携(設定モーダル内)---- */
+.mcp-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.mcp-tab {
+  background: #22252d;
+  border: 1px solid #343945;
+  color: #aab0bd;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.mcp-tab.active {
+  background: #2f66d0;
+  border-color: #2f66d0;
+  color: #fff;
+}
+
+/* 長いパスを含むので折り返さず横スクロールさせる(貼り付けたとき壊れないため) */
+.mcp-snippet {
+  margin: 0;
+  background: #16181e;
+  border: 1px solid #2a2e37;
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: #d8dbe2;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre;
+  overflow-x: auto;
+}
+
 /* ---- AI アシスタントパネル ---- */
 /* 幅は AiPanel.tsx がインラインで指定する(ドラッグで変えられるため) */
 .ai-panel {

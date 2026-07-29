@@ -1,11 +1,12 @@
 {
   "name": "dvm",
   "private": true,
-  "version": "1.20.0",
+  "version": "1.21.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:mcp": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-mcp.ps1",
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "vitest run",

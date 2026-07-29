@@ -81,6 +81,8 @@ pub struct AppInfo {
     pub thumb_count: i64,
     pub thumb_cache_size: i64,
     pub backups_dir: String,
+    /// MCP サーバーの実行ファイル。見つからなければ null(設定画面がその旨を出す)
+    pub mcp_path: Option<String>,
 }
 
 #[tauri::command]
@@ -111,6 +113,7 @@ pub fn get_app_info(state: State<AppState>) -> Result<AppInfo, String> {
         thumb_count,
         thumb_cache_size,
         backups_dir: state.backups_dir.to_string_lossy().to_string(),
+        mcp_path: crate::core::mcp::server_path().map(|p| p.to_string_lossy().to_string()),
     })
 }
 

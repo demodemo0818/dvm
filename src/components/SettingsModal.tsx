@@ -4,6 +4,7 @@ import { api } from '../api';
 import { fmtSize } from '../lib/format';
 import { useLibrary } from '../store';
 import type { AppInfo, BackupInfo } from '../types';
+import { McpSettings } from './McpSettings';
 
 export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [playerPath, setPlayerPath] = useState('');
@@ -12,6 +13,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [aiKey, setAiKey] = useState('');
   const [aiModel, setAiModel] = useState('');
+  /** MCP の設定スニペットに DVM_ALLOW_WRITE を含めるか。表示用だが次回も同じ内容を出せるよう保存する */
+  const [mcpAllowWrite, setMcpAllowWrite] = useState(false);
   const [previewOnHover, setPreviewOnHover] = useState(true);
   const [seekPreview, setSeekPreview] = useState(true);
   const [autoplayNext, setAutoplayNext] = useState(false);
@@ -24,6 +27,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     api.getSetting('autoplay_next').then((v) => setAutoplayNext(v === '1'));
     api.getSetting('anthropic_api_key').then((v) => setAiKey(v ?? ''));
     api.getSetting('anthropic_model').then((v) => setAiModel(v ?? ''));
+    api.getSetting('mcp_allow_write').then((v) => setMcpAllowWrite(v === '1'));
     api.getAppInfo().then(setInfo).catch(() => {});
     api.listDbBackups().then(setBackups).catch(() => {});
   }, []);
@@ -49,6 +53,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     useLibrary.getState().setAutoplayNext(autoplayNext);
     await api.setSetting('anthropic_api_key', aiKey.trim());
     await api.setSetting('anthropic_model', aiModel.trim());
+    await api.setSetting('mcp_allow_write', mcpAllowWrite ? '1' : '0');
     onClose();
   };
 
@@ -218,11 +223,11 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
               onChange={(e) => setAiKey(e.target.value)}
             />
           </div>
-          <label className="modal-label">モデル(空欄なら claude-opus-4-8)</label>
+          <label className="modal-label">モデル(空欄なら claude-opus-5)</label>
           <div className="modal-row">
             <input
               value={aiModel}
-              placeholder="claude-opus-4-8"
+              placeholder="claude-opus-5"
               onChange={(e) => setAiModel(e.target.value)}
             />
           </div>
@@ -230,6 +235,12 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             キーは library.db に平文で保存され、DB バックアップにも含まれます。利用量に応じて Anthropic の API 料金が発生します
           </div>
         </div>
+
+        <McpSettings
+          exePath={info ? info.mcpPath : undefined}
+          allowWrite={mcpAllowWrite}
+          onAllowWriteChange={setMcpAllowWrite}
+        />
 
         <div className="settings-section">
           <div className="settings-heading">バックアップ</div>

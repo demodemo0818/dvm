@@ -289,6 +289,8 @@ export interface AppInfo {
   thumbCount: number;
   thumbCacheSize: number;
   backupsDir: string;
+  /** MCP サーバーの実行ファイル。同梱されていなければ null */
+  mcpPath: string | null;
 }
 
 export interface BackupInfo {
