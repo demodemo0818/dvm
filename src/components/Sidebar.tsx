@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useLibrary } from '../store';
 import type {
-  FolderNode, PlanItem, Series, SidebarTab, SmartFolder, Tag, VideoQuery, WatchedFolder,
+  FolderNode, PlanItem, Series, SidebarTab, SmartFolder, Tag, TagGroup, VideoQuery, WatchedFolder,
 } from '../types';
 import { FileOpDialog } from './FileOpDialog';
 import { FolderTree } from './FolderTree';
@@ -32,16 +32,21 @@ export function Sidebar() {
   const [folderTree, setFolderTree] = useState<FolderNode[]>([]);
   const [folders, setFolders] = useState<WatchedFolder[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
+  const [tagGroups, setTagGroups] = useState<TagGroup[]>([]);
   const [seriesList, setSeriesList] = useState<Series[]>([]);
   const [smartFolders, setSmartFolders] = useState<SmartFolder[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [missingCount, setMissingCount] = useState(0);
   const [duplicateCount, setDuplicateCount] = useState(0);
   const [relinkPlan, setRelinkPlan] = useState<PlanItem[] | null>(null);
+  // ライブラリタブの項目名で絞り込む(v1.19)。DB は引かず手元の配列を絞るだけなので
+  // デバウンスは要らない。動画そのものの検索はツールバー側の担当
+  const [sideFilter, setSideFilter] = useState('');
 
   useEffect(() => {
     api.listWatchedFolders().then(setFolders);
     api.listTags().then(setTags);
+    api.listTagGroups().then(setTagGroups);
     api.listSeries().then(setSeriesList);
     api.listSmartFolders().then(setSmartFolders);
     api.countVideos({}).then(setTotalCount);
@@ -176,6 +181,23 @@ export function Sidebar() {
     bumpVersion();
   };
 
+  // ライブラリタブの絞り込み。マッチしないセクションは見出しごと消える
+  const needle = sideFilter.trim().toLowerCase();
+  const hit = (s: string) => !needle || s.toLowerCase().includes(needle);
+  const shownSmart = smartFolders.filter((sf) => hit(sf.name));
+  const shownFolders = folders.filter((f) => hit(folderName(f.path)));
+  const shownSeries = seriesList.filter((s) => hit(s.name));
+  // タグはグループ名でも引ける(「ジャンル」と打てばそのグループのタグが全部出る)
+  const shownTags = tags.filter(
+    (t) => hit(t.name) || hit(t.groupName ?? '') || (t.groupId == null && hit('未分類')),
+  );
+  const nothingMatches =
+    needle !== '' &&
+    shownSmart.length === 0 &&
+    shownFolders.length === 0 &&
+    shownSeries.length === 0 &&
+    shownTags.length === 0;
+
   return (
     // 幅はドラッグで変えられる。min-width も同じ値にして flex に縮められないようにする
     <aside className="sidebar" style={{ width: sidebarWidth, minWidth: sidebarWidth }}>
@@ -238,8 +260,17 @@ export function Sidebar() {
 
       {tab === 'library' && (
         <>
-          {smartFolders.length > 0 && <div className="side-section">スマートフォルダ</div>}
-          {smartFolders.map((sf) => (
+          <input
+            className="side-filter"
+            type="search"
+            placeholder="タグ・シリーズを絞り込む"
+            title="サイドバーの項目名で絞り込みます(動画そのものの検索は上の検索ボックス)"
+            value={sideFilter}
+            onChange={(e) => setSideFilter(e.target.value)}
+          />
+
+          {shownSmart.length > 0 && <div className="side-section">スマートフォルダ</div>}
+          {shownSmart.map((sf) => (
             <div
               key={sf.id}
               className="side-item folder"
@@ -261,10 +292,12 @@ export function Sidebar() {
             </div>
           ))}
 
-          <div className="side-section" title="クリックするとそのフォルダ配下の動画をまとめて表示します">
-            監視フォルダ
-          </div>
-          {folders.map((f) => (
+          {(shownFolders.length > 0 || !needle) && (
+            <div className="side-section" title="クリックするとそのフォルダ配下の動画をまとめて表示します">
+              監視フォルダ
+            </div>
+          )}
+          {shownFolders.map((f) => (
             <div
               key={f.id}
               className={`side-item folder ${folderId === f.id ? 'active' : ''}`}
@@ -287,11 +320,16 @@ export function Sidebar() {
             </div>
           ))}
 
-          <button className="side-action" onClick={addFolder}>+ フォルダを追加</button>
-          <button className="side-action" onClick={addFiles}>+ ファイルを追加</button>
+          {/* 絞り込み中は追加ボタンを隠す — 探している最中に出ていても邪魔なだけ */}
+          {!needle && (
+            <>
+              <button className="side-action" onClick={addFolder}>+ フォルダを追加</button>
+              <button className="side-action" onClick={addFiles}>+ ファイルを追加</button>
+            </>
+          )}
 
-          {seriesList.length > 0 && <div className="side-section">シリーズ</div>}
-          {seriesList.map((s) => (
+          {shownSeries.length > 0 && <div className="side-section">シリーズ</div>}
+          {shownSeries.map((s) => (
             <div
               key={s.id}
               className={`side-item folder ${seriesId === s.id ? 'active' : ''}`}
@@ -314,8 +352,14 @@ export function Sidebar() {
             </div>
           ))}
 
-          {tags.length > 0 && <div className="side-section">タグ</div>}
-          <TagTree tags={tags} />
+          {/* タグが 0 個でも見出しを出す — ここから作成を始めるため。
+              ただし絞り込み中にヒットが無いなら消す */}
+          {(shownTags.length > 0 || !needle) && <div className="side-section">タグ</div>}
+          <TagTree tags={shownTags} groups={tagGroups} filtering={needle !== ''} />
+
+          {nothingMatches && (
+            <div className="side-empty">「{sideFilter.trim()}」に一致する項目はありません</div>
+          )}
         </>
       )}
 

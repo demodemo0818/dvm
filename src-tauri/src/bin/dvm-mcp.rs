@@ -126,7 +126,7 @@ fn read_tool_definitions() -> Value {
                     "text": { "type": "string", "description": "ファイル名・タイトルの部分一致検索。空白区切りで複数語すべてを含むものに絞る" },
                     "search_path": { "type": "boolean", "description": "true で text の検索対象にフルパスも含める" },
                     "dir_path": { "type": "string", "description": "このフォルダ直下にある動画だけに絞る(サブフォルダは含まない)。絶対パスで指定する" },
-                    "tag": { "type": "string", "description": "タグ名(完全一致)。このタグが付いた動画に絞る。子タグが付いた動画も含む" },
+                    "tags": { "type": "array", "items": { "type": "string" }, "description": "タグ名(完全一致)で絞る。同じグループのタグ同士は OR、グループをまたぐと AND になる(例: [\"ファンタジー\", \"SF\", \"アニメ\"] = (ファンタジー または SF) かつ アニメ)。グループは list_tags で確認できる" },
                     "series": { "type": "string", "description": "シリーズ名(完全一致)。指定時は登録順で返る" },
                     "missing": { "type": "boolean", "description": "true でファイルが見つからない動画のみ" },
                     "untagged": { "type": "boolean", "description": "true でタグが 1 つも付いていない動画のみ" },
@@ -156,7 +156,7 @@ fn read_tool_definitions() -> Value {
         },
         {
             "name": "list_tags",
-            "description": "全タグと各タグの動画数を一覧する",
+            "description": "全タグと各タグの動画数、所属グループを一覧する。グループは分類の軸(例:「ジャンル」「メディア種別」)で、検索では同じグループのタグ同士が OR になる",
             "inputSchema": { "type": "object", "properties": {} }
         },
         {
@@ -320,15 +320,21 @@ fn call_tool(
                 added_before: args["added_before"].as_str().map(String::from),
                 ..Default::default()
             };
-            if let Some(tag) = args["tag"].as_str() {
-                let tag_id: i64 = conn
-                    .query_row(
-                        "SELECT id FROM tags WHERE name = ?1 COLLATE NOCASE",
-                        [tag],
-                        |r| r.get(0),
-                    )
-                    .map_err(|_| anyhow::anyhow!("タグ「{tag}」が見つかりません"))?;
-                q.tag_ids = Some(vec![tag_id]);
+            if let Some(names) = args["tags"].as_array() {
+                let mut tag_ids = Vec::new();
+                for tag in names.iter().filter_map(|v| v.as_str()) {
+                    let tag_id: i64 = conn
+                        .query_row(
+                            "SELECT id FROM tags WHERE name = ?1 COLLATE NOCASE",
+                            [tag],
+                            |r| r.get(0),
+                        )
+                        .map_err(|_| anyhow::anyhow!("タグ「{tag}」が見つかりません"))?;
+                    tag_ids.push(tag_id);
+                }
+                if !tag_ids.is_empty() {
+                    q.tag_ids = Some(tag_ids);
+                }
             }
             if let Some(series_name) = args["series"].as_str() {
                 let sid: i64 = conn

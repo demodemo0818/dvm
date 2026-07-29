@@ -9,9 +9,31 @@ pub struct Tag {
     pub id: i64,
     pub name: String,
     pub color: Option<String>,
-    /// 親タグ(NULL = トップレベル)。サイドバーのツリー表示に使う
-    pub parent_id: Option<i64>,
+    /// 所属グループ(NULL = 未分類)
+    pub group_id: Option<i64>,
+    /// グループ名。UI の見出しと、AI にタグの軸を伝えるために持たせている
+    pub group_name: Option<String>,
     pub video_count: i64,
+}
+
+/// タグをまとめる軸(v1.19)。グループ自体は動画に付かない
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagGroup {
+    pub id: i64,
+    pub name: String,
+    pub sort_order: i64,
+    /// このグループに属するタグの数
+    pub tag_count: i64,
+}
+
+/// 選択中の動画に、そのタグが何件付いているか。
+/// タグパレットの 3 状態(全部 / 一部 / なし)を出すために使う
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagCount {
+    pub tag_id: i64,
+    pub count: i64,
 }
 
 fn map_tag(r: &rusqlite::Row) -> rusqlite::Result<Tag> {
@@ -19,27 +41,75 @@ fn map_tag(r: &rusqlite::Row) -> rusqlite::Result<Tag> {
         id: r.get(0)?,
         name: r.get(1)?,
         color: r.get(2)?,
-        parent_id: r.get(3)?,
-        video_count: r.get(4)?,
+        group_id: r.get(3)?,
+        group_name: r.get(4)?,
+        video_count: r.get(5)?,
     })
 }
 
 pub fn list_tags(conn: &Connection) -> Result<Vec<Tag>> {
     let mut stmt = conn.prepare(
-        "SELECT t.id, t.name, t.color, t.parent_id,
+        "SELECT t.id, t.name, t.color, t.group_id, g.name,
                 (SELECT COUNT(*) FROM video_tags vt WHERE vt.tag_id = t.id) AS cnt
-         FROM tags t ORDER BY t.name COLLATE NOCASE",
+         FROM tags t LEFT JOIN tag_groups g ON g.id = t.group_id
+         ORDER BY t.name COLLATE NOCASE",
     )?;
     let rows = stmt.query_map([], map_tag)?.filter_map(|r| r.ok()).collect();
     Ok(rows)
 }
 
-/// 名前からタグ id を取得。無ければ作る
+pub fn list_tag_groups(conn: &Connection) -> Result<Vec<TagGroup>> {
+    let mut stmt = conn.prepare(
+        "SELECT g.id, g.name, g.sort_order,
+                (SELECT COUNT(*) FROM tags t WHERE t.group_id = g.id) AS cnt
+         FROM tag_groups g ORDER BY g.sort_order, g.id",
+    )?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(TagGroup {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                sort_order: r.get(2)?,
+                tag_count: r.get(3)?,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(rows)
+}
+
+/// 名前からタグ id を取得。無ければ作る(未分類で作られる)。
+/// **名前で引く経路はここだけ**にしてある。MCP・AI アシスタントもこれを通る
 pub fn ensure_tag(conn: &Connection, name: &str) -> Result<i64> {
     let name = name.trim();
     anyhow::ensure!(!name.is_empty(), "タグ名が空です");
     conn.execute("INSERT OR IGNORE INTO tags (name) VALUES (?1)", params![name])?;
     let id = conn.query_row("SELECT id FROM tags WHERE name = ?1", params![name], |r| r.get(0))?;
+    Ok(id)
+}
+
+/// タグを動画に付けずに作る(v1.19。あらかじめ体系を組んでおくための入口)。
+/// 既にある名前は弾く — ensure_tag と違い「作ったつもりが既存タグだった」を隠したくないため
+pub fn create_tag(conn: &Connection, actor: &str, name: &str, group_id: Option<i64>) -> Result<i64> {
+    let name = name.trim();
+    anyhow::ensure!(!name.is_empty(), "タグ名が空です");
+    let exists: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM tags WHERE name = ?1 COLLATE NOCASE",
+        params![name],
+        |r| r.get(0),
+    )?;
+    anyhow::ensure!(!exists, "タグ「{name}」は既にあります");
+    conn.execute(
+        "INSERT INTO tags (name, group_id) VALUES (?1, ?2)",
+        params![name, group_id],
+    )?;
+    let id = conn.last_insert_rowid();
+    db::log_op(
+        conn,
+        actor,
+        "create_tag",
+        &serde_json::json!({ "tagId": id, "tag": name, "groupId": group_id }).to_string(),
+    );
     Ok(id)
 }
 
@@ -124,7 +194,7 @@ pub fn delete_tag(conn: &Connection, actor: &str, tag_id: i64) -> Result<()> {
     Ok(())
 }
 
-/// 指定した全動画に共通して付いているタグを返す(インスペクタ表示用)
+/// 指定した全動画に共通して付いているタグを返す(詳細ペインのチップ表示用)
 pub fn tags_for_videos(conn: &Connection, video_ids: &[i64]) -> Result<Vec<Tag>> {
     if video_ids.is_empty() {
         return Ok(Vec::new());
@@ -136,9 +206,10 @@ pub fn tags_for_videos(conn: &Connection, video_ids: &[i64]) -> Result<Vec<Tag>>
         .collect::<Vec<_>>()
         .join(",");
     let sql = format!(
-        "SELECT t.id, t.name, t.color, t.parent_id, COUNT(*) AS cnt
+        "SELECT t.id, t.name, t.color, t.group_id, g.name, COUNT(*) AS cnt
          FROM tags t
          JOIN video_tags vt ON vt.tag_id = t.id
+         LEFT JOIN tag_groups g ON g.id = t.group_id
          WHERE vt.video_id IN ({ids_csv})
          GROUP BY t.id
          HAVING COUNT(*) = {n}
@@ -147,6 +218,35 @@ pub fn tags_for_videos(conn: &Connection, video_ids: &[i64]) -> Result<Vec<Tag>>
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map([], map_tag)?.filter_map(|r| r.ok()).collect();
+    Ok(rows)
+}
+
+/// 選択中の動画それぞれについて、タグごとの付与件数を返す。
+/// 呼び出し側は count == 選択数 なら「全部に付いている」、0 < count < 選択数 なら
+/// 「一部に付いている」と判断する(タグパレットの半チェック表示)
+pub fn tag_counts_for_videos(conn: &Connection, video_ids: &[i64]) -> Result<Vec<TagCount>> {
+    if video_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let ids_csv = video_ids
+        .iter()
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT tag_id, COUNT(*) FROM video_tags
+         WHERE video_id IN ({ids_csv}) GROUP BY tag_id"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(TagCount {
+                tag_id: r.get(0)?,
+                count: r.get(1)?,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
     Ok(rows)
 }
 
@@ -171,42 +271,103 @@ pub fn set_tag_color(conn: &Connection, actor: &str, tag_id: i64, color: Option<
     Ok(())
 }
 
-/// 指定タグの子孫 id をすべて返す(自分自身を含む)
-fn descendants(conn: &Connection, tag_id: i64) -> Result<Vec<i64>> {
-    let mut stmt = conn.prepare(
-        "WITH RECURSIVE sub(id) AS (
-           SELECT ?1 UNION SELECT t.id FROM tags t JOIN sub ON t.parent_id = sub.id
-         ) SELECT id FROM sub",
-    )?;
-    let ids = stmt
-        .query_map(params![tag_id], |r| r.get(0))?
-        .filter_map(|r| r.ok())
-        .collect();
-    Ok(ids)
-}
-
-/// タグの親を設定する(None でトップレベルに戻す)。
-/// 自分自身や自分の子孫を親にすると木が循環して再帰 CTE が無限に回るので必ず弾く
-pub fn set_tag_parent(
+/// タグの所属グループを変える(None で未分類に戻す)。
+/// グループは階層を持たないので、旧 set_tag_parent にあった循環チェックは要らない
+pub fn set_tag_group(
     conn: &Connection,
     actor: &str,
     tag_id: i64,
-    parent_id: Option<i64>,
+    group_id: Option<i64>,
 ) -> Result<()> {
-    if let Some(pid) = parent_id {
-        anyhow::ensure!(pid != tag_id, "タグ自身を親にはできません");
-        anyhow::ensure!(
-            !descendants(conn, tag_id)?.contains(&pid),
-            "自分の子タグを親にはできません(循環します)"
-        );
+    if let Some(gid) = group_id {
+        let exists: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM tag_groups WHERE id = ?1",
+            params![gid],
+            |r| r.get(0),
+        )?;
+        anyhow::ensure!(exists, "グループが見つかりません");
     }
-    conn.execute("UPDATE tags SET parent_id = ?1 WHERE id = ?2", params![parent_id, tag_id])?;
+    conn.execute("UPDATE tags SET group_id = ?1 WHERE id = ?2", params![group_id, tag_id])?;
     db::log_op(
         conn,
         actor,
-        "set_tag_parent",
-        &serde_json::json!({ "tagId": tag_id, "parentId": parent_id }).to_string(),
+        "set_tag_group",
+        &serde_json::json!({ "tagId": tag_id, "groupId": group_id }).to_string(),
     );
+    Ok(())
+}
+
+pub fn create_tag_group(conn: &Connection, actor: &str, name: &str) -> Result<i64> {
+    let name = name.trim();
+    anyhow::ensure!(!name.is_empty(), "グループ名が空です");
+    let exists: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM tag_groups WHERE name = ?1 COLLATE NOCASE",
+        params![name],
+        |r| r.get(0),
+    )?;
+    anyhow::ensure!(!exists, "グループ「{name}」は既にあります");
+    // 新しいグループは末尾に置く(既存の並びを崩さない)
+    conn.execute(
+        "INSERT INTO tag_groups (name, sort_order)
+         VALUES (?1, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tag_groups))",
+        params![name],
+    )?;
+    let id = conn.last_insert_rowid();
+    db::log_op(
+        conn,
+        actor,
+        "create_tag_group",
+        &serde_json::json!({ "groupId": id, "group": name }).to_string(),
+    );
+    Ok(id)
+}
+
+pub fn rename_tag_group(conn: &Connection, actor: &str, group_id: i64, new_name: &str) -> Result<()> {
+    let new_name = new_name.trim();
+    anyhow::ensure!(!new_name.is_empty(), "グループ名が空です");
+    let before: String = conn
+        .query_row("SELECT name FROM tag_groups WHERE id = ?1", params![group_id], |r| r.get(0))
+        .unwrap_or_default();
+    conn.execute(
+        "UPDATE tag_groups SET name = ?1 WHERE id = ?2",
+        params![new_name, group_id],
+    )?;
+    db::log_op(
+        conn,
+        actor,
+        "rename_tag_group",
+        &serde_json::json!({ "groupId": group_id, "before": before, "after": new_name }).to_string(),
+    );
+    Ok(())
+}
+
+/// グループを削除する。**中のタグは消えない** — group_id が NULL になって未分類に落ちるだけで、
+/// 動画に付いたタグはそのまま残る(tags.group_id の ON DELETE SET NULL)
+pub fn delete_tag_group(conn: &Connection, actor: &str, group_id: i64) -> Result<()> {
+    let name: String = conn
+        .query_row("SELECT name FROM tag_groups WHERE id = ?1", params![group_id], |r| r.get(0))
+        .unwrap_or_default();
+    conn.execute("DELETE FROM tag_groups WHERE id = ?1", params![group_id])?;
+    db::log_op(
+        conn,
+        actor,
+        "delete_tag_group",
+        &serde_json::json!({ "groupId": group_id, "group": name }).to_string(),
+    );
+    Ok(())
+}
+
+/// グループの表示順を id の並び順どおりに振り直す。
+/// 表示順は動画のメタデータではないので operations_log には残さない(履歴が並べ替えで埋まる)
+pub fn reorder_tag_groups(conn: &Connection, group_ids: &[i64]) -> Result<()> {
+    conn.execute_batch("BEGIN")?;
+    for (i, gid) in group_ids.iter().enumerate() {
+        conn.execute(
+            "UPDATE tag_groups SET sort_order = ?1 WHERE id = ?2",
+            params![i as i64, gid],
+        )?;
+    }
+    conn.execute_batch("COMMIT")?;
     Ok(())
 }
 
@@ -218,23 +379,77 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         crate::db::apply_schema(&conn).unwrap();
         conn.execute_batch(
-            "INSERT INTO tags (id, name, parent_id) VALUES
-               (1, '家族', NULL), (2, '旅行', 1), (3, '沖縄', 2), (4, '料理', NULL);",
+            "INSERT INTO tag_groups (id, name, sort_order) VALUES (1, 'ジャンル', 0), (2, 'メディア', 1);
+             INSERT INTO tags (id, name, group_id) VALUES
+               (1, 'ファンタジー', 1), (2, 'SF', 1), (3, 'アニメ', 2), (4, '未分類タグ', NULL);",
         )
         .unwrap();
         conn
     }
 
     #[test]
-    fn set_tag_parent_rejects_cycles() {
+    fn deleting_a_group_keeps_its_tags() {
         let conn = setup();
-        // 家族 → 旅行 → 沖縄 の木。沖縄を家族の親にすると循環する
-        assert!(set_tag_parent(&conn, "user", 1, Some(3)).is_err());
-        assert!(set_tag_parent(&conn, "user", 1, Some(1)).is_err());
-        // 無関係なタグを親にするのは通る
-        assert!(set_tag_parent(&conn, "user", 4, Some(1)).is_ok());
-        // 親を外してトップレベルに戻せる
-        assert!(set_tag_parent(&conn, "user", 3, None).is_ok());
+        conn.execute_batch("PRAGMA foreign_keys = ON").unwrap();
+        delete_tag_group(&conn, "user", 1).unwrap();
+        // タグは消えず、未分類に落ちるだけ
+        let tags = list_tags(&conn).unwrap();
+        assert_eq!(tags.len(), 4);
+        let fantasy = tags.iter().find(|t| t.name == "ファンタジー").unwrap();
+        assert_eq!(fantasy.group_id, None);
+        assert_eq!(fantasy.group_name, None);
+    }
+
+    #[test]
+    fn create_tag_rejects_duplicates() {
+        let conn = setup();
+        assert!(create_tag(&conn, "user", "ホラー", Some(1)).is_ok());
+        // 大文字小文字違いも同じ名前とみなす(タグ一覧に紛らわしい重複を作らない)
+        assert!(create_tag(&conn, "user", "ホラー", Some(2)).is_err());
+        assert!(create_tag(&conn, "user", "  ", None).is_err());
+    }
+
+    #[test]
+    fn set_tag_group_moves_and_clears() {
+        let conn = setup();
+        set_tag_group(&conn, "user", 4, Some(1)).unwrap();
+        let tags = list_tags(&conn).unwrap();
+        let moved = tags.iter().find(|t| t.id == 4).unwrap();
+        assert_eq!(moved.group_id, Some(1));
+        assert_eq!(moved.group_name.as_deref(), Some("ジャンル"));
+
+        set_tag_group(&conn, "user", 4, None).unwrap();
+        assert_eq!(list_tags(&conn).unwrap().iter().find(|t| t.id == 4).unwrap().group_id, None);
+        // 存在しないグループは弾く
+        assert!(set_tag_group(&conn, "user", 4, Some(99)).is_err());
+    }
+
+    #[test]
+    fn tag_counts_reports_partial_assignment() {
+        let conn = setup();
+        conn.execute_batch(
+            "INSERT INTO videos (id, path, filename) VALUES
+               (10, 'X:\\a.mp4', 'a.mp4'), (11, 'X:\\b.mp4', 'b.mp4');
+             INSERT INTO video_tags (video_id, tag_id) VALUES (10, 1), (11, 1), (10, 3);",
+        )
+        .unwrap();
+        let counts = tag_counts_for_videos(&conn, &[10, 11]).unwrap();
+        let get = |id: i64| counts.iter().find(|c| c.tag_id == id).map(|c| c.count);
+        // ファンタジーは 2 件とも(= 全部に付いている)、アニメは 1 件だけ(= 一部)
+        assert_eq!(get(1), Some(2));
+        assert_eq!(get(3), Some(1));
+        assert_eq!(get(2), None);
+    }
+
+    #[test]
+    fn reorder_renumbers_groups() {
+        let conn = setup();
+        reorder_tag_groups(&conn, &[2, 1]).unwrap();
+        let groups = list_tag_groups(&conn).unwrap();
+        assert_eq!(groups[0].name, "メディア");
+        assert_eq!(groups[1].name, "ジャンル");
+        assert_eq!(groups[0].tag_count, 1);
+        assert_eq!(groups[1].tag_count, 2);
     }
 
     #[test]

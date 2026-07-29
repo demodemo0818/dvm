@@ -17,7 +17,8 @@ pub struct VideoQuery {
     pub text: Option<String>,
     pub sort: Option<String>,
     pub folder_id: Option<i64>,
-    /// 指定タグすべてが付いている動画に絞る(AND 条件)
+    /// 絞り込むタグ。同じグループのタグ同士は OR、グループをまたぐと AND になる。
+    /// 未分類タグはそれぞれ独立した軸として AND(詳しくは where_clause の実装)
     pub tag_ids: Option<Vec<i64>>,
     /// シリーズで絞る
     pub series_id: Option<i64>,
@@ -46,8 +47,6 @@ pub struct VideoQuery {
     pub added_before: Option<String>,
     /// size + partial_hash が一致する仲間がいる動画だけ(重複検出)
     pub duplicates_only: Option<bool>,
-    /// tag_ids に子孫タグも含めるか(未指定 = 含める)
-    pub include_child_tags: Option<bool>,
     /// sort = "random" のときのシャッフル種。同じ種なら順序が変わらない(ページングのため必須)
     pub random_seed: Option<i64>,
 
@@ -141,24 +140,28 @@ impl VideoQuery {
                   AND instr(replace(substr(path, {n} + 1), '/', '\\'), '\\') = 0)"
             ));
         }
-        if let Some(tag_ids) = &self.tag_ids {
-            // i64 なので直接埋め込んでも安全。タグごとに IN 条件を重ねて AND にする
-            let with_children = self.include_child_tags != Some(false);
-            for tid in tag_ids {
-                let tag_set = if with_children {
-                    // 親タグを選んだら子孫タグが付いた動画も出す
-                    format!(
-                        "(WITH RECURSIVE sub(id) AS (
-                            SELECT {tid} UNION SELECT t.id FROM tags t JOIN sub ON t.parent_id = sub.id
-                          ) SELECT id FROM sub)"
-                    )
-                } else {
-                    format!("({tid})")
-                };
-                conds.push(format!(
-                    "id IN (SELECT video_id FROM video_tags WHERE tag_id IN {tag_set})"
-                ));
-            }
+        if let Some(tag_ids) = &self.tag_ids.as_ref().filter(|ids| !ids.is_empty()) {
+            // **同じグループのタグ同士は OR、グループをまたぐと AND**(v1.19)。
+            // 「ジャンル: ファンタジー + SF、メディア: アニメ」なら
+            // 「(ファンタジー または SF) かつ アニメ」になる。
+            // 未分類タグ(group_id = NULL)は 1 つずつが独立した軸なので、従来どおり AND のまま。
+            //
+            // 判定は軸の数え上げで行う: 選んだタグが張る軸の数と、動画が実際に満たした軸の数が
+            // 一致すれば通す。COALESCE('g'||group_id, 't'||id) が軸のキーで、
+            // グループ付きはグループ単位、未分類はタグ単位に潰れる。
+            // この形なら DB を引かずに SQL だけで完結する(where_clause は Connection を持たない)。
+            // i64 なので直接埋め込んでも安全
+            let csv = tag_ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+            conds.push(format!(
+                "id IN (
+                   SELECT vt.video_id FROM video_tags vt JOIN tags t ON t.id = vt.tag_id
+                   WHERE vt.tag_id IN ({csv})
+                   GROUP BY vt.video_id
+                   HAVING COUNT(DISTINCT COALESCE('g' || t.group_id, 't' || t.id))
+                        = (SELECT COUNT(DISTINCT COALESCE('g' || group_id, 't' || id))
+                           FROM tags WHERE id IN ({csv}))
+                 )"
+            ));
         }
         if let Some(sid) = self.series_id {
             conds.push(format!(
@@ -433,8 +436,12 @@ mod tests {
               (3, 'D:\backup\旅行 2024.mp4', '旅行 2024.mp4', NULL, 200, 'bbb', 60000, 3840, 2160, 'av1', 0, 0, '2026-03-10 10:00:00'),
               (4, 'C:\v\料理.avi', '料理.avi', 'カレーの作り方', 300, NULL, 60000, 640, 480, 'mpeg4', 2, 1, '2026-04-10 10:00:00');
 
-            INSERT INTO tags (id, name, parent_id) VALUES (1, '家族', NULL), (2, '旅行', 1), (3, '料理', NULL);
-            INSERT INTO video_tags (video_id, tag_id) VALUES (1, 2), (2, 2), (4, 3);
+            INSERT INTO tag_groups (id, name, sort_order) VALUES (1, 'ジャンル', 0), (2, '画質', 1);
+            INSERT INTO tags (id, name, group_id) VALUES
+              (1, '家族', NULL), (2, '旅行', 1), (3, '料理', 1), (4, '4K', 2), (5, 'お気に入り', NULL);
+            -- 動画1: 旅行・4K・家族・お気に入り / 動画2: 旅行・お気に入り / 動画3: なし / 動画4: 料理
+            INSERT INTO video_tags (video_id, tag_id) VALUES
+              (1, 2), (2, 2), (4, 3), (1, 4), (1, 1), (1, 5), (2, 5);
             "#,
         )
         .unwrap();
@@ -499,19 +506,47 @@ mod tests {
     }
 
     #[test]
-    fn parent_tag_includes_descendants() {
+    fn tags_in_the_same_group_are_or() {
         let conn = setup();
-        // 「家族」(親) を選ぶと子の「旅行」が付いた動画も出る
-        let with_children = VideoQuery { tag_ids: Some(vec![1]), ..Default::default() };
-        assert_eq!(ids(&conn, &with_children).len(), 2);
+        // 「旅行」と「料理」は同じ ジャンル グループ → どちらかが付いていれば出る
+        let q = VideoQuery { tag_ids: Some(vec![2, 3]), ..Default::default() };
+        let mut got = ids(&conn, &q);
+        got.sort();
+        assert_eq!(got, vec![1, 2, 4]);
+    }
 
-        // 明示的に切れば親タグ直付けのものだけ(このデータでは 0 件)
-        let strict = VideoQuery {
-            tag_ids: Some(vec![1]),
-            include_child_tags: Some(false),
-            ..Default::default()
-        };
-        assert!(ids(&conn, &strict).is_empty());
+    #[test]
+    fn tags_across_groups_are_and() {
+        let conn = setup();
+        // ジャンル: 旅行 / 画質: 4K → 両方を満たす動画1だけ
+        let q = VideoQuery { tag_ids: Some(vec![2, 4]), ..Default::default() };
+        assert_eq!(ids(&conn, &q), vec![1]);
+
+        // 同グループの OR とグループ間の AND の組み合わせ:
+        // (旅行 または 料理) かつ 4K → 動画1
+        let mixed = VideoQuery { tag_ids: Some(vec![2, 3, 4]), ..Default::default() };
+        assert_eq!(ids(&conn, &mixed), vec![1]);
+    }
+
+    #[test]
+    fn ungrouped_tags_stay_and() {
+        let conn = setup();
+        // 未分類タグ同士は 1 つずつが独立した軸 = 従来どおり AND。
+        // 「家族」は動画1だけ、「お気に入り」は動画1と2 → 両方を満たすのは動画1
+        let q = VideoQuery { tag_ids: Some(vec![1, 5]), ..Default::default() };
+        assert_eq!(ids(&conn, &q), vec![1]);
+
+        // 未分類とグループ付きの組み合わせも AND
+        let mixed = VideoQuery { tag_ids: Some(vec![5, 3]), ..Default::default() };
+        assert!(ids(&conn, &mixed).is_empty(), "お気に入り かつ 料理 は該当なし");
+    }
+
+    #[test]
+    fn empty_tag_ids_is_not_a_filter() {
+        let conn = setup();
+        let q = VideoQuery { tag_ids: Some(vec![]), ..Default::default() };
+        assert_eq!(q.where_clause().0, "", "空のタグ指定で全件が消えてはいけない");
+        assert_eq!(ids(&conn, &q).len(), 4);
     }
 
     #[test]

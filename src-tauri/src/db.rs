@@ -4,7 +4,7 @@ use std::path::Path;
 
 /// スキーマの現行バージョン。列追加などの変更時は MIGRATIONS に差分を足してここを上げる。
 /// **新テーブルの追加では上げない**(SCHEMA の CREATE TABLE IF NOT EXISTS が既存 DB にも流れるため)
-const LATEST_VERSION: i32 = 4;
+const LATEST_VERSION: i32 = 5;
 
 /// v(N) -> v(N+1) の差分 SQL。PRAGMA user_version の更新は migrate() 側で同一トランザクションに含める
 const MIGRATIONS: &[&str] = &[
@@ -16,6 +16,10 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE videos ADD COLUMN thumb_time_ms INTEGER;",
     // v3 -> v4: 操作履歴の取り消し済みフラグ
     "ALTER TABLE operations_log ADD COLUMN undone_at TEXT;",
+    // v4 -> v5: 階層タグ(tags.parent_id)を廃止してタググループに一本化(v1.19)。
+    // 旧 parent_id は SQLite が FK 列の DROP COLUMN を許さないので既存 DB に残るが、
+    // どのコードからも読まない。SCHEMA からは消してあるので新規 DB には作られない
+    "ALTER TABLE tags ADD COLUMN group_id INTEGER REFERENCES tag_groups(id) ON DELETE SET NULL;",
 ];
 
 pub fn init(path: &Path) -> Result<Connection> {
@@ -112,11 +116,24 @@ CREATE INDEX IF NOT EXISTS idx_videos_hash ON videos(size, partial_hash);
 CREATE INDEX IF NOT EXISTS idx_videos_added ON videos(added_at);
 CREATE INDEX IF NOT EXISTS idx_videos_folder ON videos(watched_folder_id);
 
+-- タグをまとめる軸(v1.19)。「ジャンル」「メディア種別」のような分類の入れ物で、
+-- **グループ自体は動画に付かない**。tags と別テーブルにしてあるのは名前空間を分けるため —
+-- 同じテーブルに is_group フラグで同居させると、ensure_tag("感情") が
+-- INSERT OR IGNORE でグループ行を掴んで「グループに動画が付く」事故になる
+CREATE TABLE IF NOT EXISTS tag_groups (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  -- サイドバー・タグパレットでの表示順。小さいほど上
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS tags (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
   color TEXT,
-  parent_id INTEGER REFERENCES tags(id) ON DELETE SET NULL
+  -- 所属グループ(NULL = 未分類)。タグは 0 個か 1 個のグループにだけ属する。
+  -- 検索では「同じグループのタグ同士は OR、グループをまたぐと AND」になる(core/query.rs)
+  group_id INTEGER REFERENCES tag_groups(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS video_tags (

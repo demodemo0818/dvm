@@ -2,8 +2,11 @@ import { useEffect, useState } from 'react';
 import { ListOrdered } from 'lucide-react';
 import { api } from '../api';
 import { useLibrary } from '../store';
-import type { Series, Tag } from '../types';
+import type { Series, Tag, TagCount, TagGroup } from '../types';
 import { MediaInfoSection } from './MediaInfoSection';
+
+/** 未分類タグをまとめる擬似グループ id(実グループの id は 1 以上) */
+const UNGROUPED = 0;
 
 /**
  * 選択中の動画の詳細とタグ・シリーズ・レーティング編集を行う右パネル。
@@ -17,8 +20,10 @@ export function Inspector() {
     selection, version, bumpVersion, clearSelection, patchSelection,
     inspectorPinned, inspectorWidth,
   } = useLibrary();
-  const [commonTags, setCommonTags] = useState<Tag[]>([]);
+  const [tagCounts, setTagCounts] = useState<TagCount[]>([]);
   const [allTags, setAllTags] = useState<Tag[]>([]);
+  const [tagGroups, setTagGroups] = useState<TagGroup[]>([]);
+  const [paletteFilter, setPaletteFilter] = useState('');
   const [commonSeries, setCommonSeries] = useState<Series[]>([]);
   const [allSeries, setAllSeries] = useState<Series[]>([]);
   const [tagInput, setTagInput] = useState('');
@@ -30,8 +35,10 @@ export function Inspector() {
 
   useEffect(() => {
     if (ids.length === 0) return;
-    api.tagsForVideos(ids).then(setCommonTags);
+    // パレットの 3 状態(全部 / 一部 / なし)は件数から導くので、共通タグも tagCounts から出す
+    api.tagCountsForVideos(ids).then(setTagCounts);
     api.listTags().then(setAllTags);
+    api.listTagGroups().then(setTagGroups);
     api.seriesForVideos(ids).then(setCommonSeries);
     api.listSeries().then(setAllSeries);
     // 全選択で同じレーティングならそれを、バラバラなら 0 を表示
@@ -65,6 +72,71 @@ export function Inspector() {
     await api.tagVideos(ids, name);
     setTagInput('');
     bumpVersion();
+  };
+
+  // 選択中の動画のうち何件にそのタグが付いているか。0 = なし / ids.length = 全部 / 途中 = 一部
+  const counts = new Map(tagCounts.map((c) => [c.tagId, c.count]));
+  const commonTags = allTags.filter((t) => counts.get(t.id) === ids.length);
+
+  /** パレットのクリック。全部に付いていれば全部外し、そうでなければ全部に付ける */
+  const togglePaletteTag = async (tag: Tag, count: number) => {
+    try {
+      if (count === ids.length) await api.untagVideos(ids, tag.id);
+      else await api.tagVideos(ids, tag.name);
+      bumpVersion();
+    } catch {
+      // call() がトーストを出す
+    }
+  };
+
+  // 絞り込み後のタグをグループごとに仕分ける。消えたグループを指すタグは未分類に落とす
+  const needle = paletteFilter.trim().toLowerCase();
+  const visibleTags = needle
+    ? allTags.filter((t) => t.name.toLowerCase().includes(needle))
+    : allTags;
+  const knownGroups = new Set(tagGroups.map((g) => g.id));
+  const byGroup = new Map<number, Tag[]>();
+  for (const t of visibleTags) {
+    const key = t.groupId != null && knownGroups.has(t.groupId) ? t.groupId : UNGROUPED;
+    const list = byGroup.get(key) ?? [];
+    list.push(t);
+    byGroup.set(key, list);
+  }
+
+  const renderPaletteGroup = (key: number, label: string) => {
+    const list = byGroup.get(key) ?? [];
+    if (list.length === 0) return null;
+    return (
+      <div key={key} className="tag-palette-group">
+        <div className="tag-palette-label">{label}</div>
+        <div className="chip-list">
+          {list.map((t) => {
+            const count = counts.get(t.id) ?? 0;
+            const state = count === 0 ? '' : count === ids.length ? 'on' : 'partial';
+            return (
+              <button
+                key={t.id}
+                className={`chip pick ${state}`}
+                // 色付きタグは枠と文字色で示す(塗り潰すと文字が読みにくい色が出るため)。
+                // 付いている状態は青で塗るので、そのときは色を上書きしない
+                style={t.color && state === '' ? { borderColor: t.color, color: t.color } : undefined}
+                title={
+                  count === 0
+                    ? `「${t.name}」を ${ids.length} 件に付ける`
+                    : count === ids.length
+                      ? `「${t.name}」を外す`
+                      : `${count}/${ids.length} 件に付いています(クリックで全部に付ける)`
+                }
+                onClick={() => togglePaletteTag(t, count)}
+              >
+                {t.name}
+                {state === 'partial' && <span className="chip-partial">{count}</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
   };
 
   const addSeries = async () => {
@@ -135,6 +207,30 @@ export function Inspector() {
         ))}
         {commonTags.length === 0 && <span className="chip-empty">タグなし</span>}
       </div>
+
+      {/*
+        タグパレット(v1.19)。既存タグをグループ別に並べ、クリックで選択中の動画にまとめて付ける。
+        タグ名を覚えていなくても押すだけで付けられるのが狙い。
+        タグが増えても縦に伸び続けないよう、高さ上限を付けて中だけスクロールさせている
+      */}
+      {allTags.length > 0 && (
+        <div className="tag-palette">
+          <input
+            className="tag-palette-filter"
+            placeholder="タグを絞り込む"
+            value={paletteFilter}
+            onChange={(e) => setPaletteFilter(e.target.value)}
+          />
+          <div className="tag-palette-body">
+            {tagGroups.map((g) => renderPaletteGroup(g.id, g.name))}
+            {renderPaletteGroup(UNGROUPED, '未分類')}
+            {visibleTags.length === 0 && (
+              <span className="chip-empty">「{paletteFilter}」に一致するタグはありません</span>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="tag-add">
         <input
           list="all-tags"

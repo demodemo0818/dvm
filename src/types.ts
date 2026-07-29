@@ -112,6 +112,10 @@ export interface VideoQuery {
   folderId?: number | null;
   /** このフォルダ**直下**の動画だけ(サブフォルダは含まない)。folderId とは別物 */
   dirPath?: string | null;
+  /**
+   * 絞り込むタグ。同じグループのタグ同士は OR、グループをまたぐと AND になる。
+   * 未分類タグはそれぞれ独立した軸として AND(組み立ては Rust の core/query.rs)
+   */
   tagIds?: number[];
   seriesId?: number | null;
   missing?: boolean;
@@ -136,8 +140,6 @@ export interface VideoQuery {
   addedBefore?: string;
   /** 内容が同一(size + partial_hash が一致)の動画だけ */
   duplicatesOnly?: boolean;
-  /** tagIds に子孫タグも含めるか(未指定 = 含める) */
-  includeChildTags?: boolean;
   /** sort = 'random' のときのシャッフル種 */
   randomSeed?: number;
 }
@@ -201,9 +203,28 @@ export interface Tag {
   id: number;
   name: string;
   color: string | null;
-  /** 親タグ(null = トップレベル)。サイドバーのツリー表示に使う */
-  parentId: number | null;
+  /** 所属グループ(null = 未分類) */
+  groupId: number | null;
+  /** グループ名。見出し表示と AI へのヒントに使う */
+  groupName: string | null;
   videoCount: number;
+}
+
+/**
+ * タグをまとめる軸(v1.19)。「ジャンル」「メディア種別」のような分類の入れ物で、
+ * グループ自体は動画に付かない。検索では同じグループのタグ同士が OR になる
+ */
+export interface TagGroup {
+  id: number;
+  name: string;
+  sortOrder: number;
+  tagCount: number;
+}
+
+/** 選択中の動画のうち、そのタグが付いている件数(タグパレットの 3 状態表示用) */
+export interface TagCount {
+  tagId: number;
+  count: number;
 }
 
 /** 保存した検索条件。queryJson は VideoQuery をそのまま JSON にしたもの */

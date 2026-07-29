@@ -1669,6 +1669,264 @@ html.mpv-active .app {
   color: #8a8f9c;
 }
 
+/* ---- タググループとタグパレット (v1.19) ---- */
+
+/* サイドバー(ライブラリタブ)の項目名での絞り込み。
+   動画そのものの検索はツールバーの検索ボックスの担当で、こちらは別物 */
+.side-filter {
+  width: 100%;
+  margin: 6px 0 2px;
+  padding: 6px 8px;
+  background: #22252d;
+  border: 1px solid #343945;
+  border-radius: 6px;
+  color: #e2e5ec;
+  outline: none;
+  font-family: inherit;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.side-filter:focus {
+  border-color: #2f66d0;
+}
+
+.side-empty {
+  font-size: 11px;
+  color: #6b7180;
+  padding: 8px 10px;
+  line-height: 1.6;
+}
+
+/* サイドバー上部の「＋ グループ / ＋ タグ」 */
+.tag-tree-head {
+  display: flex;
+  gap: 4px;
+  padding: 2px 2px 4px;
+}
+
+.tag-tree-head button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  flex: 1;
+  background: #22252d;
+  border: 1px dashed #3a3f4b;
+  color: #aab0bd;
+  padding: 5px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+}
+
+.tag-tree-head button:hover {
+  color: #fff;
+  border-color: #4a5163;
+}
+
+/* タグ / グループの作成フォーム */
+.tag-create {
+  display: flex;
+  gap: 4px;
+  margin: 2px 0 6px 22px;
+}
+
+.tag-create input {
+  flex: 1;
+  min-width: 0;
+  background: #22252d;
+  border: 1px solid #343945;
+  color: #d8dbe2;
+  border-radius: 5px;
+  padding: 4px 6px;
+  outline: none;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.tag-create input:focus {
+  border-color: #2f66d0;
+}
+
+.tag-create button {
+  background: #22252d;
+  border: 1px solid #343945;
+  color: #d8dbe2;
+  padding: 4px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+}
+
+.tag-create button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.tag-tree-empty {
+  font-size: 11px;
+  color: #6b7180;
+  padding: 4px 10px 8px;
+  line-height: 1.6;
+}
+
+/* グループ見出しは少し強く、配下のタグは 1 段下げる */
+.side-item.tag-group .folder-name {
+  font-weight: 600;
+  color: #c3c8d4;
+}
+
+.side-item.tag-group.active .folder-name {
+  color: #fff;
+}
+
+.side-item.tag-row {
+  padding-left: 24px;
+}
+
+/* 見出しには ＋ と ⋯ が並ぶ。アイコンを行の中心に揃える */
+.side-item.tag-group .remove {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* 詳細ペインのタグパレット。既存タグをグループ別に並べてクリックで付け外しする */
+.tag-palette {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 6px;
+  background: #191c22;
+  border: 1px solid #2a2e37;
+  border-radius: 6px;
+}
+
+.tag-palette-filter {
+  width: 100%;
+  background: #22252d;
+  border: 1px solid #343945;
+  color: #e2e5ec;
+  padding: 5px 7px;
+  border-radius: 6px;
+  outline: none;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.tag-palette-filter:focus {
+  border-color: #2f66d0;
+}
+
+/* タグが増えても詳細ペインが縦に伸び続けないよう、中だけスクロールさせる。
+   これで下のシリーズ欄・メディア情報が画面外に押し出されない */
+.tag-palette-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.tag-palette-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tag-palette-label {
+  font-size: 10px;
+  color: #7d8494;
+  padding: 2px 2px 0;
+  letter-spacing: 0.04em;
+}
+
+/* パレットのチップはボタン。付与状態を枠と背景で示す */
+.chip.pick {
+  background: #23262e;
+  border-color: #333846;
+  color: #9aa2b2;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.chip.pick:hover {
+  border-color: #4a5163;
+  color: #d7dde9;
+}
+
+.chip.pick.on {
+  background: #2f66d0;
+  border-color: #2f66d0;
+  color: #fff;
+}
+
+/* 選択した動画の一部にだけ付いている状態。半分だけ塗って「全部ではない」と示す */
+.chip.pick.partial {
+  background: linear-gradient(135deg, #2f66d0 0 50%, #23262e 50% 100%);
+  border-color: #3c5a96;
+  color: #dbe3f2;
+}
+
+.chip-partial {
+  font-size: 10px;
+  opacity: 0.85;
+  padding-left: 2px;
+}
+
+/* タグをグループへドラッグして移動する(v1.19)。
+   HTML5 の D&D は Tauri のドロップハンドラと両立しないのでポインタイベントで自前実装している */
+.side-item.tag-row {
+  /* ドラッグ中にタグ名が選択状態になるのを防ぐ */
+  user-select: none;
+}
+
+.side-item.tag-row.dragging {
+  opacity: 0.4;
+}
+
+/* 受け入れ先のグループを、見出しと配下タグをまとめて囲んで示す */
+.tag-group-block.drop-target {
+  outline: 1px dashed #4a7ad8;
+  outline-offset: -1px;
+  border-radius: 6px;
+  background: #1e2634;
+}
+
+.side-item.tag-group {
+  /* 並べ替えのドラッグ中にグループ名が選択状態になるのを防ぐ */
+  user-select: none;
+}
+
+.side-item.tag-group.dragging {
+  opacity: 0.4;
+}
+
+/* グループの並べ替え中の挿入位置。落とすとこの線の位置に入る */
+.tag-group-block.insert-before {
+  box-shadow: inset 0 2px 0 #4a7ad8;
+}
+
+.tag-group-block.insert-after {
+  box-shadow: inset 0 -2px 0 #4a7ad8;
+}
+
+/* カーソルに付いてくる「いま掴んでいるタグ」 */
+.tag-drag-ghost {
+  position: fixed;
+  z-index: 100;
+  pointer-events: none;
+  background: #2f66d0;
+  color: #fff;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 45%);
+}
+
 /* ---- 統計ダッシュボード (v1.7) ---- */
 .stats-modal {
   width: 640px;

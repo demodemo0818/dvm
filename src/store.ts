@@ -138,6 +138,7 @@ interface LibraryState {
   /** 同じフォルダをもう一度渡すと解除する。null で明示的に解除 */
   toggleDirPath: (dirPath: string | null) => void;
   toggleTagFilter: (tagId: number) => void;
+  setTagFilter: (tagIds: number[]) => void;
   clearTagFilter: () => void;
   toggleSeriesFilter: (seriesId: number) => void;
   toggleMissingOnly: () => void;
@@ -301,6 +302,9 @@ export const useLibrary = create<LibraryState>((set) => ({
         : [...s.tagIds, tagId],
       ...CLEARED,
     })),
+  // グループ見出しのクリック用。配下タグをまとめて入れ替える
+  // (同じグループのタグ同士は Rust 側で OR になるので、これで「このグループの何か」が出る)
+  setTagFilter: (tagIds) => set({ tagIds, ...CLEARED }),
   clearTagFilter: () => set({ tagIds: [], ...CLEARED }),
   toggleMissingOnly: () => set((s) => ({ missingOnly: !s.missingOnly, ...CLEARED })),
   toggleDuplicatesOnly: () =>

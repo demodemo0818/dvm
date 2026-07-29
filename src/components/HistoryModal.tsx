@@ -18,11 +18,15 @@ const ACTION_LABEL: Record<string, string> = {
   remove_from_series: 'シリーズから外した',
   set_rating: 'レーティングを変更した',
   set_video_info: 'タイトル・コメントを変更した',
+  create_tag: 'タグを作成した',
   rename_tag: 'タグ名を変更した',
   delete_tag: 'タグを削除した',
   delete_series: 'シリーズを削除した',
   set_tag_color: 'タグの色を変更した',
-  set_tag_parent: 'タグの親を変更した',
+  set_tag_group: 'タグのグループを変更した',
+  create_tag_group: 'タググループを作成した',
+  rename_tag_group: 'タググループ名を変更した',
+  delete_tag_group: 'タググループを削除した',
   remove_videos: 'ライブラリから削除した',
   trash_file: 'ファイルをごみ箱へ送った',
   move_file: 'ファイルを移動した',
@@ -62,7 +66,14 @@ function summarize(entry: OpEntry): string {
     case 'set_rating':
       return `★${p.rating} を ${count('before')} 件に`;
     case 'rename_tag':
+    case 'rename_tag_group':
       return `${p.before} → ${p.after}`;
+    case 'create_tag':
+    case 'delete_tag':
+      return String(p.tag ?? '');
+    case 'create_tag_group':
+    case 'delete_tag_group':
+      return String(p.group ?? '');
     case 'relink':
       return `${count('items')} 件のパス`;
     case 'move_file':

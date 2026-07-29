@@ -2,7 +2,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { useLibrary } from './store';
 import type {
   AppInfo, BackupInfo, FolderNode, LibraryStats, MediaInfo, OpEntry, OpResult, PlanItem, Series,
-  SmartFolder, SubfolderView, Tag, VideoQuery, VideoRow, ViewEntry, WatchedFolder,
+  SmartFolder, SubfolderView, Tag, TagCount, TagGroup, VideoQuery, VideoRow, ViewEntry,
+  WatchedFolder,
 } from './types';
 
 /**
@@ -62,19 +63,31 @@ export const api = {
     call<string>('prepare_video', { id, mode }, true),
   cancelPrepare: () => call<void>('cancel_prepare', undefined, true),
   listTags: () => call<Tag[]>('list_tags'),
+  listTagGroups: () => call<TagGroup[]>('list_tag_groups'),
   tagVideos: (videoIds: number[], name: string, actor?: 'user' | 'ai') =>
     call<number>('tag_videos', { videoIds, name, actor }),
   untagVideos: (videoIds: number[], tagId: number, actor?: 'user' | 'ai') =>
     call<void>('untag_videos', { videoIds, tagId, actor }),
+  /** 動画に付けずにタグだけ作る。既にある名前はエラーになる */
+  createTag: (name: string, groupId: number | null) =>
+    call<number>('create_tag', { name, groupId }),
   renameTag: (tagId: number, name: string) => call<void>('rename_tag', { tagId, name }),
   deleteTag: (tagId: number) => call<void>('delete_tag', { tagId }),
   /** color に null を渡すと色なしに戻す */
   setTagColor: (tagId: number, color: string | null) =>
     call<void>('set_tag_color', { tagId, color }),
-  /** parentId に null を渡すとトップレベルに戻す */
-  setTagParent: (tagId: number, parentId: number | null) =>
-    call<void>('set_tag_parent', { tagId, parentId }),
+  /** groupId に null を渡すと未分類に戻す */
+  setTagGroup: (tagId: number, groupId: number | null) =>
+    call<void>('set_tag_group', { tagId, groupId }),
+  createTagGroup: (name: string) => call<number>('create_tag_group', { name }),
+  renameTagGroup: (groupId: number, name: string) =>
+    call<void>('rename_tag_group', { groupId, name }),
+  /** グループだけ消える。中のタグは未分類に落ちるだけで動画のタグ付けは無傷 */
+  deleteTagGroup: (groupId: number) => call<void>('delete_tag_group', { groupId }),
+  reorderTagGroups: (groupIds: number[]) => call<void>('reorder_tag_groups', { groupIds }),
   tagsForVideos: (videoIds: number[]) => call<Tag[]>('tags_for_videos', { videoIds }),
+  tagCountsForVideos: (videoIds: number[]) =>
+    call<TagCount[]>('tag_counts_for_videos', { videoIds }),
   setRating: (videoIds: number[], rating: number, actor?: 'user' | 'ai') =>
     call<void>('set_rating', { videoIds, rating, actor }),
   removeVideos: (videoIds: number[], actor?: 'user' | 'ai') =>

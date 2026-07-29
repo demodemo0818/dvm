@@ -25,7 +25,7 @@ const FILTER_PROPS = {
   text: { type: 'string', description: 'ファイル名・タイトルの部分一致。空白区切りで複数語すべてを含むものに絞る' },
   searchPath: { type: 'boolean', description: 'text の検索対象にフォルダのパスも含める' },
   dirPath: { type: 'string', description: 'このフォルダ直下にある動画だけに絞る(サブフォルダは含まない)。絶対パスで指定する' },
-  tag: { type: 'string', description: 'タグ名(完全一致)。子タグが付いた動画も含まれる' },
+  tags: { type: 'array', items: { type: 'string' }, description: 'タグ名(完全一致)で絞る。同じグループのタグ同士は OR、グループをまたぐと AND になる(例: ["ファンタジー","SF","アニメ"] = (ファンタジー または SF) かつ アニメ)。グループは list_tags で確認できる' },
   series: { type: 'string', description: 'シリーズ名(完全一致)' },
   minRating: { type: 'integer', minimum: 1, maximum: 5 },
   durationBucket: { type: 'string', enum: ['lt5', '5to20', '20to60', 'gt60'], description: '尺: 5分未満/5〜20分/20〜60分/60分以上' },
@@ -44,7 +44,7 @@ interface FilterInput {
   text?: string;
   searchPath?: boolean;
   dirPath?: string;
-  tag?: string;
+  tags?: string[];
   series?: string;
   minRating?: number;
   durationBucket?: string;
@@ -67,7 +67,7 @@ async function toQuery(input: FilterInput): Promise<VideoQuery> {
   return {
     text: input.text || undefined,
     sort: input.sort as SortKey | undefined,
-    tagIds: input.tag ? [await resolveTagId(input.tag)] : undefined,
+    tagIds: input.tags?.length ? await resolveTagIds(input.tags) : undefined,
     seriesId: input.series ? await resolveSeriesId(input.series) : undefined,
     minRating: input.minRating,
     minDurationMs: range?.min,
@@ -98,11 +98,14 @@ function toAdvanced(input: FilterInput): AdvancedFilter {
   };
 }
 
-async function resolveTagId(name: string): Promise<number> {
+/** タグ名を id に解決する。1 つでも見つからなければエラーにする(黙って無視すると条件が緩む) */
+async function resolveTagIds(names: string[]): Promise<number[]> {
   const tags = await api.listTags();
-  const tag = tags.find((t) => t.name.toLowerCase() === name.toLowerCase());
-  if (!tag) throw new Error(`タグ「${name}」が見つかりません`);
-  return tag.id;
+  return names.map((name) => {
+    const tag = tags.find((t) => t.name.toLowerCase() === name.toLowerCase());
+    if (!tag) throw new Error(`タグ「${name}」が見つかりません`);
+    return tag.id;
+  });
 }
 
 async function resolveSeriesId(name: string): Promise<number> {
@@ -154,7 +157,8 @@ export function buildTools(notify: ToolNotify) {
 
   const listTags = betaTool({
     name: 'list_tags',
-    description: '全タグと各タグの動画数を一覧する',
+    description:
+      '全タグと各タグの動画数、所属グループ(groupName)を一覧する。グループは分類の軸(例:「ジャンル」「メディア種別」)で、検索では同じグループのタグ同士が OR になる',
     inputSchema: { type: 'object', properties: {} } as const,
     run: async () => JSON.stringify(await api.listTags()),
   });
@@ -304,6 +308,7 @@ export async function buildSystemPrompt(): Promise<string> {
 指針:
 - 検索結果をユーザーに見せたいときは apply_filter を使う(グリッドが絞り込まれる)。データとして参照したいだけなら search_videos を使う
 - タグ提案はファイル名・タイトルから内容を推測し、既存タグ(list_tags)を優先して提案する。新しいタグを付けるのはユーザーが同意してからにする
+- タグにはグループ(分類の軸)がある。軸が違うタグは同時に付けてよい(例: メディア種別「アニメ」とジャンル「ファンタジー」)。グループの作成・変更はユーザーの担当なので、AI からは行わない
 - 書き込み(tag_videos / set_rating / add_to_series)は実行前にユーザーの意図が明確な場合のみ行う。曖昧なら先に提案して確認する
 - 回答は簡潔な日本語で
 
