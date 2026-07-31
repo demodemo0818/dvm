@@ -15,6 +15,9 @@ pub struct Probed {
     pub container: Option<String>,
     pub fps: Option<f64>,
     pub bitrate: Option<i64>,
+    /// 埋め込みカバー画像(`attached_pic`)のストリーム番号。サムネイルに使える(v1.22)。
+    /// ffprobe は取り込み時にどうせ 1 回走るので、ここで拾えば追加コストはゼロ
+    pub cover_stream_index: Option<i64>,
 }
 
 /// ffprobe を 1 回だけ起動して JSON を受け取る(probe / media_info の共通部)
@@ -60,6 +63,14 @@ pub fn parse_probed(v: &Value) -> Probed {
     }
     if let Some(streams) = v.get("streams").and_then(|s| s.as_array()) {
         for s in streams {
+            // 埋め込みカバーは本編ではない。先頭に来るファイルがあるので、
+            // 本編の解像度・コーデックを上書きさせないよう先に振り分ける
+            if disposition(s, "attached_pic") {
+                if probed.cover_stream_index.is_none() {
+                    probed.cover_stream_index = s.get("index").and_then(|i| i.as_i64());
+                }
+                continue;
+            }
             match s.get("codec_type").and_then(|t| t.as_str()) {
                 Some("video") if probed.video_codec.is_none() => {
                     probed.video_codec = s.get("codec_name").and_then(|c| c.as_str()).map(String::from);
@@ -626,6 +637,60 @@ mod tests {
         assert_eq!(p.bitrate, Some(5_000_000));
         assert_eq!(p.container.as_deref(), Some("mov,mp4,m4a"));
         assert!((p.fps.unwrap() - 29.97).abs() < 0.01);
+    }
+
+    /// 埋め込みカバー(attached_pic)をサムネイルに使うための検出(v1.22)。
+    /// StreamFab で書き出した mp4 は本編のあとに PNG が 1 本入っている
+    #[test]
+    fn parse_probed_finds_embedded_cover() {
+        let v = json(r#"{
+          "streams": [
+            {"index":0,"codec_type":"video","codec_name":"h264","width":1920,"height":1080,
+             "disposition":{"attached_pic":0}},
+            {"index":1,"codec_type":"audio","codec_name":"aac"},
+            {"index":2,"codec_type":"video","codec_name":"png","width":1920,"height":1080,
+             "disposition":{"attached_pic":1}}
+          ],
+          "format": {"duration":"120.000000"}
+        }"#);
+        let p = parse_probed(&v);
+        assert_eq!(p.cover_stream_index, Some(2));
+        // カバーに本編の情報を上書きされていないこと
+        assert_eq!(p.video_codec.as_deref(), Some("h264"));
+        assert_eq!(p.width, Some(1920));
+    }
+
+    /// カバーが先頭に来るファイル(音楽 mp4 など)でも本編を取り違えない。
+    /// 従来はここで width=350 / codec=png を本編として拾ってしまっていた
+    #[test]
+    fn parse_probed_skips_leading_cover() {
+        let v = json(r#"{
+          "streams": [
+            {"index":0,"codec_type":"video","codec_name":"png","width":350,"height":197,
+             "disposition":{"attached_pic":1}},
+            {"index":1,"codec_type":"video","codec_name":"h264","width":1280,"height":720,
+             "disposition":{"attached_pic":0}},
+            {"index":2,"codec_type":"audio","codec_name":"aac"}
+          ]
+        }"#);
+        let p = parse_probed(&v);
+        assert_eq!(p.cover_stream_index, Some(0));
+        assert_eq!(p.video_codec.as_deref(), Some("h264"));
+        assert_eq!(p.width, Some(1280));
+        assert_eq!(p.height, Some(720));
+    }
+
+    /// カバーの無い動画(実測でライブラリの 3%)では None のままで、
+    /// 従来どおり本編から抽出する経路に落ちること
+    #[test]
+    fn parse_probed_without_cover_stays_none() {
+        let v = json(r#"{
+          "streams": [
+            {"index":0,"codec_type":"video","codec_name":"h264","width":1920,"height":1080},
+            {"index":1,"codec_type":"audio","codec_name":"aac"}
+          ]
+        }"#);
+        assert_eq!(parse_probed(&v).cover_stream_index, None);
     }
 
     #[test]

@@ -61,6 +61,12 @@ interface LibraryState {
   randomSeed: number;
   /** ライブラリ内容の変更通知。増えると各所が再取得する */
   version: number;
+  /**
+   * サムネイルの中身の変更通知。`{id}.jpg` という名前は変わらないので、
+   * これを URL に足さないと WebView2 が古い絵を出し続ける(lib/thumbs.ts)。
+   * version と分けてあるのは、タグ付けのたびに全サムネイルを読み直させないため
+   */
+  thumbVersion: number;
   status: string;
   scanning: boolean;
   /** グリッドで選択中の動画(行データごと保持) */
@@ -156,6 +162,7 @@ interface LibraryState {
   setAdvanced: (patch: Partial<AdvancedFilter>) => void;
   clearAdvanced: () => void;
   bumpVersion: () => void;
+  bumpThumbVersion: () => void;
   setStatus: (scanning: boolean, status: string) => void;
   setPlayingVideo: (video: VideoRow | null) => void;
   /** 一覧から再生を始める(⏭ で次へ進めるようにキュー情報も持つ) */
@@ -220,6 +227,7 @@ export const useLibrary = create<LibraryState>((set) => ({
   advanced: EMPTY_ADVANCED,
   randomSeed: newSeed(),
   version: 0,
+  thumbVersion: 0,
   status: '',
   scanning: false,
   ...CLEARED,
@@ -349,6 +357,7 @@ export const useLibrary = create<LibraryState>((set) => ({
       };
     }),
   bumpVersion: () => set((s) => ({ version: s.version + 1 })),
+  bumpThumbVersion: () => set((s) => ({ thumbVersion: s.thumbVersion + 1 })),
   setStatus: (scanning, status) => set({ scanning, status }),
   selectOnly: (video, index = null) =>
     set({ selection: [video], anchorIndex: index, focusIndex: index }),

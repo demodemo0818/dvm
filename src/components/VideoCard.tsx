@@ -2,6 +2,7 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 import { TriangleAlert } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { fmtSize, fmtTime } from '../lib/format';
+import { thumbSrc } from '../lib/thumbs';
 import { useLibrary } from '../store';
 import { HoverPreview } from './HoverPreview';
 import type { VideoRowProps } from './rowProps';
@@ -14,6 +15,7 @@ export function VideoCard({
 }: VideoRowProps) {
   const previewOnHover = useLibrary((s) => s.previewOnHover);
   const menuOpen = useLibrary((s) => s.contextMenuOpen);
+  const thumbVersion = useLibrary((s) => s.thumbVersion);
   const [hovering, setHovering] = useState(false);
   const hoverTimer = useRef<number | undefined>(undefined);
 
@@ -63,7 +65,7 @@ export function VideoCard({
         {video.thumbPath && (
           <img
             key={video.id}
-            src={convertFileSrc(video.thumbPath)}
+            src={thumbSrc(convertFileSrc(video.thumbPath), thumbVersion)}
             loading="lazy"
             alt=""
             draggable={false}

@@ -9,16 +9,32 @@ const SCAN_WINDOW_SEC: f64 = 10.0;
 
 /// サムネイルを 1 枚生成する(JPEG, 幅 480px)。
 ///
-/// - `at_ms = Some(t)`: その位置ちょうどのフレームを使う(ユーザーが再生中に指定した場合)
-/// - `at_ms = None`: 10% 地点から 10 秒ぶんを ffmpeg の `thumbnail` フィルタに評価させ、
+/// 優先順位は **手動指定 > 埋め込みカバー > 自動抽出**:
+///
+/// - `at_ms = Some(t)`: その位置ちょうどのフレームを使う(ユーザーが再生中に指定した場合)。
+///   明示操作なのでカバーより優先する
+/// - `cover_stream_index = Some(i)`: 動画に埋め込まれたカバー画像(`attached_pic`)を使う(v1.22)。
+///   本編をデコードしないぶん 3 倍前後速く、配信サービス由来の mp4 では絵も的確になる
+/// - どちらも無ければ 10% 地点から 10 秒ぶんを ffmpeg の `thumbnail` フィルタに評価させ、
 ///   代表的なコマを選ばせる。10% 固定だと暗転・フェードを引きやすかったため(v1.8)
 pub fn generate(
     ff: &FfmpegPaths,
     video_path: &str,
     duration_ms: Option<i64>,
     at_ms: Option<i64>,
+    cover_stream_index: Option<i64>,
     out: &Path,
 ) -> Result<()> {
+    // 埋め込みカバーを試す。壊れた PNG が入っていることもあるので、
+    // 失敗したら黙って本編からの抽出に落ちる(ユーザーには縮退が見えない)
+    if at_ms.is_none() {
+        if let Some(index) = cover_stream_index {
+            if run_cover(ff, video_path, index, out)? {
+                return Ok(());
+            }
+        }
+    }
+
     let (ss, pick_best) = match at_ms {
         // 手動指定はその位置を尊重する(代表フレーム選択で数秒ずれると指定の意味がない)
         Some(t) => ((t.max(0) as f64) / 1000.0, false),
@@ -40,6 +56,21 @@ pub fn generate(
     }
 }
 
+/// 埋め込みカバーのストリームだけをデコードして 480px に縮める。
+/// `-map` でストリームを名指しするので本編は一切読まない
+fn run_cover(ff: &FfmpegPaths, video_path: &str, index: i64, out: &Path) -> Result<bool> {
+    let output = command(&ff.ffmpeg)
+        // -nostdin は command() の stdin(null) と二重の保険(ffmpeg に触らせない明示)
+        .args(["-v", "error", "-nostdin", "-i", video_path])
+        .args(["-map", &format!("0:{index}")])
+        // カバーが 480px より小さいことも 4K のこともある。どちらも 480px 幅に揃える
+        .args(["-vf", "scale=480:-2"])
+        .args(["-frames:v", "1", "-q:v", "4", "-y"])
+        .arg(out)
+        .output()?;
+    Ok(output.status.success() && out.exists())
+}
+
 fn run_ffmpeg(
     ff: &FfmpegPaths,
     video_path: &str,
@@ -48,7 +79,7 @@ fn run_ffmpeg(
     out: &Path,
 ) -> Result<bool> {
     let mut cmd = command(&ff.ffmpeg);
-    cmd.args(["-v", "error"]);
+    cmd.args(["-v", "error", "-nostdin"]);
     if let Some(ss) = ss {
         if ss > 0.0 {
             cmd.args(["-ss", &format!("{ss:.3}")]);

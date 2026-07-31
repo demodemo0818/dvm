@@ -18,6 +18,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [previewOnHover, setPreviewOnHover] = useState(true);
   const [seekPreview, setSeekPreview] = useState(true);
   const [autoplayNext, setAutoplayNext] = useState(false);
+  const [useEmbeddedCover, setUseEmbeddedCover] = useState(true);
 
   useEffect(() => {
     api.getSetting('player_path').then((v) => setPlayerPath(v ?? ''));
@@ -25,6 +26,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     api.getSetting('preview_on_hover').then((v) => setPreviewOnHover(v !== '0'));
     api.getSetting('seek_preview').then((v) => setSeekPreview(v !== '0'));
     api.getSetting('autoplay_next').then((v) => setAutoplayNext(v === '1'));
+    api.getSetting('use_embedded_cover').then((v) => setUseEmbeddedCover(v !== '0'));
     api.getSetting('anthropic_api_key').then((v) => setAiKey(v ?? ''));
     api.getSetting('anthropic_model').then((v) => setAiModel(v ?? ''));
     api.getSetting('mcp_allow_write').then((v) => setMcpAllowWrite(v === '1'));
@@ -51,6 +53,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     useLibrary.getState().setSeekPreview(seekPreview);
     await api.setSetting('autoplay_next', autoplayNext ? '1' : '0');
     useLibrary.getState().setAutoplayNext(autoplayNext);
+    // 次にサムネイルを作るときから効く(既存のサムネイルは「すべて再生成」で作り直す)
+    await api.setSetting('use_embedded_cover', useEmbeddedCover ? '1' : '0');
     await api.setSetting('anthropic_api_key', aiKey.trim());
     await api.setSetting('anthropic_model', aiModel.trim());
     await api.setSetting('mcp_allow_write', mcpAllowWrite ? '1' : '0');
@@ -207,8 +211,17 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
               孤児サムネイルを掃除
             </button>
           </div>
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={useEmbeddedCover}
+              onChange={(e) => setUseEmbeddedCover(e.target.checked)}
+            />
+            動画にカバー画像が埋め込まれていればサムネイルに使う(生成が速く、絵も的確になります)
+          </label>
           <div className="settings-note">
-            再生中にカメラのボタン(T キー)を押すと、その位置を個別にサムネイルにできます
+            再生中にカメラのボタン(T キー)を押すと、その位置を個別にサムネイルにできます。
+            手動で指定したコマはカバー画像より優先されます
           </div>
         </div>
 

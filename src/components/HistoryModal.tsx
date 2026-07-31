@@ -1,6 +1,7 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
+import { thumbSrc } from '../lib/thumbs';
 import { displayName, groupByDate, progressLabel, timeOf } from '../lib/viewHistory';
 import { useLibrary } from '../store';
 import type { OpEntry, ViewEntry } from '../types';
@@ -131,7 +132,7 @@ export function HistoryModal({ onClose }: { onClose: () => void }) {
  * 日付ごとのまとめと表示文言は lib/viewHistory.ts の純関数が決める
  */
 function ViewTab({ onClose }: { onClose: () => void }) {
-  const { setPlayingVideo, playerPath, pushToast } = useLibrary();
+  const { setPlayingVideo, playerPath, pushToast, thumbVersion } = useLibrary();
   const [entries, setEntries] = useState<ViewEntry[]>([]);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -203,7 +204,7 @@ function ViewTab({ onClose }: { onClose: () => void }) {
                 {e.thumbPath ? (
                   <img
                     className="view-thumb"
-                    src={convertFileSrc(e.thumbPath)}
+                    src={thumbSrc(convertFileSrc(e.thumbPath), thumbVersion)}
                     alt=""
                     loading="lazy"
                     draggable={false}

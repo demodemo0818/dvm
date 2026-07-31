@@ -1,4 +1,4 @@
-use crate::core::{metadata, offline, thumbs};
+use crate::core::{metadata, offline, settings, thumbs};
 use crate::db;
 use crate::AppState;
 use anyhow::Result;
@@ -335,6 +335,13 @@ pub fn process_pending(app: &AppHandle, ids: Vec<i64>) {
     // library:changed を最後に投げた時刻(下の間引きで使う)
     let last_changed = Mutex::new(std::time::Instant::now());
 
+    // 埋め込みカバーを使うかは全件で同じなので、ここで 1 回だけ読む
+    // (1 本ごとに settings を引くと書き込みロックと競合する)
+    let use_cover = {
+        let conn = state.db_read.lock().unwrap();
+        settings::get(&conn, "use_embedded_cover").ok().flatten().as_deref() != Some("0")
+    };
+
     let Ok(pool) = rayon::ThreadPoolBuilder::new().num_threads(3).build() else {
         return;
     };
@@ -360,10 +367,22 @@ pub fn process_pending(app: &AppHandle, ids: Vec<i64>) {
 
                 let probed = metadata::probe(&state_ref.ffmpeg, &path);
                 let duration = probed.as_ref().ok().and_then(|p| p.duration_ms);
+                // カバーのストリーム番号は今の probe の結果に入っている(ffprobe は増えない)
+                let cover = if use_cover {
+                    probed.as_ref().ok().and_then(|p| p.cover_stream_index)
+                } else {
+                    None
+                };
                 let thumb_path = state_ref.thumbs_dir.join(format!("{id}.jpg"));
-                let thumb_ok =
-                    thumbs::generate(&state_ref.ffmpeg, &path, duration, thumb_time_ms, &thumb_path)
-                        .is_ok();
+                let thumb_ok = thumbs::generate(
+                    &state_ref.ffmpeg,
+                    &path,
+                    duration,
+                    thumb_time_ms,
+                    cover,
+                    &thumb_path,
+                )
+                .is_ok();
                 let thumb_state = if thumb_ok { 1i64 } else { 2i64 };
 
                 {
@@ -407,6 +426,9 @@ pub fn process_pending(app: &AppHandle, ids: Vec<i64>) {
     });
     emit_state(app, false, "");
     emit_changed(app);
+    // サムネイルの中身が変わったことを知らせる。ファイル名は {id}.jpg のままなので、
+    // これを受けてフロントが URL にバージョンを足さないと WebView2 が古い絵を出し続ける
+    let _ = app.emit("thumbs:changed", ());
 }
 
 /// 全監視フォルダのスキャン + 個別登録ファイルのチェック(多重起動ガードつき)

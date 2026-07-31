@@ -17,7 +17,7 @@ import { AI_PANEL_WIDTH, INSPECTOR_WIDTH, SIDEBAR_WIDTH, useLibrary } from './st
 
 export default function App() {
   const {
-    bumpVersion, setStatus, status, scanning, setPlayerPath, setPreviewOnHover,
+    bumpVersion, bumpThumbVersion, setStatus, status, scanning, setPlayerPath, setPreviewOnHover,
     setViewMode, setCardWidth, setAutoplayNext, setSeekPreview,
     setInspectorPinned, setMediaInfoOpen, setListColumns, setSidebarWidth, setInspectorWidth,
     setSidebarCollapsed, setAiPanelWidth,
@@ -146,6 +146,9 @@ export default function App() {
       setStatus(e.payload.scanning, e.payload.message);
     }).then((u) => unlisteners.push(u));
 
+    // 中身が変わったサムネイルを読み直させる(URL は {id}.jpg のままなので lib/thumbs.ts 参照)
+    listen('thumbs:changed', () => bumpThumbVersion()).then((u) => unlisteners.push(u));
+
     getCurrentWebview()
       .onDragDropEvent((e) => {
         if (e.payload.type === 'drop' && e.payload.paths.length > 0) {
@@ -155,7 +158,7 @@ export default function App() {
       .then((u) => unlisteners.push(u));
 
     return () => unlisteners.forEach((u) => u());
-  }, [bumpVersion, setStatus, handleDrop]);
+  }, [bumpVersion, bumpThumbVersion, setStatus, handleDrop]);
 
   return (
     <>

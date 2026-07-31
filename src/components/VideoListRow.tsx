@@ -1,6 +1,8 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { COLUMNS, layout } from '../lib/listColumns';
 import type { ColumnKey } from '../lib/listColumns';
+import { thumbSrc } from '../lib/thumbs';
+import { useLibrary } from '../store';
 import type { VideoRowProps } from './rowProps';
 
 /**
@@ -17,6 +19,7 @@ export function VideoListRow({
   video, index, selected, focused, onPick, onPlay, onContextMenu, height, columns,
 }: VideoRowProps & { height: number; columns: ColumnKey[] }) {
   const { thumb, rest } = layout(columns);
+  const thumbVersion = useLibrary((s) => s.thumbVersion);
 
   if (!video) return <div className="list-row list-loading" style={{ height }} />;
 
@@ -33,7 +36,7 @@ export function VideoListRow({
         <div className="list-thumb">
           {video.thumbPath ? (
             <img
-              src={convertFileSrc(video.thumbPath)}
+              src={thumbSrc(convertFileSrc(video.thumbPath), thumbVersion)}
               loading="lazy"
               alt=""
               draggable={false}
