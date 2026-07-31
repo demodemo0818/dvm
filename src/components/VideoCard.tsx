@@ -1,7 +1,8 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { TriangleAlert } from 'lucide-react';
+import { ListOrdered, TriangleAlert } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { fmtSize, fmtTime } from '../lib/format';
+import { chipBudget } from '../lib/grid';
 import { thumbSrc } from '../lib/thumbs';
 import { useLibrary } from '../store';
 import { HoverPreview } from './HoverPreview';
@@ -11,9 +12,11 @@ import type { VideoRowProps } from './rowProps';
 const HOVER_DELAY_MS = 400;
 
 export function VideoCard({
-  video, index, selected, focused, onPick, onPlay, onContextMenu,
-}: VideoRowProps) {
+  video, labels, index, selected, focused, onPick, onPlay, onContextMenu, cardW,
+}: VideoRowProps & { cardW: number }) {
   const previewOnHover = useLibrary((s) => s.previewOnHover);
+  const cardTags = useLibrary((s) => s.cardTags);
+  const cardSeries = useLibrary((s) => s.cardSeries);
   const menuOpen = useLibrary((s) => s.contextMenuOpen);
   const thumbVersion = useLibrary((s) => s.thumbVersion);
   const [hovering, setHovering] = useState(false);
@@ -95,6 +98,55 @@ export function VideoCard({
         {fmtSize(video.size)}
         {video.width && video.height ? ` ・ ${video.width}×${video.height}` : ''}
       </div>
+      {/*
+        タグ行・シリーズ行(v1.23)。設定が ON なら**中身が空でも必ず描く** —
+        付いている動画だけ背が高くなると、行単位で 1 つの高さしか持てない仮想化が破綻する
+        (高さは lib/grid.ts の CARD_CHIP_ROW_H と対)
+      */}
+      {cardTags && (
+        <div className="card-chips">
+          {chips(
+            (labels?.tags ?? []).map((t) => (
+              <span
+                key={t.id}
+                className="chip mini"
+                style={t.color ? { borderColor: t.color, color: t.color } : undefined}
+              >
+                {t.name}
+              </span>
+            )),
+            cardW,
+          )}
+        </div>
+      )}
+      {cardSeries && (
+        <div className="card-chips">
+          {chips(
+            (labels?.series ?? []).map((s) => (
+              <span key={s.id} className="chip mini series">
+                <ListOrdered size={11} />
+                {s.name}
+              </span>
+            )),
+            cardW,
+          )}
+        </div>
+      )}
     </div>
   );
+}
+
+/**
+ * 1 行に収まるぶんだけ出し、余りは `+N` にまとめる。
+ * カードは 140〜400px と幅が変わるので、入る個数は幅から決める(DOM は測らない)
+ */
+function chips(items: React.ReactNode[], cardW: number): React.ReactNode {
+  const budget = chipBudget(cardW);
+  if (items.length <= budget) return items;
+  return [
+    ...items.slice(0, budget),
+    <span key="more" className="chip mini more">
+      +{items.length - budget}
+    </span>,
+  ];
 }

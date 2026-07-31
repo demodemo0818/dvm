@@ -18,7 +18,7 @@ import { AI_PANEL_WIDTH, INSPECTOR_WIDTH, SIDEBAR_WIDTH, useLibrary } from './st
 export default function App() {
   const {
     bumpVersion, bumpThumbVersion, setStatus, status, scanning, setPlayerPath, setPreviewOnHover,
-    setViewMode, setCardWidth, setAutoplayNext, setSeekPreview,
+    setViewMode, setCardWidth, setAutoplayNext, setSeekPreview, setCardTags, setCardSeries,
     setInspectorPinned, setMediaInfoOpen, setListColumns, setSidebarWidth, setInspectorWidth,
     setSidebarCollapsed, setAiPanelWidth,
     inspectorPinned, sidebarWidth, inspectorWidth, sidebarCollapsed, selection,
@@ -78,6 +78,9 @@ export default function App() {
       const n = Number(v);
       if (Number.isFinite(n) && n > 0) setCardWidth(n);
     });
+    // カードのタグ行は既定 ON、シリーズ行は既定 OFF(付いている動画が限られるため)
+    api.getSetting('card_tags').then((v) => setCardTags(v !== '0'));
+    api.getSetting('card_series').then((v) => setCardSeries(v === '1'));
     // 連続再生は既定 OFF(勝手に次が始まると驚くため)
     api.getSetting('autoplay_next').then((v) => setAutoplayNext(v === '1'));
     // 詳細ペインの固定は既定 OFF(従来どおり選択中だけ出る)
@@ -104,7 +107,7 @@ export default function App() {
   }, [
     setPlayerPath, setPreviewOnHover, setSeekPreview, setViewMode, setCardWidth, setAutoplayNext,
     setInspectorPinned, setMediaInfoOpen, setListColumns, setSidebarWidth, setInspectorWidth,
-    setSidebarCollapsed, setAiPanelWidth,
+    setSidebarCollapsed, setAiPanelWidth, setCardTags, setCardSeries,
   ]);
 
   /**

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { SortKey, VideoRow } from '../types';
+import type { SortKey, VideoLabels, VideoRow } from '../types';
 import {
-  COLUMNS, CURATED_SORTS, DEFAULT_COLUMNS, extensionOf, folderOf, gridTemplate, layout,
-  NAME_MIN_W, nextSort, parseColumns, sortDirOf, sortLabel,
+  COLUMN_ORDER, COLUMNS, CURATED_SORTS, DEFAULT_COLUMNS, extensionOf, folderOf, gridTemplate,
+  layout, NAME_MIN_W, needsLabels, nextSort, parseColumns, sortDirOf, sortLabel,
 } from './listColumns';
 import type { ColumnKey } from './listColumns';
 
@@ -46,6 +46,11 @@ describe('parseColumns', () => {
 
   it('既定は v1.15 までのリスト表示と同じ', () => {
     expect(DEFAULT_COLUMNS).toEqual(['thumb', 'duration', 'size', 'resolution', 'rating', 'added']);
+  });
+
+  // COLUMN_ORDER が ColumnPicker の描画元なので、漏れた列はユーザーが選べなくなる
+  it('すべての列が列選択ポップオーバーに並ぶ', () => {
+    expect([...COLUMN_ORDER].sort()).toEqual([...ALL_KEYS].sort());
   });
 });
 
@@ -150,6 +155,59 @@ describe('セルの表示', () => {
   });
 });
 
+describe('タグ・シリーズ列(v1.23)', () => {
+  const labels = (patch: Partial<VideoLabels> = {}): VideoLabels => ({
+    videoId: 1,
+    tags: [],
+    series: [],
+    ...patch,
+  });
+
+  /*
+   * タグは行と別便で届くので、セルには 3 つの状態がある。
+   * 「まだ取れていない」を空欄にすると 0 個と見分けが付かず、
+   * 逆に 0 個を '—' にすると付け忘れなのか読み込み中なのか分からなくなる
+   */
+  it('未取得は null(セルが "—")、0 個は空文字(セルが空欄)', () => {
+    expect(COLUMNS.tags.text(row())).toBeNull();
+    expect(COLUMNS.series.text(row())).toBeNull();
+    expect(COLUMNS.tags.text(row(), labels())).toBe('');
+    expect(COLUMNS.series.text(row(), labels())).toBe('');
+  });
+
+  it('複数はカンマ区切りにする(順序は Rust 側の名前順のまま)', () => {
+    const l = labels({
+      tags: [
+        { id: 1, name: '旅行', color: '#e05252' },
+        { id: 2, name: '2024', color: null },
+      ],
+      series: [{ id: 5, name: '北海道編' }],
+    });
+    expect(COLUMNS.tags.text(row(), l)).toBe('旅行, 2024');
+    expect(COLUMNS.series.text(row(), l)).toBe('北海道編');
+  });
+
+  // 動画は「タグの集合」を持つので、並べ替えの向きに自然な定義が無い
+  it('並べ替えできない列としてヘッダに矢印を出さない', () => {
+    for (const k of ['tags', 'series'] as ColumnKey[]) {
+      expect(COLUMNS[k].sort).toBeNull();
+      expect(sortDirOf(COLUMNS[k], 'added_desc')).toBeNull();
+      // 押しても今の並び順が変わらない
+      expect(nextSort(COLUMNS[k], 'added_desc')).toBe('added_desc');
+    }
+  });
+});
+
+describe('needsLabels', () => {
+  // 出さない列のために毎ページ問い合わせを投げないため
+  it('タグかシリーズの列があるときだけ別便が要る', () => {
+    expect(needsLabels(DEFAULT_COLUMNS)).toBe(false);
+    expect(needsLabels(['thumb', 'tags'])).toBe(true);
+    expect(needsLabels(['thumb', 'series'])).toBe(true);
+    expect(needsLabels([])).toBe(false);
+  });
+});
+
 describe('extensionOf', () => {
   it('最後のドットだけを見る(Rust の ext_expr と同じ規則)', () => {
     expect(extensionOf('z.tar.gz.mp4')).toBe('mp4');
@@ -178,8 +236,11 @@ describe('sortLabel', () => {
   // 網羅漏れがあると select に空の option が出る
   it('全列のソートキーにラベルがある', () => {
     for (const k of ALL_KEYS) {
-      expect(sortLabel(COLUMNS[k].sort.asc), `${k} の昇順`).toBeTruthy();
-      expect(sortLabel(COLUMNS[k].sort.desc), `${k} の降順`).toBeTruthy();
+      const { sort } = COLUMNS[k];
+      // タグ・シリーズは並べ替えできない列なのでソートキーを持たない
+      if (!sort) continue;
+      expect(sortLabel(sort.asc), `${k} の昇順`).toBeTruthy();
+      expect(sortLabel(sort.desc), `${k} の降順`).toBeTruthy();
     }
     for (const key of CURATED_SORTS) expect(sortLabel(key)).toBeTruthy();
     for (const key of ['series_asc', 'dup', 'random'] as SortKey[]) {

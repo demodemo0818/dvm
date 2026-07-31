@@ -227,6 +227,20 @@ export interface TagCount {
   count: number;
 }
 
+/**
+ * 一覧(グリッド・詳細リスト)のチップに出すタグ・シリーズ(v1.23)。
+ * **Rust の core/labels.rs と手動同期**。
+ *
+ * VideoRow には入れず、表示中のページの id ぶんだけ別便で取る(理由は core/labels.rs 冒頭)。
+ * 「まだ取れていない」は undefined、「1 つも付いていない」は空配列で表す —
+ * 呼び出し側がセルを `—` にするか空欄にするかを決められるようにするため
+ */
+export interface VideoLabels {
+  videoId: number;
+  tags: { id: number; name: string; color: string | null }[];
+  series: { id: number; name: string }[];
+}
+
 /** 保存した検索条件。queryJson は VideoQuery をそのまま JSON にしたもの */
 export interface SmartFolder {
   id: number;

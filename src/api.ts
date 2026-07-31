@@ -2,8 +2,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { useLibrary } from './store';
 import type {
   AppInfo, BackupInfo, FolderNode, LibraryStats, MediaInfo, OpEntry, OpResult, PlanItem, Series,
-  SmartFolder, SubfolderView, Tag, TagCount, TagGroup, VideoQuery, VideoRow, ViewEntry,
-  WatchedFolder,
+  SmartFolder, SubfolderView, Tag, TagCount, TagGroup, VideoLabels, VideoQuery, VideoRow,
+  ViewEntry, WatchedFolder,
 } from './types';
 
 /**
@@ -36,6 +36,11 @@ export const api = {
   countVideos: (query: VideoQuery) => call<number>('count_videos', { query }),
   queryVideos: (query: VideoQuery, limit: number, offset: number) =>
     call<VideoRow[]>('query_videos', { query, limit, offset }),
+  /**
+   * 一覧に出すタグ・シリーズを表示中のページぶんまとめて引く(v1.23)。
+   * 要求した id ごとに必ず 1 エントリ返る(何も付いていなければ空配列)
+   */
+  videoLabels: (videoIds: number[]) => call<VideoLabels[]>('video_labels', { videoIds }),
   registerFiles: (paths: string[]) => call<number>('register_files', { paths }),
   /** id 1 件を一覧と同じ形で引く(視聴履歴からの再生用) */
   getVideo: (id: number) => call<VideoRow | null>('get_video', { id }),

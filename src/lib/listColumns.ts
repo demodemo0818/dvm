@@ -1,4 +1,4 @@
-import type { SortKey, VideoRow } from '../types';
+import type { SortKey, VideoLabels, VideoRow } from '../types';
 import { fmtTime } from './format';
 
 /**
@@ -25,7 +25,9 @@ export type ColumnKey =
   | 'fileModified'
   | 'fileCreated'
   | 'fps'
-  | 'bitrate';
+  | 'bitrate'
+  | 'tags'
+  | 'series';
 
 export interface ColumnDef {
   key: ColumnKey;
@@ -33,7 +35,12 @@ export interface ColumnDef {
   /** px。名前列だけは可変なのでここには出てこない */
   width: number;
   align: 'left' | 'right';
-  sort: { asc: SortKey; desc: SortKey };
+  /**
+   * この列で並べ替えるときのキー。null = 並べ替えできない列(タグ・シリーズ)。
+   * 動画は**タグの集合**を持つので「タグ順」に自然な定義が無い(先頭のタグ名? 個数?)。
+   * どちらを選んでも期待と食い違うので、ヘッダをボタンにしない
+   */
+  sort: { asc: SortKey; desc: SortKey } | null;
   /**
    * ヘッダを最初に押したときの向き。
    * 追加日を古い順から見たい場面はまず無いので、日付・数量系は降順から始める
@@ -41,9 +48,12 @@ export interface ColumnDef {
   first: 'asc' | 'desc';
   /**
    * セルに出す文字列。値が無ければ null(呼び出し側が '—' にする)。
-   * thumb だけは画像なのでこれを使わず、コンポーネントが特別扱いする
+   * thumb だけは画像なのでこれを使わず、コンポーネントが特別扱いする。
+   *
+   * タグ・シリーズは行と別便で届く(v1.23)ので `labels` を見る。
+   * 未取得は null(= '—')、取得済みで 0 件は '' (= 空欄)と区別すること
    */
-  text: (v: VideoRow) => string | null;
+  text: (v: VideoRow, labels?: VideoLabels) => string | null;
 }
 
 /**
@@ -165,14 +175,34 @@ export const COLUMNS: Record<ColumnKey, ColumnDef> = {
           ? `${(v.bitrate / 1_000_000).toFixed(2)} Mbps`
           : `${Math.round(v.bitrate / 1000)} kbps`,
   },
+  // タグ・シリーズはチップではなくカンマ区切りのテキストで出す(v1.23)。
+  // 行が 28〜44px と細いので、チップを並べるより読める文字数が多い
+  tags: {
+    key: 'tags', label: 'タグ', width: 160, align: 'left',
+    sort: null, first: 'asc',
+    text: (_v, labels) => (labels ? labels.tags.map((t) => t.name).join(', ') : null),
+  },
+  series: {
+    key: 'series', label: 'シリーズ', width: 120, align: 'left',
+    sort: null, first: 'asc',
+    text: (_v, labels) => (labels ? labels.series.map((s) => s.name).join(', ') : null),
+  },
 };
 
 /** ポップオーバーに並べる順(チェックを付けたとき既定でこの位置に入る) */
 export const COLUMN_ORDER: ColumnKey[] = [
-  'thumb', 'duration', 'size', 'resolution', 'rating', 'ext',
+  'thumb', 'duration', 'size', 'resolution', 'rating', 'tags', 'series', 'ext',
   'videoCodec', 'audioCodec', 'fps', 'bitrate', 'folder',
   'views', 'lastViewed', 'added', 'fileModified', 'fileCreated',
 ];
+
+/**
+ * この構成でタグ・シリーズの別便(api.videoLabels)が要るか。
+ * 出さない列のために毎ページ問い合わせを投げないため
+ */
+export function needsLabels(cols: ColumnKey[]): boolean {
+  return cols.includes('tags') || cols.includes('series');
+}
 
 /** 既定の列構成。v1.15 までのリスト表示と同じ見た目になる */
 export const DEFAULT_COLUMNS: ColumnKey[] = [
@@ -272,8 +302,12 @@ export function totalWidth(cols: ColumnKey[]): number {
   return tracks.reduce((a, b) => a + b, 0) + GAP_W * (tracks.length - 1) + ROW_PADDING_W;
 }
 
-/** ヘッダを押したときの遷移。同じ列なら反転、別の列ならその列の既定の向き */
+/**
+ * ヘッダを押したときの遷移。同じ列なら反転、別の列ならその列の既定の向き。
+ * 並べ替えできない列(sort === null)は今の並び順をそのまま返す
+ */
 export function nextSort(col: ColumnDef, current: SortKey): SortKey {
+  if (!col.sort) return current;
   if (current === col.sort.asc) return col.sort.desc;
   if (current === col.sort.desc) return col.sort.asc;
   return col.sort[col.first];
@@ -281,6 +315,7 @@ export function nextSort(col: ColumnDef, current: SortKey): SortKey {
 
 /** 今の並び順がこの列によるものなら向きを返す。違う列なら null(矢印を出さない) */
 export function sortDirOf(col: ColumnDef, current: SortKey): 'asc' | 'desc' | null {
+  if (!col.sort) return null;
   if (current === col.sort.asc) return 'asc';
   if (current === col.sort.desc) return 'desc';
   return null;

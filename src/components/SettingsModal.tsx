@@ -16,6 +16,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   /** MCP の設定スニペットに DVM_ALLOW_WRITE を含めるか。表示用だが次回も同じ内容を出せるよう保存する */
   const [mcpAllowWrite, setMcpAllowWrite] = useState(false);
   const [previewOnHover, setPreviewOnHover] = useState(true);
+  const [cardTags, setCardTags] = useState(true);
+  const [cardSeries, setCardSeries] = useState(false);
   const [seekPreview, setSeekPreview] = useState(true);
   const [autoplayNext, setAutoplayNext] = useState(false);
   const [useEmbeddedCover, setUseEmbeddedCover] = useState(true);
@@ -24,6 +26,9 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     api.getSetting('player_path').then((v) => setPlayerPath(v ?? ''));
     // 既定は ON。明示的に '0' のときだけ OFF
     api.getSetting('preview_on_hover').then((v) => setPreviewOnHover(v !== '0'));
+    api.getSetting('card_tags').then((v) => setCardTags(v !== '0'));
+    // シリーズ行だけは既定 OFF(付いている動画が限られるので、既定で行を空けたくない)
+    api.getSetting('card_series').then((v) => setCardSeries(v === '1'));
     api.getSetting('seek_preview').then((v) => setSeekPreview(v !== '0'));
     api.getSetting('autoplay_next').then((v) => setAutoplayNext(v === '1'));
     api.getSetting('use_embedded_cover').then((v) => setUseEmbeddedCover(v !== '0'));
@@ -49,6 +54,11 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     useLibrary.getState().setPlayerPath(playerPath.trim());
     await api.setSetting('preview_on_hover', previewOnHover ? '1' : '0');
     useLibrary.getState().setPreviewOnHover(previewOnHover);
+    // カードの高さが変わるので、閉じた瞬間にグリッドへ反映させる
+    await api.setSetting('card_tags', cardTags ? '1' : '0');
+    useLibrary.getState().setCardTags(cardTags);
+    await api.setSetting('card_series', cardSeries ? '1' : '0');
+    useLibrary.getState().setCardSeries(cardSeries);
     await api.setSetting('seek_preview', seekPreview ? '1' : '0');
     useLibrary.getState().setSeekPreview(seekPreview);
     await api.setSetting('autoplay_next', autoplayNext ? '1' : '0');
@@ -154,6 +164,22 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
               onChange={(e) => setPreviewOnHover(e.target.checked)}
             />
             カードにカーソルを合わせるとプレビュー再生する(マウスを左右に動かすとシーンを送れます)
+          </label>
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={cardTags}
+              onChange={(e) => setCardTags(e.target.checked)}
+            />
+            グリッドのカードにタグを表示する(詳細リストは列の選択から追加できます)
+          </label>
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={cardSeries}
+              onChange={(e) => setCardSeries(e.target.checked)}
+            />
+            グリッドのカードにシリーズを表示する
           </label>
           <label className="settings-check">
             <input

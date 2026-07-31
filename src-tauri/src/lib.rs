@@ -118,6 +118,7 @@ pub fn run() {
             commands::folders::rescan_all,
             commands::videos::query_videos,
             commands::videos::count_videos,
+            commands::videos::video_labels,
             commands::videos::register_files,
             commands::videos::open_video,
             commands::videos::open_with_default,

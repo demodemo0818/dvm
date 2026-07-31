@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { api } from '../api';
-import type { VideoQuery, VideoRow } from '../types';
+import type { VideoLabels, VideoQuery, VideoRow } from '../types';
 
 const PAGE_SIZE = 200;
 /** 同じページの取得に連続で失敗したら諦める回数(スクロールのたびに投げ続けないため) */
@@ -14,12 +14,19 @@ const MAX_RETRY = 2;
  * クエリ変更(= 中身が別物)ではキャッシュを捨てるが、
  * ライブラリ更新(version)では捨てずに裏で取り直して差し替える。
  * 捨ててしまうと取り込み中に一覧が毎回「…」へ戻ってちらつくため
+ *
+ * `withLabels` が true のときだけ、取得済みページの動画にタグ・シリーズを
+ * 後追いで足す(v1.23)。表示しない設定なら問い合わせ自体を投げない
  */
-export function useVideos(query: VideoQuery, version: number) {
+export function useVideos(query: VideoQuery, version: number, withLabels = false) {
   const [total, setTotal] = useState(0);
   const pages = useRef<Map<number, VideoRow[]>>(new Map());
   const inflight = useRef<Set<number>>(new Set());
   const failures = useRef<Map<number, number>>(new Map());
+  /** video_id → タグ・シリーズ。行のキャッシュとは別に持つ(取得タイミングが違う) */
+  const labels = useRef<Map<number, VideoLabels>>(new Map());
+  /** ラベルを取り終えた(または取得中の)ページ。同じページに何度も投げないため */
+  const labelPages = useRef<Set<number>>(new Set());
   /** 世代番号。上げると進行中リクエストの結果は破棄される */
   const generation = useRef(0);
   const [, rerender] = useReducer((n: number) => n + 1, 0);
@@ -52,12 +59,46 @@ export function useVideos(query: VideoQuery, version: number) {
     [queryKey],
   );
 
+  /**
+   * ページ 1 枚ぶんのタグ・シリーズを引く。
+   * 失敗しても握り潰す(call() がトースト済み。チップは飾りなので一覧は成立する)
+   */
+  const fetchLabels = useCallback((page: number, rows: VideoRow[]) => {
+    if (labelPages.current.has(page)) return;
+    labelPages.current.add(page);
+    const gen = generation.current;
+    api
+      .videoLabels(rows.map((r) => r.id))
+      .then((list) => {
+        if (generation.current !== gen) return;
+        for (const l of list) labels.current.set(l.videoId, l);
+        rerender();
+      })
+      .catch(() => {
+        // 次のレンダーで取り直せるように印を戻す
+        if (generation.current === gen) labelPages.current.delete(page);
+      });
+  }, []);
+
+  /**
+   * 取得済みなのにラベルがまだのページを埋める。
+   *
+   * `fetchPage` の中ではなくここに置くこと — 範囲選択(getRange)で入ったページも
+   * 拾えるようにするため。二重発行は labelPages が防ぐので、毎レンダーの空ループで済む
+   */
+  useEffect(() => {
+    if (!withLabels) return;
+    for (const [page, rows] of pages.current) fetchLabels(page, rows);
+  });
+
   // クエリが変わった: 中身が別物になるのでキャッシュごと作り直す
   useEffect(() => {
     generation.current += 1;
     pages.current = new Map();
     inflight.current.clear();
     failures.current.clear();
+    labels.current.clear();
+    labelPages.current.clear();
     rerender();
   }, [queryKey]);
 
@@ -66,6 +107,9 @@ export function useVideos(query: VideoQuery, version: number) {
     generation.current += 1;
     inflight.current.clear();
     failures.current.clear();
+    // タグの付け外しも version を上げるので、ラベルは取り直す。
+    // labels 自体は消さない(消すとチップが一瞬空になってちらつく。届いた順に上書きする)
+    labelPages.current.clear();
     const gen = generation.current;
     api
       .countVideos(query)
@@ -132,5 +176,14 @@ export function useVideos(query: VideoQuery, version: number) {
     [queryKey],
   );
 
-  return { total, getVideo, getRange };
+  /**
+   * その動画のタグ・シリーズ。まだ取れていなければ undefined(セルは `—`)、
+   * 取れていて 1 つも付いていなければ空配列を持つオブジェクト(セルは空欄)
+   */
+  const getLabels = useCallback(
+    (videoId: number): VideoLabels | undefined => labels.current.get(videoId),
+    [],
+  );
+
+  return { total, getVideo, getRange, getLabels };
 }

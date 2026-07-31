@@ -118,6 +118,15 @@ interface LibraryState {
   /** カードのホバープレビューを有効にするか(設定で切り替え。既定 ON) */
   previewOnHover: boolean;
   /**
+   * グリッドのカード下にタグ行 / シリーズ行を出すか(v1.23。設定で切り替え)。
+   * 詳細リストは列ピッカー(listColumns)で切り替えるのでここは使わない。
+   *
+   * **行の高さが変わる**(lib/grid.ts の CARD_CHIP_ROW_H)。切り替えたら
+   * gridMetrics に渡す chipRows も一緒に変えること
+   */
+  cardTags: boolean;
+  cardSeries: boolean;
+  /**
    * プレイヤーのシークバーにカーソルを合わせたときコマを出すか(v1.14。設定で切り替え。既定 ON)。
    * カードのプレビューとは別設定にしている — こちらは再生中に**同じ動画をもう 1 本デコード**
    * するので、外付け HDD の大きいファイルで本編がカクつくなら単独で切りたい
@@ -180,6 +189,8 @@ interface LibraryState {
   setRepeatOne: (repeatOne: boolean) => void;
   setPlayerPath: (playerPath: string) => void;
   setPreviewOnHover: (previewOnHover: boolean) => void;
+  setCardTags: (cardTags: boolean) => void;
+  setCardSeries: (cardSeries: boolean) => void;
   setSeekPreview: (seekPreview: boolean) => void;
   /** メニューの mount で true、unmount で false。呼び出し側は入れ子を意識しなくてよい */
   setContextMenuOpen: (open: boolean) => void;
@@ -246,6 +257,9 @@ export const useLibrary = create<LibraryState>((set) => ({
   playQueue: null,
   playerPath: '',
   previewOnHover: true,
+  // タグは付いている動画が多いので既定 ON、シリーズは限られるので既定 OFF
+  cardTags: true,
+  cardSeries: false,
   seekPreview: true,
   contextMenuOpen: false,
   contextMenuDepth: 0,
@@ -277,6 +291,8 @@ export const useLibrary = create<LibraryState>((set) => ({
   setRepeatOne: (repeatOne) => set({ repeatOne }),
   setPlayerPath: (playerPath) => set({ playerPath }),
   setPreviewOnHover: (previewOnHover) => set({ previewOnHover }),
+  setCardTags: (cardTags) => set({ cardTags }),
+  setCardSeries: (cardSeries) => set({ cardSeries }),
   setSeekPreview: (seekPreview) => set({ seekPreview }),
   setContextMenuOpen: (open) =>
     set((s) => {

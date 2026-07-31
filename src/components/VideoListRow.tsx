@@ -16,7 +16,7 @@ import type { VideoRowProps } from './rowProps';
  * 元動画を開くことになるため(グリッドのカードは面積が大きいので誤爆しにくい)
  */
 export function VideoListRow({
-  video, index, selected, focused, onPick, onPlay, onContextMenu, height, columns,
+  video, labels, index, selected, focused, onPick, onPlay, onContextMenu, height, columns,
 }: VideoRowProps & { height: number; columns: ColumnKey[] }) {
   const { thumb, rest } = layout(columns);
   const thumbVersion = useLibrary((s) => s.thumbVersion);
@@ -56,11 +56,14 @@ export function VideoListRow({
       </div>
       {rest.map((key) => {
         const col = COLUMNS[key];
-        const text = col.text(video);
+        // タグ・シリーズは別便なので未取得がある。null は '—'、'' はそのまま空欄
+        const text = col.text(video, labels);
         return (
           <div
             key={key}
             className={`list-col ${col.align === 'left' ? 'left' : ''} ${key === 'rating' ? 'rating' : ''}`}
+            // 列幅に収まらないぶんは省略されるので、全文をツールチップに出す
+            title={text || undefined}
           >
             {text ?? '—'}
           </div>

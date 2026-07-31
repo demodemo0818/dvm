@@ -155,6 +155,9 @@ CREATE TABLE IF NOT EXISTS series_entries (
   position INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (series_id, video_id)
 );
+-- PK は (series_id, video_id) なので video_id 単独の検索は全走査になる。
+-- 一覧のシリーズ表示(core/labels.rs)がページごとに引くので索引を張る(v1.23)
+CREATE INDEX IF NOT EXISTS idx_series_entries_video ON series_entries(video_id, series_id);
 
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,

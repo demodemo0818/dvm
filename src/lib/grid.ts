@@ -14,6 +14,15 @@ export const GRID_GAP = 12;
  */
 export const CARD_TEXT_H = 56;
 
+/**
+ * タグ行・シリーズ行 1 本ぶんの高さ(px、v1.23)。
+ * `.card-chips { height: 18px }` + `.card { gap: 4px }` の合計。**片方だけ動かさないこと**。
+ *
+ * 行は「設定が ON なら中身が空でも必ず描く」。動画ごとに出し分けると
+ * カードごとに高さが変わり、行単位で 1 つの高さしか持てない仮想化が破綻する
+ */
+export const CARD_CHIP_ROW_H = 22;
+
 /** サムネイルの縦横比。`.thumb { aspect-ratio: 16 / 9 }` と対 */
 const THUMB_RATIO = 9 / 16;
 
@@ -34,12 +43,24 @@ export interface GridMetrics {
  * 名前とサイズの行が次の行の裏に隠れる(v1.17 で踏んだ。
  * 既定 224px・一覧幅 900px あたりで 30px ほどはみ出していた)。
  *
- * `gridWidth` は `.grid-scroll` の clientWidth(縦スクロールバーを除いた内寸)
+ * `gridWidth` は `.grid-scroll` の clientWidth(縦スクロールバーを除いた内寸)。
+ * `chipRows` はカード下に足すタグ行・シリーズ行の本数(0〜2、v1.23)
  */
-export function gridMetrics(gridWidth: number, cardWidth: number): GridMetrics {
+export function gridMetrics(gridWidth: number, cardWidth: number, chipRows = 0): GridMetrics {
   const cols = Math.max(1, Math.floor(gridWidth / cardWidth));
   const inner = gridWidth - GRID_PAD * 2 - GRID_GAP * (cols - 1);
   // 極端に狭いと inner が負になりうる。高さを負にしない
   const cardW = Math.max(0, inner / cols);
-  return { cols, cardW, rowHeight: Math.round(cardW * THUMB_RATIO) + CARD_TEXT_H };
+  const textH = CARD_TEXT_H + chipRows * CARD_CHIP_ROW_H;
+  return { cols, cardW, rowHeight: Math.round(cardW * THUMB_RATIO) + textH };
+}
+
+/**
+ * カードの実寸に対して 1 行に並べるチップの数。溢れたぶんは `+N` にまとめる。
+ * DOM を測らず幅から決め打ちする(仮想化の中で getBoundingClientRect を回さないため)
+ */
+export function chipBudget(cardW: number): number {
+  if (cardW < 170) return 1;
+  if (cardW < 250) return 2;
+  return 3;
 }

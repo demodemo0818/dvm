@@ -1,3 +1,4 @@
+use crate::core::labels::{self, VideoLabels};
 use crate::core::query::{self, VideoQuery, VideoRow};
 use crate::core::{library, metadata, videos};
 use crate::AppState;
@@ -20,6 +21,17 @@ pub fn query_videos(
     let conn = state.db_read.lock().unwrap();
     query::query_rows(&conn, Some(&state.thumbs_dir), &query, limit, offset)
         .map_err(|e| e.to_string())
+}
+
+/// 表示中のページぶんのタグ・シリーズをまとめて引く(v1.23)。
+/// 一覧クエリには混ぜない(理由は core/labels.rs の冒頭)
+#[tauri::command]
+pub fn video_labels(
+    state: State<AppState>,
+    video_ids: Vec<i64>,
+) -> Result<Vec<VideoLabels>, String> {
+    let conn = state.db_read.lock().unwrap();
+    labels::labels_for_videos(&conn, &video_ids).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

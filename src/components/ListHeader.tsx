@@ -33,6 +33,15 @@ export function ListHeader({ columns }: { columns: ColumnKey[] }) {
         <div />
         {rest.map((key) => {
           const col = COLUMNS[key];
+          // タグ・シリーズは並べ替えできない(listColumns.ts の sort: null 参照)。
+          // ボタンにすると押せそうに見えて何も起きないので、見出しだけを描く
+          if (!col.sort) {
+            return (
+              <div key={key} className="head-static" title={`${col.label}では並べ替えできません`}>
+                <span className="head-label">{col.label}</span>
+              </div>
+            );
+          }
           const dir = sortDirOf(col, sort);
           return (
             <button

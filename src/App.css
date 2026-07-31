@@ -450,6 +450,48 @@ body {
   color: #8a8f9c;
 }
 
+/*
+ * カード下のタグ行 / シリーズ行(v1.23)。
+ *
+ * **高さは固定**。height 18px + .card の gap 4px = 22px が
+ * lib/grid.ts の CARD_CHIP_ROW_H と対になっている。**片方だけ動かさないこと** —
+ * ずれるとカードが行より高くなり、名前とサイズが次の行の裏に隠れる(v1.17 の既往)。
+ * 折り返しも禁止(nowrap)。入り切らないぶんは +N にまとめたうえで overflow で切る
+ */
+.card-chips {
+  display: flex;
+  gap: 4px;
+  height: 18px;
+  flex: 0 0 18px;
+  align-items: center;
+  overflow: hidden;
+  flex-wrap: nowrap;
+}
+
+/* 一覧用の小さいチップ。色は塗り潰さず枠線 + 文字色(詳細ペインと同じ方針) */
+.chip.mini {
+  flex: 0 0 auto;
+  min-width: 0;
+  font-size: 10px;
+  line-height: 16px;
+  padding: 0 5px;
+  gap: 3px;
+  border-radius: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* シリーズには色が無いので、少し落ち着かせてタグ行と見分けやすくする */
+.chip.mini.series {
+  color: #9aa5bb;
+}
+
+.chip.mini.more {
+  color: #8a8f9c;
+  border-style: dashed;
+}
+
 .card-loading {
   aspect-ratio: 16 / 9;
   background: #1d2027;
@@ -2285,6 +2327,18 @@ button.stats-tile:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+ * 並べ替えできない列の見出し(タグ・シリーズ、v1.23)。
+ * ボタンにすると押せそうに見えて何も起きないので、素の div で描いて
+ * hover の色変化も付けない
+ */
+.list-head .head-static {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  cursor: default;
 }
 
 /*

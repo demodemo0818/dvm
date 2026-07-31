@@ -7,7 +7,7 @@ import { useContextMenu } from '../hooks/useContextMenu';
 import { useVideos } from '../hooks/useVideos';
 import { buildFolderMenu, buildGridBlankMenu, buildVideoMenu } from '../lib/contextMenu';
 import { GRID_GAP, GRID_PAD, gridMetrics } from '../lib/grid';
-import { gridTemplate, totalWidth } from '../lib/listColumns';
+import { gridTemplate, needsLabels, totalWidth } from '../lib/listColumns';
 import { parentDir } from '../lib/paths';
 import { buildQuery } from '../lib/query';
 import { useLibrary } from '../store';
@@ -42,7 +42,7 @@ export function VideoGrid() {
     duplicatesOnly, advanced, randomSeed, version,
     viewMode, cardWidth, listColumns, selection, anchorIndex, focusIndex,
     clearSelection, setSelection, setFocusIndex, selectOnly, playFromList, toggleDirPath,
-    playerPath, playingVideo, showAiPanel, pushToast, contextMenuOpen,
+    playerPath, playingVideo, showAiPanel, pushToast, contextMenuOpen, cardTags, cardSeries,
   } = useLibrary();
 
   /** 絞り込み一式。buildQuery と余白メニューが同じものを見る */
@@ -54,7 +54,12 @@ export function VideoGrid() {
     duplicatesOnly, advanced, randomSeed,
   ]);
   const query = useMemo<VideoQuery>(() => buildQuery(filters), [filters]);
-  const { total, getVideo, getRange } = useVideos(query, version);
+  /**
+   * タグ・シリーズを実際に出すときだけ別便(api.videoLabels)を投げる。
+   * リストは列ピッカー、グリッドは設定で決まるので、見ている表示モードのほうだけ見る
+   */
+  const showChips = viewMode === 'list' ? needsLabels(listColumns) : cardTags || cardSeries;
+  const { total, getVideo, getRange, getLabels } = useVideos(query, version, showChips);
 
   const parentRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -101,8 +106,10 @@ export function VideoGrid() {
 
   const list = viewMode === 'list';
   const listRowH = listColumns.includes('thumb') ? LIST_ROW_H : LIST_ROW_H_SLIM;
+  // カード下に足すタグ行・シリーズ行の本数。行の高さが変わるので gridMetrics に渡す
+  const chipRows = (cardTags ? 1 : 0) + (cardSeries ? 1 : 0);
   // まだ測れていないうちは 4 列ぶんの幅と仮定する
-  const grid = gridMetrics(width || cardWidth * 4, cardWidth);
+  const grid = gridMetrics(width || cardWidth * 4, cardWidth, chipRows);
   // リスト表示は 1 行 1 件
   const cols = list ? 1 : grid.cols;
   const rowHeight = list ? listRowH : grid.rowHeight;
@@ -555,6 +562,8 @@ export function VideoGrid() {
               const video = getVideo(index);
               const props = {
                 video,
+                // 行より一拍遅れて届く。未取得なら undefined のまま渡す
+                labels: video ? getLabels(video.id) : undefined,
                 index,
                 selected: video ? selectedIds.has(video.id) : false,
                 focused: focusIndex === index,
@@ -565,7 +574,7 @@ export function VideoGrid() {
               return list ? (
                 <VideoListRow key={c} {...props} height={listRowH} columns={listColumns} />
               ) : (
-                <VideoCard key={c} {...props} />
+                <VideoCard key={c} {...props} cardW={grid.cardW} />
               );
             })}
           </div>

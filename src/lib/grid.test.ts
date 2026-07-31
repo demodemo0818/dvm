@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CARD_TEXT_H, GRID_GAP, GRID_PAD, gridMetrics } from './grid';
+import { CARD_CHIP_ROW_H, CARD_TEXT_H, chipBudget, GRID_GAP, GRID_PAD, gridMetrics } from './grid';
 import { CARD_WIDTH_DEFAULT, CARD_WIDTH_MAX, CARD_WIDTH_MIN } from '../store';
 
 describe('gridMetrics', () => {
@@ -44,6 +44,25 @@ describe('gridMetrics', () => {
     }
   });
 
+  // 同じ不変条件をタグ行・シリーズ行を出した状態でも守る(v1.23)。
+  // チップ行を足したぶんだけ、名前とサイズに使える高さも増えていること
+  it('チップ行を足しても、名前とサイズに使える高さが一定に残る', () => {
+    for (const chipRows of [1, 2]) {
+      for (let cardWidth = CARD_WIDTH_MIN; cardWidth <= CARD_WIDTH_MAX; cardWidth += 4) {
+        for (let gridWidth = 200; gridWidth <= 2400; gridWidth += 10) {
+          const { cardW, rowHeight } = gridMetrics(gridWidth, cardWidth, chipRows);
+          expect(rowHeight - Math.round(cardW * (9 / 16)))
+            .toBe(CARD_TEXT_H + chipRows * CARD_CHIP_ROW_H);
+        }
+      }
+    }
+  });
+
+  it('チップ行を出さないときは v1.22 までと同じ高さ', () => {
+    // 既定引数の付け忘れで行高が変わっていないこと
+    expect(gridMetrics(935, 224, 0)).toEqual(gridMetrics(935, 224));
+  });
+
   it('設定値から出す旧計算より高くなる幅がある(直っていることの確認)', () => {
     const old = (cardWidth: number) => Math.round(cardWidth * (9 / 16)) + CARD_TEXT_H;
     // 窓 900px でサイドバーを開いた状態の一覧幅。2 列になり、カードは 309px まで広がる
@@ -62,5 +81,20 @@ describe('gridMetrics', () => {
       // 1 列に満たない幅のときだけ、カードが 0 に潰れて padding だけが残る
       if (cardW > 0) expect(used).toBeLessThanOrEqual(gridWidth + 0.001);
     }
+  });
+});
+
+describe('chipBudget', () => {
+  it('カードが狭いほど並べるチップを減らす', () => {
+    expect(chipBudget(CARD_WIDTH_MIN)).toBe(1);
+    expect(chipBudget(169)).toBe(1);
+    expect(chipBudget(170)).toBe(2);
+    expect(chipBudget(249)).toBe(2);
+    expect(chipBudget(250)).toBe(3);
+    expect(chipBudget(CARD_WIDTH_MAX)).toBe(3);
+  });
+
+  it('どんな幅でも 1 つは出す(0 個だと行が空に見える)', () => {
+    for (let w = 0; w <= 600; w += 3) expect(chipBudget(w)).toBeGreaterThanOrEqual(1);
   });
 });
