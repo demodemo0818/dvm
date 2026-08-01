@@ -20,8 +20,8 @@ export default function App() {
   const {
     bumpVersion, bumpThumbVersion, setStatus, status, scanning, setPlayerPath, setPreviewOnHover,
     setViewMode, setCardWidth, setAutoplayNext, setSeekPreview, setCardTags, setCardSeries,
-    setInspectorPinned, setMediaInfoOpen, setListColumns, setSidebarWidth, setInspectorWidth,
-    setSidebarCollapsed, setAiPanelWidth, setSubStyle, subStyle,
+    setInspectorPinned, setMediaInfoOpen, setListColumns, setListZebra, setSidebarWidth,
+    setInspectorWidth, setSidebarCollapsed, setAiPanelWidth, setSubStyle, subStyle,
     inspectorPinned, sidebarWidth, inspectorWidth, sidebarCollapsed, selection,
     showAiPanel, aiPanelWidth,
   } = useLibrary();
@@ -92,6 +92,8 @@ export default function App() {
     api.getSetting('media_info_open').then((v) => setMediaInfoOpen(v === '1'));
     // 詳細リストの列構成。壊れた値は parseColumns がすべて既定に落とす
     api.getSetting('list_columns').then((v) => setListColumns(parseColumns(v)));
+    // 1 行おきの濃淡(v1.25)は既定 OFF。既存の見た目を勝手に変えない
+    api.getSetting('list_zebra').then((v) => setListZebra(v === '1'));
     // サイドバーは既定で開く
     api.getSetting('sidebar_collapsed').then((v) => setSidebarCollapsed(v === '1'));
     // 幅は setter 側で上下限に丸められる
@@ -115,8 +117,9 @@ export default function App() {
       });
   }, [
     setPlayerPath, setPreviewOnHover, setSeekPreview, setViewMode, setCardWidth, setAutoplayNext,
-    setInspectorPinned, setMediaInfoOpen, setListColumns, setSidebarWidth, setInspectorWidth,
-    setSidebarCollapsed, setAiPanelWidth, setCardTags, setCardSeries, setSubStyle,
+    setInspectorPinned, setMediaInfoOpen, setListColumns, setListZebra, setSidebarWidth,
+    setInspectorWidth, setSidebarCollapsed, setAiPanelWidth, setCardTags, setCardSeries,
+    setSubStyle,
   ]);
 
   /**

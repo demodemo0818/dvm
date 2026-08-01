@@ -89,6 +89,11 @@ interface LibraryState {
    */
   listColumns: ColumnKey[];
   /**
+   * 詳細リストの行を 1 行おきに濃くするか(v1.25。設定 `list_zebra` に永続化)。
+   * 既定 OFF —— 既存の見た目を勝手に変えないため。切り替えは列ピッカーの中にある
+   */
+  listZebra: boolean;
+  /**
    * 詳細ペインの「メディア情報」を開いているか(設定に永続化)。
    * 開いている間は選択を変えるたびに ffprobe が走るので既定は閉じる
    */
@@ -191,6 +196,7 @@ interface LibraryState {
   setInspectorPinned: (inspectorPinned: boolean) => void;
   setMediaInfoOpen: (mediaInfoOpen: boolean) => void;
   setListColumns: (listColumns: ColumnKey[]) => void;
+  setListZebra: (listZebra: boolean) => void;
   setSidebarWidth: (sidebarWidth: number) => void;
   setInspectorWidth: (inspectorWidth: number) => void;
   setSidebarCollapsed: (sidebarCollapsed: boolean) => void;
@@ -261,6 +267,7 @@ export const useLibrary = create<LibraryState>((set) => ({
   inspectorPinned: false,
   mediaInfoOpen: false,
   listColumns: DEFAULT_COLUMNS,
+  listZebra: false,
   sidebarWidth: SIDEBAR_WIDTH.default,
   inspectorWidth: INSPECTOR_WIDTH.default,
   sidebarCollapsed: false,
@@ -298,6 +305,7 @@ export const useLibrary = create<LibraryState>((set) => ({
   setInspectorPinned: (inspectorPinned) => set({ inspectorPinned }),
   setMediaInfoOpen: (mediaInfoOpen) => set({ mediaInfoOpen }),
   setListColumns: (listColumns) => set({ listColumns }),
+  setListZebra: (listZebra) => set({ listZebra }),
   setSidebarWidth: (w) => set({ sidebarWidth: clamp(w, SIDEBAR_WIDTH) }),
   setInspectorWidth: (w) => set({ inspectorWidth: clamp(w, INSPECTOR_WIDTH) }),
   setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),

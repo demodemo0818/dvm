@@ -6,14 +6,17 @@ import type { ColumnKey } from '../lib/listColumns';
 import { useLibrary } from '../store';
 
 /**
- * 詳細リストの列を選ぶポップオーバー(v1.16)。
+ * 詳細リストの見た目を決めるポップオーバー(列は v1.16、1 行おきの濃淡は v1.25)。
  *
  * `.grid-scroll` の overflow に切られるので**スクロール領域の外**に fixed で描く
  * (右クリックメニューと同じ扱い)。
  *
  * 並べ替えはドラッグではなく ↑↓ ボタン。項目が十数個なら十分で、
  * ヘッダのクリック(並び替え)とドラッグ開始の見分けを書かずに済む。
- * サムネイルは先頭固定なので移動できない
+ * サムネイルは先頭固定なので移動できない。
+ *
+ * **リスト表示の見た目に関する切替はここに集める**(設定モーダルには置かない)。
+ * ここはリスト表示のときしか開けないので、設定が効く場所と操作する場所が一致する
  */
 export function ColumnPicker({
   at, onClose,
@@ -23,6 +26,8 @@ export function ColumnPicker({
 }) {
   const columns = useLibrary((s) => s.listColumns);
   const setColumns = useLibrary((s) => s.setListColumns);
+  const zebra = useLibrary((s) => s.listZebra);
+  const setZebra = useLibrary((s) => s.setListZebra);
   const ref = useRef<HTMLDivElement>(null);
 
   // 外側のクリックと Esc で閉じる(右クリックメニューと同じ作法)
@@ -44,6 +49,12 @@ export function ColumnPicker({
   const apply = (next: ColumnKey[]) => {
     setColumns(next);
     void api.setSetting('list_columns', JSON.stringify(next));
+  };
+
+  /** apply() は「列を確定する」関数なので流用しない。保存の作法だけ合わせる */
+  const applyZebra = (next: boolean) => {
+    setZebra(next);
+    void api.setSetting('list_zebra', next ? '1' : '0');
   };
 
   const toggle = (key: ColumnKey) => {
@@ -107,7 +118,21 @@ export function ColumnPicker({
           </div>
         );
       })}
-      <button className="col-reset" onClick={() => apply(DEFAULT_COLUMNS)}>
+      <div className="col-sep" />
+      <div className="col-item">
+        <label>
+          <input type="checkbox" checked={zebra} onChange={() => applyZebra(!zebra)} />
+          <span className="name">1 行おきに背景を濃くする</span>
+        </label>
+      </div>
+      {/* ラベルは「列を既定に戻す」ではなくポップオーバー全体を指すので、縞も一緒に戻す */}
+      <button
+        className="col-reset"
+        onClick={() => {
+          apply(DEFAULT_COLUMNS);
+          applyZebra(false);
+        }}
+      >
         既定に戻す
       </button>
     </div>

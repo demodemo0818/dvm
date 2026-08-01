@@ -40,7 +40,7 @@ export function VideoGrid() {
   const {
     text, sort, folderId, dirPath, tagIds, seriesId, missingOnly, minRating, durationBucket,
     duplicatesOnly, advanced, randomSeed, version,
-    viewMode, cardWidth, listColumns, selection, anchorIndex, focusIndex,
+    viewMode, cardWidth, listColumns, listZebra, selection, anchorIndex, focusIndex,
     clearSelection, setSelection, setFocusIndex, selectOnly, playFromList, toggleDirPath,
     playerPath, playingVideo, showAiPanel, pushToast, contextMenuOpen, cardTags, cardSeries,
   } = useLibrary();
@@ -516,6 +516,19 @@ export function VideoGrid() {
         {virtualizer.getVirtualItems().map((row) => (
           <div
             key={row.key}
+            /*
+              1 行おきの濃淡(v1.25)。**縞のクラスはここ(ラッパ)に付け、塗るのは
+              .list-row 側**にする —— ここを塗ると左右 12px の padding まで届く
+              角無しの帯になり、選択・ホバーのハイライトと形が変わってしまう。
+
+              :nth-child は使えない(仮想化で DOM 上の順番 = 絶対行番号ではないので、
+              スクロールすると縞が反転して波打つ)。row.index は**画面上の通し行番号**
+              なので、先頭にフォルダ行が混ざってもパリティがずれない
+              (動画側の index は folderRows を引いた値なのでこの用途には使えない)。
+              動画行・フォルダ行・未取得プレースホルダの 3 種すべてに props 追加なしで乗る。
+              **list && を外さないこと**(グリッドのカードにクラスが漏れる)
+            */
+            className={list && listZebra && row.index % 2 === 1 ? 'list-odd' : undefined}
             style={{
               position: 'absolute',
               top: 0,

@@ -2176,6 +2176,27 @@ button.stats-tile:hover {
   border: 1px solid transparent;
 }
 
+/*
+ * 1 行おきの濃淡(v1.25、設定 list_zebra)。縞は仮想化ラッパ側の .list-odd 由来で、
+ * 塗るのは .list-row —— 選択・ホバーと同じ角丸・同じ 12px 内側の矩形にするため。
+ *
+ * **この規則は必ず :hover / .selected より前に置くこと**。詳細度が同じ (0,2,0) なので、
+ * 後ろに置くとホバーと選択が縞に負けて効いていないように見える。
+ * 同じ理由で「機能 ON」と「奇数行」をクラス 2 枚に分けてはいけない(0,3,0 になる)。
+ * .list-even も作らない — 偶数行は素のまま(地色が透ける)。
+ *
+ * 色は地色 #16181d に対して 1.065、ホバー #22252d は縞に対して 1.089。
+ * **縞の段差よりホバーの段差を必ず大きく保つ**のが選定基準で、
+ * #1d2027(= .list-loading と同色)にすると 1.091 / 1.064 と逆転してホバーが死ぬ。
+ *
+ * .list-loading (0,1,0) はここに負けて縞色になるが、opacity:.4 の合成後の差は
+ * 1/255 未満で見分けられないので例外は書かない
+ * (外したくなったら下の .list-loading を .list-row.list-loading にするだけでよい)
+ */
+.list-odd .list-row {
+  background: #1b1e25;
+}
+
 .list-row:hover {
   background: #22252d;
 }
@@ -2430,6 +2451,13 @@ button.stats-tile:hover {
 .col-popover .col-move svg.lucide {
   width: 13px;
   height: 13px;
+}
+
+/* 列の一覧と「見た目」の切替を分ける線。色はポップオーバー自身の枠線と同じ */
+.col-popover .col-sep {
+  height: 1px;
+  margin: 6px 4px;
+  background: #3a3f4b;
 }
 
 .col-popover .col-reset {
