@@ -20,10 +20,12 @@ export function usePlayerMenu(
     /** コントロールを起こす。隠れている間は親が cursor: none なので、出す前に呼ぶ */
     wake: () => void;
     onSetThumbnail: () => void;
+    /** 今見ているコマを画像として保存する(v1.26) */
+    onSaveFrame: () => void;
     onClose: () => void;
   },
 ) {
-  const { wake, onSetThumbnail, onClose } = opts;
+  const { wake, onSetThumbnail, onSaveFrame, onClose } = opts;
   const { menu, open, close } = useContextMenu<null>();
 
   const onContextMenu = useCallback(
@@ -47,6 +49,9 @@ export function usePlayerMenu(
       switch (id) {
         case 'player:setThumb':
           onSetThumbnail();
+          break;
+        case 'player:saveFrame':
+          onSaveFrame();
           break;
         case 'player:reveal':
           try {

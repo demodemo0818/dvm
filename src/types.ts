@@ -303,6 +303,8 @@ export interface AppInfo {
   thumbCount: number;
   thumbCacheSize: number;
   backupsDir: string;
+  /** コマの画像の**既定**の保存先(v1.26)。設定が空欄のときの行き先 */
+  framesDir: string;
   /** MCP サーバーの実行ファイル。同梱されていなければ null */
   mcpPath: string | null;
 }

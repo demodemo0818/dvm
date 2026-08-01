@@ -31,6 +31,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [seekPreview, setSeekPreview] = useState(true);
   const [autoplayNext, setAutoplayNext] = useState(false);
   const [useEmbeddedCover, setUseEmbeddedCover] = useState(true);
+  /** コマの画像の保存先(v1.26)。空欄なら AppInfo.framesDir(ピクチャ\DVM) */
+  const [frameSaveDir, setFrameSaveDir] = useState('');
 
   useEffect(() => {
     api.getSetting('player_path').then((v) => setPlayerPath(v ?? ''));
@@ -42,12 +44,22 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     api.getSetting('seek_preview').then((v) => setSeekPreview(v !== '0'));
     api.getSetting('autoplay_next').then((v) => setAutoplayNext(v === '1'));
     api.getSetting('use_embedded_cover').then((v) => setUseEmbeddedCover(v !== '0'));
+    api.getSetting('frame_save_dir').then((v) => setFrameSaveDir(v ?? ''));
     api.getSetting('anthropic_api_key').then((v) => setAiKey(v ?? ''));
     api.getSetting('anthropic_model').then((v) => setAiModel(v ?? ''));
     api.getSetting('mcp_allow_write').then((v) => setMcpAllowWrite(v === '1'));
     api.getAppInfo().then(setInfo).catch(() => {});
     api.listDbBackups().then(setBackups).catch(() => {});
   }, []);
+
+  const browseFrameDir = async () => {
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: 'コマの画像の保存先フォルダ',
+    });
+    if (typeof selected === 'string') setFrameSaveDir(selected);
+  };
 
   const browsePlayer = async () => {
     const selected = await open({
@@ -75,6 +87,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     useLibrary.getState().setAutoplayNext(autoplayNext);
     // 次にサムネイルを作るときから効く(既存のサムネイルは「すべて再生成」で作り直す)
     await api.setSetting('use_embedded_cover', useEmbeddedCover ? '1' : '0');
+    // 空欄なら既定(ピクチャ\DVM)。実効フォルダの解決は Rust 側がやるので store には載せない
+    await api.setSetting('frame_save_dir', frameSaveDir.trim());
     await api.setSetting('anthropic_api_key', aiKey.trim());
     await api.setSetting('anthropic_model', aiModel.trim());
     await api.setSetting('mcp_allow_write', mcpAllowWrite ? '1' : '0');
@@ -270,8 +284,34 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             動画にカバー画像が埋め込まれていればサムネイルに使う(生成が速く、絵も的確になります)
           </label>
           <div className="settings-note">
-            再生中にカメラのボタン(T キー)を押すと、その位置を個別にサムネイルにできます。
+            再生中にサムネイルのボタン(T キー)を押すと、その位置を個別にサムネイルにできます。
             手動で指定したコマはカバー画像より優先されます
+          </div>
+        </div>
+
+        <div className="settings-section">
+          <div className="settings-heading">コマの保存</div>
+          <label className="modal-label">
+            保存先フォルダ(空欄なら {info?.framesDir ?? 'ピクチャ\\DVM'})
+          </label>
+          <div className="modal-row">
+            <input
+              value={frameSaveDir}
+              placeholder={info?.framesDir ?? ''}
+              onChange={(e) => setFrameSaveDir(e.target.value)}
+            />
+            <button onClick={browseFrameDir}>参照...</button>
+          </div>
+          <div className="modal-row">
+            <button onClick={() => api.openFrameDir()}>保存先を開く</button>
+            <button onClick={() => setFrameSaveDir('')} disabled={frameSaveDir === ''}>
+              既定に戻す
+            </button>
+          </div>
+          <div className="settings-note">
+            再生中にカメラのボタン(S キー)を押すと、そのコマを PNG で保存します。
+            元の動画から原寸のまま取り出すので、字幕やコントロールバーは写りません。
+            同じ名前があれば上書きせず連番を付けます
           </div>
         </div>
 

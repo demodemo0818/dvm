@@ -1,5 +1,5 @@
 use crate::core::backup::{self, BackupInfo};
-use crate::core::{library, offline, thumbs};
+use crate::core::{frames, library, offline, settings, thumbs};
 use crate::db;
 use crate::AppState;
 use serde::Serialize;
@@ -71,6 +71,20 @@ pub fn open_data_dir(state: State<AppState>) -> Result<(), String> {
     tauri_plugin_opener::open_path(&state.data_dir, None::<&str>).map_err(|e| e.to_string())
 }
 
+/// コマの画像の保存先を開く(v1.26)。設定が空なら既定(ピクチャ\DVM)。
+/// **実効フォルダを Rust 側で解決する**ので、フロントは既定値を知らなくてよい。
+/// まだ 1 枚も撮っていなければフォルダが無いので、ここで作ってから開く
+#[tauri::command]
+pub fn open_frame_dir(state: State<AppState>) -> Result<(), String> {
+    let configured = {
+        let conn = state.db_read.lock().unwrap();
+        settings::get(&conn, "frame_save_dir").ok().flatten()
+    };
+    let dir = frames::resolve_dir(configured.as_deref(), &state.frames_dir);
+    frames::prepare_dir(&dir).map_err(|e| e.to_string())?;
+    tauri_plugin_opener::open_path(&dir, None::<&str>).map_err(|e| e.to_string())
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppInfo {
@@ -81,6 +95,9 @@ pub struct AppInfo {
     pub thumb_count: i64,
     pub thumb_cache_size: i64,
     pub backups_dir: String,
+    /// コマの画像の**既定**の保存先(v1.26)。設定画面が placeholder に出して、
+    /// 「空欄にしたときどこへ行くのか」を実際のパスで見せるために使う
+    pub frames_dir: String,
     /// MCP サーバーの実行ファイル。見つからなければ null(設定画面がその旨を出す)
     pub mcp_path: Option<String>,
 }
@@ -113,6 +130,7 @@ pub fn get_app_info(state: State<AppState>) -> Result<AppInfo, String> {
         thumb_count,
         thumb_cache_size,
         backups_dir: state.backups_dir.to_string_lossy().to_string(),
+        frames_dir: state.frames_dir.to_string_lossy().to_string(),
         mcp_path: crate::core::mcp::server_path().map(|p| p.to_string_lossy().to_string()),
     })
 }

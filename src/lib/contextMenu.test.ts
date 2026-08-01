@@ -551,7 +551,8 @@ describe('buildGridBlankMenu', () => {
 describe('buildPlayerMenu', () => {
   it('項目の並びは固定', () => {
     expect(ids(buildPlayerMenu(row()))).toEqual([
-      'player:rating', 'player:setThumb', 'player:reveal', 'player:copyPath', 'player:close',
+      'player:rating', 'player:setThumb', 'player:saveFrame',
+      'player:reveal', 'player:copyPath', 'player:close',
     ]);
   });
 
@@ -561,12 +562,24 @@ describe('buildPlayerMenu', () => {
     expect(sub(buildPlayerMenu(v), 'player:rating')).toEqual(sub(buildVideoMenu([v], v), 'rating'));
   });
 
-  it('オフラインで無効になるのはエクスプローラー表示だけ', () => {
+  // 実体のファイルを読む項目だけが無効になる。レーティングやパスのコピーは
+  // DB の情報だけで完結するので、ドライブが無くても押せてよい
+  it('オフラインで無効になるのは実体に触る項目だけ', () => {
     const menu = buildPlayerMenu(row({ isOffline: true }));
-    expect(isDisabled(menu, 'player:reveal')).toBe(true);
-    expect(item(menu, 'player:reveal').hint).toBe('ドライブが未接続です');
+    for (const id of ['player:reveal', 'player:saveFrame']) {
+      expect(isDisabled(menu, id)).toBe(true);
+      expect(item(menu, id).hint).toBe('ドライブが未接続です');
+    }
     for (const id of ['player:rating', 'player:setThumb', 'player:copyPath', 'player:close']) {
       expect(isDisabled(menu, id)).toBe(false);
+    }
+  });
+
+  it('見失ったファイルでは理由が変わる', () => {
+    const menu = buildPlayerMenu(row({ isMissing: true }));
+    for (const id of ['player:reveal', 'player:saveFrame']) {
+      expect(isDisabled(menu, id)).toBe(true);
+      expect(item(menu, id).hint).toBe('ファイルが見つかりません');
     }
   });
 });

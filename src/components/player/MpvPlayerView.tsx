@@ -198,6 +198,15 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
     });
   }, [video.id, pushToast, bumpVersion]);
 
+  // 今見ているコマを画像として保存する(v1.26)。サムネイル指定とは別物で、
+  // 出るのはユーザーのフォルダの PNG。**DB は変わらないので bumpVersion は呼ばない**
+  const saveFrame = useCallback(() => {
+    const ms = Math.floor(stateRef.current.currentTime * 1000);
+    api.saveFrame(video.id, ms).then((path) => {
+      pushToast(`画像を保存しました: ${path}`, 'info');
+    });
+  }, [video.id, pushToast]);
+
   usePlayerShortcuts(player, {
     onEscape,
     toggleFullscreen,
@@ -205,12 +214,13 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
     onNext: queue.next,
     onPrev: queue.prev,
     onSetThumbnail: setThumbnail,
+    onSaveFrame: saveFrame,
     // パネルは入力欄だらけなので、開いている間はキーをすべてパネルに譲る
     suspended: styleOpen,
   });
 
   const { menu, onContextMenu, close: closeMenu, run: runMenu } =
-    usePlayerMenu(video, { wake, onSetThumbnail: setThumbnail, onClose: close });
+    usePlayerMenu(video, { wake, onSetThumbnail: setThumbnail, onSaveFrame: saveFrame, onClose: close });
 
   // パネルを開いている間はバーを消さない(アンカーのボタンごと消えるうえ、
   // .mpv-overlay.controls-hidden の cursor:none でカーソルまで見えなくなる)
@@ -241,6 +251,7 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
         isFullscreen={isFullscreen}
         onToggleFullscreen={toggleFullscreen}
         onSetThumbnail={setThumbnail}
+        onSaveFrame={saveFrame}
         // 映像は mpv が描いているので、コマ出しは WebView2 側で元動画を開き直す
         previewSrc={convertFileSrc(video.path)}
         queue={queue}

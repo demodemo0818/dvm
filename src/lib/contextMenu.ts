@@ -1,5 +1,5 @@
 import {
-  AppWindow, ArrowDown, ArrowDownUp, ArrowUp, BookmarkPlus, ChevronDown, Copy, ExternalLink,
+  AppWindow, ArrowDown, ArrowDownUp, ArrowUp, BookmarkPlus, Camera, ChevronDown, Copy, ExternalLink,
   Folder, FolderInput, FolderOpen, FolderPlus, FolderSearch, FolderUp, Funnel, FunnelPlus, FunnelX,
   GalleryThumbnails, Layers, LayoutGrid, ListOrdered, ListX, Palette, Pencil, Play, Plus, RefreshCw,
   SquareCheck, SquareDashed, Star, Trash2, X,
@@ -671,6 +671,15 @@ export function buildPlayerMenu(video: VideoRow): MenuEntry[] {
       label: 'この位置をサムネイルにする',
       icon: GalleryThumbnails,
       hint: 'ショートカット: T',
+    },
+    {
+      // v1.26。バーにボタンはあるが 2.5 秒で消えるので、setThumb と同じ理由でここにも置く。
+      // 実体のファイルを読む操作なので、オフライン・見失ったファイルでは無効にする
+      id: 'player:saveFrame',
+      label: 'このコマを画像として保存',
+      icon: Camera,
+      disabled: !usable(video),
+      hint: hint ?? 'ショートカット: S',
     },
     { separator: true },
     {

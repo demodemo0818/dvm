@@ -1,6 +1,6 @@
 use crate::core::labels::{self, VideoLabels};
 use crate::core::query::{self, VideoQuery, VideoRow};
-use crate::core::{library, metadata, videos};
+use crate::core::{frames, library, metadata, settings, videos};
 use crate::AppState;
 use rusqlite::params;
 use tauri::{AppHandle, Manager, State};
@@ -121,6 +121,51 @@ pub async fn set_thumb_time(app: AppHandle, id: i64, at_ms: Option<i64>) -> Resu
     let app2 = app.clone();
     tauri::async_runtime::spawn_blocking(move || library::process_pending(&app2, vec![id]));
     Ok(())
+}
+
+/// 再生中のコマを画像として保存する(v1.26)。返り値は保存したフルパス。
+///
+/// `set_thumb_time` とは**別の機能**。あちらは DB を書いてサムネイルキャッシュを作り直させるが、
+/// こちらは **DB を一切触らず**、ユーザーのフォルダに PNG を 1 枚出すだけ
+#[tauri::command]
+pub async fn save_frame(app: AppHandle, id: i64, at_ms: i64) -> Result<String, String> {
+    // ffmpeg を待つ前に State を手放す(State は await をまたげない)
+    let (path, filename, ff, dir) = {
+        let state = app.state::<AppState>();
+        let conn = state.db_read.lock().unwrap();
+        let (path, filename): (String, String) = conn
+            .query_row(
+                "SELECT path, filename FROM videos WHERE id=?1",
+                params![id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(|e| e.to_string())?;
+        let configured = settings::get(&conn, "frame_save_dir").ok().flatten();
+        drop(conn);
+        let dir = frames::resolve_dir(configured.as_deref(), &state.frames_dir);
+        (path, filename, state.ffmpeg.clone(), dir)
+    };
+
+    // 元動画が読めないなら ffmpeg を起動する前に止める(未接続と消失で文言を分ける)
+    if !std::path::Path::new(&path).exists() {
+        let root = crate::core::offline::root_of(&path);
+        return Err(if std::path::Path::new(&root).exists() {
+            format!("元の動画ファイルが見つかりません: {path}")
+        } else {
+            format!("動画のあるドライブに接続できません: {root}")
+        });
+    }
+
+    tauri::async_runtime::spawn_blocking(move || {
+        frames::prepare_dir(&dir)?;
+        let stem = frames::frame_file_stem(&filename, at_ms);
+        let out = frames::unique_path(&dir, &stem, "png")?;
+        frames::save_frame(&ff, &path, at_ms, &out)?;
+        Ok::<String, anyhow::Error>(out.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
 }
 
 /// 詳細ペインの「メディア情報」を展開したときだけ呼ばれる(ffprobe を 1 回起動する)。

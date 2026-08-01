@@ -18,6 +18,11 @@ pub struct AppState {
     pub backups_dir: PathBuf,
     /// 再生用変換(remux/transcode)のキャッシュ置き場
     pub transcode_dir: PathBuf,
+    /// コマの画像保存(v1.26)の**既定の**置き場所(ピクチャ\DVM)。
+    /// 設定 `frame_save_dir` が空のときだけ使う。
+    /// **他の 3 つと違い起動時に create_dir_all しない** —— 一度も撮っていない人の
+    /// ピクチャに空フォルダを作らないため。作るのは保存の直前(`frames::prepare_dir`)
+    pub frames_dir: PathBuf,
     pub ffmpeg: crate::core::ffmpeg::FfmpegPaths,
     pub scanning: AtomicBool,
     pub watcher: Mutex<Option<notify::RecommendedWatcher>>,
@@ -44,6 +49,11 @@ pub fn run() {
             std::fs::create_dir_all(&backups_dir)?;
             let transcode_dir = data_dir.join("transcode");
             std::fs::create_dir_all(&transcode_dir)?;
+            // ピクチャが取れなくても起動は続ける(データフォルダに逃がす)
+            let frames_dir = crate::core::frames::default_dir(
+                app.path().picture_dir().ok().as_deref(),
+                &data_dir,
+            );
             let db_path = data_dir.join("library.db");
             // 復元の予約があればここで差し替える。**db::init より前**であることが重要
             // (まだ誰も DB を開いていないので、コネクションと競合しない)
@@ -60,6 +70,7 @@ pub fn run() {
                 thumbs_dir,
                 backups_dir,
                 transcode_dir,
+                frames_dir,
                 ffmpeg: crate::core::ffmpeg::FfmpegPaths::resolve(),
                 scanning: AtomicBool::new(false),
                 watcher: Mutex::new(None),
@@ -131,6 +142,7 @@ pub fn run() {
             commands::videos::set_rating,
             commands::videos::remove_videos,
             commands::videos::set_thumb_time,
+            commands::videos::save_frame,
             commands::videos::get_media_info,
             commands::tags::list_tags,
             commands::tags::list_tag_groups,
@@ -166,6 +178,7 @@ pub fn run() {
             commands::maintenance::list_db_backups,
             commands::maintenance::open_backups_dir,
             commands::maintenance::open_data_dir,
+            commands::maintenance::open_frame_dir,
             commands::maintenance::get_app_info,
             commands::maintenance::regenerate_thumbnails,
             commands::maintenance::purge_orphan_thumbnails,

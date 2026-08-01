@@ -137,6 +137,13 @@ export const api = {
   /** atMs を省略するとサムネイルのコマ選びを自動に戻す */
   setThumbTime: (id: number, atMs?: number) => call<void>('set_thumb_time', { id, atMs }),
   /**
+   * 再生中のコマを PNG で保存する(v1.26)。返り値は保存したフルパス。
+   * `setThumbTime` と違い **DB は変わらない**(グリッドの再取得は不要)
+   */
+  saveFrame: (id: number, atMs: number) => call<string>('save_frame', { id, atMs }),
+  /** コマの保存先を開く。設定が空なら既定(ピクチャ\DVM)を Rust 側が解決する */
+  openFrameDir: () => call<void>('open_frame_dir'),
+  /**
    * ffprobe をその場で起動してメディア情報を取る。
    * **詳細ペインの「メディア情報」を展開したときだけ**呼ぶこと(元動画を読むため)。
    * 失敗はセクション内に文言で出すのでトーストは出さない(silent)

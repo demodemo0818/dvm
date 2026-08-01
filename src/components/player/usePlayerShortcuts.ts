@@ -8,6 +8,7 @@ import { useAutoplayToggle, useRepeatToggle } from './usePlayQueue';
  * Space/K=再生⇄停止、←→=±10秒、↑↓=音量±10%、M=ミュート、F=フルスクリーン、
  * < >=速度、A=連続再生の切替(v1.12)、R=リピート再生の切替(v1.13)、
  * U=表示サイズ 等倍⇄フィット(v1.12、mpv のみ)、
+ * T=この位置をサムネイルに(v1.8)、S=このコマを画像として保存(v1.26)、
  * Esc=onEscape(フルスクリーン解除か閉じるかは呼び出し側が決める)
  */
 export function usePlayerShortcuts(
@@ -22,6 +23,8 @@ export function usePlayerShortcuts(
     onPrev?: () => void;
     /** 現在位置をサムネイルにする(T) */
     onSetThumbnail?: () => void;
+    /** 今見ているコマを画像として保存する(S、v1.26) */
+    onSaveFrame?: () => void;
     /**
      * 真の間はすべてのキーを無視する(v1.24)。
      * 字幕設定パネルのように、入力欄が並んでいて Esc を自前で処理したい UI 用
@@ -30,7 +33,8 @@ export function usePlayerShortcuts(
   },
 ) {
   const { togglePlay, seekBy, changeVolume, toggleMute, cycleRate, toggleUnscaled } = player;
-  const { onEscape, toggleFullscreen, wake, onNext, onPrev, onSetThumbnail, suspended } = opts;
+  const { onEscape, toggleFullscreen, wake, onNext, onPrev, onSetThumbnail, onSaveFrame, suspended } =
+    opts;
   // 連続再生・リピートは engine ごとに実装が変わらないので、opts を経由せず直接取る
   const { toggle: toggleAutoplay } = useAutoplayToggle();
   const { toggle: toggleRepeat } = useRepeatToggle();
@@ -104,6 +108,13 @@ export function usePlayerShortcuts(
         case 'T':
           onSetThumbnail?.();
           break;
+        // S も修飾キー付きを除ける(v1.26)。**Ctrl+S は「保存」として手が最も覚えている**ので、
+        // うっかり押したときに画像が増えないようにする
+        case 's':
+        case 'S':
+          if (e.ctrlKey || e.altKey || e.metaKey) return;
+          onSaveFrame?.();
+          break;
         // U / A / R は修飾キー付きを除ける(v1.12)。特に Ctrl+A(全選択)や Ctrl+R
         // (再読み込み)は手が覚えているので、うっかり設定を書き換えないようにする
         case 'u':
@@ -131,6 +142,7 @@ export function usePlayerShortcuts(
     return () => window.removeEventListener('keydown', onKey);
   }, [
     onEscape, toggleFullscreen, wake, togglePlay, seekBy, changeVolume, toggleMute, cycleRate,
-    onNext, onPrev, onSetThumbnail, toggleUnscaled, toggleAutoplay, toggleRepeat, suspended,
+    onNext, onPrev, onSetThumbnail, onSaveFrame, toggleUnscaled, toggleAutoplay, toggleRepeat,
+    suspended,
   ]);
 }

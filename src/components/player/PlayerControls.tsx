@@ -1,4 +1,5 @@
 import {
+  Camera,
   GalleryThumbnails,
   ListVideo,
   Maximize,
@@ -161,6 +162,7 @@ export function PlayerControls({
   isFullscreen,
   onToggleFullscreen,
   onSetThumbnail,
+  onSaveFrame,
   previewSrc,
   queue,
   onOpenSubtitleStyle,
@@ -171,6 +173,8 @@ export function PlayerControls({
   onToggleFullscreen: () => void;
   /** 今見ているコマをサムネイルにする。上のバーに置くと ✕ の誤爆が起きるのでここに置く */
   onSetThumbnail?: () => void;
+  /** 今見ているコマを画像として保存する(v1.26)。撮影系なので隣に並べる */
+  onSaveFrame?: () => void;
   /**
    * シークバーのコマ出しに使う src(v1.14)。
    * WebView2 経路では再生中と同じもの(変換済みなら変換キャッシュ)を渡す。
@@ -330,8 +334,25 @@ export function PlayerControls({
             onClick={onSetThumbnail}
             title="この位置をサムネイルにする (T)"
           >
-            {/* カメラは「撮影」に見えて紛らわしいので、サムネイル一覧の形にしている */}
+            {/*
+              カメラは隣の「画像として保存」(v1.26)が使う。
+              こちらは一覧に出る絵を決める操作なので、サムネイル一覧の形にしている
+            */}
             <GalleryThumbnails />
+          </button>
+        )}
+        {/*
+          「このコマを画像として保存」(v1.26)。サムネイル指定の隣に置いて
+          「この一角は絵まわり」と読めるようにしている。輪郭が全く違うアイコンなので
+          隣り合っていても取り違えない
+        */}
+        {onSaveFrame && (
+          <button
+            onMouseDown={noFocus}
+            onClick={onSaveFrame}
+            title="このコマを画像として保存する (S)"
+          >
+            <Camera />
           </button>
         )}
         {/* 表示サイズ(mpv のみ)。両状態で同じアイコンを使うのでバーの幅が揺れない */}

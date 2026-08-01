@@ -161,6 +161,17 @@ function Html5PlayerView({ video }: { video: VideoRow }) {
     });
   }, [video.id, pushToast, bumpVersion]);
 
+  // 今見ているコマを画像として保存する(v1.26)。抽出は Rust 側が DB のパスから行うので、
+  // 変換キャッシュを再生していても**元動画から**原寸で取れる。
+  // **DB は変わらないので bumpVersion は呼ばない**
+  const saveFrame = useCallback(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    api.saveFrame(video.id, Math.floor(el.currentTime * 1000)).then((path) => {
+      pushToast(`画像を保存しました: ${path}`, 'info');
+    });
+  }, [video.id, pushToast]);
+
   usePlayerShortcuts(player, {
     onEscape,
     toggleFullscreen,
@@ -168,10 +179,11 @@ function Html5PlayerView({ video }: { video: VideoRow }) {
     onNext: queue.next,
     onPrev: queue.prev,
     onSetThumbnail: setThumbnail,
+    onSaveFrame: saveFrame,
   });
 
   const { menu, onContextMenu, close: closeMenu, run: runMenu } =
-    usePlayerMenu(video, { wake, onSetThumbnail: setThumbnail, onClose: close });
+    usePlayerMenu(video, { wake, onSetThumbnail: setThumbnail, onSaveFrame: saveFrame, onClose: close });
 
   // レジューム保存: 5 秒ごと + 一時停止・終了時
   const lastSavedSec = useRef(0);
@@ -288,6 +300,7 @@ function Html5PlayerView({ video }: { video: VideoRow }) {
             isFullscreen={isFullscreen}
             onToggleFullscreen={toggleFullscreen}
             onSetThumbnail={setThumbnail}
+            onSaveFrame={saveFrame}
             // 再生中と同じ src を使う。変換経路ならキャッシュ mp4 なので確実に読める
             previewSrc={src}
             queue={queue}
