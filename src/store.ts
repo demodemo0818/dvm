@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { DEFAULT_COLUMNS } from './lib/listColumns';
 import type { ColumnKey } from './lib/listColumns';
+import { DEFAULT_SUB_STYLE } from './lib/subtitleStyle';
+import type { SubStyle } from './lib/subtitleStyle';
 import { EMPTY_ADVANCED } from './types';
 import type {
   AdvancedFilter, DurationBucket, PlayQueue, SortKey, Toast, VideoRow, ViewMode,
@@ -133,6 +135,14 @@ interface LibraryState {
    */
   seekPreview: boolean;
   /**
+   * 字幕の見た目(v1.24、mpv のみ)。設定 `subtitle_style` に永続化する。
+   * プレイヤーのパネル・設定モーダル・useMpvPlayer の 3 か所が同じ値を見るので store に置く。
+   *
+   * **DB への書き込みはここではしない** — スライダーのドラッグ中に set_setting を
+   * 叩かないよう、App.tsx がデバウンスして保存する
+   */
+  subStyle: SubStyle;
+  /**
    * 右クリックメニューを開いているか(v1.14)。メニューの中身は**開いた側の**
    * ローカル state(hooks/useContextMenu.ts)で持ち、ここには開閉だけを置く。
    * 開いている間はグリッドの矢印キー・App の Esc(選択解除)・
@@ -192,6 +202,10 @@ interface LibraryState {
   setCardTags: (cardTags: boolean) => void;
   setCardSeries: (cardSeries: boolean) => void;
   setSeekPreview: (seekPreview: boolean) => void;
+  /** 字幕の見た目を部分更新する(スライダー 1 本ぶんの patch を渡す) */
+  setSubStyle: (patch: Partial<SubStyle>) => void;
+  /** 字幕の見た目を mpv 素の状態に戻す(保存される JSON も '{}' になる) */
+  resetSubStyle: () => void;
   /** メニューの mount で true、unmount で false。呼び出し側は入れ子を意識しなくてよい */
   setContextMenuOpen: (open: boolean) => void;
   toggleAiPanel: () => void;
@@ -261,6 +275,7 @@ export const useLibrary = create<LibraryState>((set) => ({
   cardTags: true,
   cardSeries: false,
   seekPreview: true,
+  subStyle: DEFAULT_SUB_STYLE,
   contextMenuOpen: false,
   contextMenuDepth: 0,
   showAiPanel: false,
@@ -294,6 +309,8 @@ export const useLibrary = create<LibraryState>((set) => ({
   setCardTags: (cardTags) => set({ cardTags }),
   setCardSeries: (cardSeries) => set({ cardSeries }),
   setSeekPreview: (seekPreview) => set({ seekPreview }),
+  setSubStyle: (patch) => set((s) => ({ subStyle: { ...s.subStyle, ...patch } })),
+  resetSubStyle: () => set({ subStyle: DEFAULT_SUB_STYLE }),
   setContextMenuOpen: (open) =>
     set((s) => {
       // 0 を下回らせない。二重に閉じても負の借金が残らないようにする

@@ -5,8 +5,18 @@ import { fmtSize } from '../lib/format';
 import { useLibrary } from '../store';
 import type { AppInfo, BackupInfo } from '../types';
 import { McpSettings } from './McpSettings';
+import { SubtitleStyleEditor } from './SubtitleStyleEditor';
 
 export function SettingsModal({ onClose }: { onClose: () => void }) {
+  /*
+   * 字幕の見た目(v1.24)だけは他の項目と違い、ローカル state に写さず store を直に
+   * バインドして**その場で保存する**(保存は App.tsx がデバウンスして書く)。
+   * 理由は DESIGN.md「設定モーダルの中でここだけ即時保存にした」を参照 ——
+   * 再生画面のパネルと同じコンポーネントを使う以上、片方だけドラフト方式にできない
+   */
+  const subStyle = useLibrary((s) => s.subStyle);
+  const setSubStyle = useLibrary((s) => s.setSubStyle);
+  const resetSubStyle = useLibrary((s) => s.resetSubStyle);
   const [playerPath, setPlayerPath] = useState('');
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [backups, setBackups] = useState<BackupInfo[]>([]);
@@ -201,6 +211,20 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             プレビューは元の動画ファイルを直接読みます。外付け HDD / NAS のアクセスを抑えたいときは
             オフにしてください
           </div>
+        </div>
+
+        <div className="settings-section">
+          <div className="settings-heading">字幕の見た目(アプリ内再生)</div>
+          <div className="settings-note">
+            ここの設定はその場で保存されます(「保存」を押す必要はありません)。
+            再生中はコントロールバーの字幕ボタンから、映像を見ながら同じ設定を調整できます。
+            変換して再生する形式(mp4 に変換されるもの)では字幕そのものが表示されません
+          </div>
+          <SubtitleStyleEditor
+            value={subStyle}
+            onChange={setSubStyle}
+            onReset={resetSubStyle}
+          />
         </div>
 
         <div className="settings-section">

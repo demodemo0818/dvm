@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { command, observeProperties, setProperty } from 'tauri-plugin-libmpv-api';
 import { useLibrary } from '../../store';
+import { mpvSubProps } from '../../lib/subtitleStyle';
 import { MPV_OBSERVED } from './mpv';
 import type { MpvTrackEntry } from './mpv';
 import {
@@ -28,6 +29,7 @@ function toTracks(data: unknown): MediaTrack[] {
         kind: t.type as 'audio' | 'sub',
         label: parts.length > 0 ? parts.join(' / ') : `#${t.id}`,
         selected: t.selected === true,
+        codec: t.codec,
       };
     });
 }
@@ -35,6 +37,15 @@ function toTracks(data: unknown): MediaTrack[] {
 /** IPC コマンドの失敗(ファイル未ロード中の seek 等)は無害なので握りつぶす */
 const run = (p: Promise<unknown>) => {
   p.catch(() => {});
+};
+
+/**
+ * 字幕プロパティ用(v1.24)。run と違って**名前を出して警告する** —
+ * こちらの失敗は「libmpv がそのオプションを知らない」= 設定が丸ごと効かない事故なので、
+ * 黙って消えると原因に辿り着けない。トーストは出さない(再生を邪魔しないため)
+ */
+const runSub = (name: string, p: Promise<unknown>) => {
+  p.catch((e) => console.warn('字幕プロパティを設定できません:', name, e));
 };
 
 /**
@@ -64,6 +75,8 @@ export function useMpvPlayer(): VideoPlayer {
   const [tracks, setTracks] = useState<MediaTrack[]>([]);
   // リピートは engine をまたぐ設定なので store に置いている(v1.13)
   const repeatOne = useLibrary((s) => s.repeatOne);
+  // 字幕の見た目(v1.24)。mpv 専用だが、設定モーダルからも触るので store 経由
+  const subStyle = useLibrary((s) => s.subStyle);
   // 表示サイズ(v1.12)。mpv 側は購読しない — 変更できるのはこの UI だけなので手元が真実
   const [unscaled, setUnscaled] = useState(savedUnscaled);
   // 操作コールバックから最新状態を読むための ref(stale closure 回避)
@@ -125,6 +138,19 @@ export function useMpvPlayer(): VideoPlayer {
   useEffect(() => {
     run(setProperty('loop-file', repeatOne ? 'inf' : 'no'));
   }, [repeatOne]);
+
+  /**
+   * 字幕の見た目(v1.24)。sub-* も loadfile を跨いで残るグローバルプロパティなので、
+   * 上の 2 つと同じく「変わるたび全部押し込む」だけでよい(mount 時にも走る)。
+   *
+   * 差分だけ送るような小細工はしない —— 12 個の setProperty は一瞬で終わるし、
+   * 「今の見た目 = subStyle」を常に真にしておく方が読み違えが起きない
+   */
+  useEffect(() => {
+    for (const [name, value] of Object.entries(mpvSubProps(subStyle))) {
+      runSub(name, setProperty(name, value));
+    }
+  }, [subStyle]);
 
   const togglePlay = useCallback(() => run(command('cycle', ['pause'])), []);
   const seekTo = useCallback((sec: number) => run(command('seek', [sec, 'absolute'])), []);

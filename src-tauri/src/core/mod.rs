@@ -2,6 +2,7 @@ pub mod backup;
 pub mod ffmpeg;
 pub mod fileops;
 pub mod folders;
+pub mod fonts;
 pub mod history;
 pub mod labels;
 pub mod library;

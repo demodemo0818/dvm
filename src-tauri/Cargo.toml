@@ -1,6 +1,6 @@
 [package]
 name = "dvm"
-version = "1.23.0"
+version = "1.24.0"
 description = "DVM(Demodemo Video Manager)— Windows 向け動画管理ソフト"
 authors = ["taiki"]
 edition = "2021"
@@ -34,5 +34,10 @@ notify = "8.2.0"
 trash = "5"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.60", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }
+windows-sys = { version = "0.60", features = [
+  "Win32_Storage_FileSystem",
+  "Win32_Foundation",
+  # 字幕設定のフォント候補(EnumFontFamiliesExW)
+  "Win32_Graphics_Gdi",
+] }
 

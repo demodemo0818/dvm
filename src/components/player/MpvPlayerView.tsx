@@ -4,10 +4,12 @@ import { X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { command, listenEvents, setProperty } from 'tauri-plugin-libmpv-api';
 import { api } from '../../api';
+import { isAssCodec } from '../../lib/subtitleStyle';
 import { useLibrary } from '../../store';
 import type { VideoRow } from '../../types';
 import { ContextMenu } from '../ContextMenu';
 import { PlayerControls } from './PlayerControls';
+import { SubtitleStylePanel } from './SubtitleStylePanel';
 import { resumeValueMs, savedMuted, savedVolume, shouldCountView } from './types';
 import { useMpvPlayer } from './useMpvPlayer';
 import { usePlayerMenu } from './usePlayerMenu';
@@ -33,6 +35,8 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
   const hideTimer = useRef<number | undefined>(undefined);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
+  // 字幕の見た目パネル(v1.24)
+  const [styleOpen, setStyleOpen] = useState(false);
 
   const stateRef = useRef(player.state);
   stateRef.current = player.state;
@@ -201,12 +205,21 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
     onNext: queue.next,
     onPrev: queue.prev,
     onSetThumbnail: setThumbnail,
+    // パネルは入力欄だらけなので、開いている間はキーをすべてパネルに譲る
+    suspended: styleOpen,
   });
 
   const { menu, onContextMenu, close: closeMenu, run: runMenu } =
     usePlayerMenu(video, { wake, onSetThumbnail: setThumbnail, onClose: close });
 
-  const visible = controlsVisible || player.state.paused;
+  // パネルを開いている間はバーを消さない(アンカーのボタンごと消えるうえ、
+  // .mpv-overlay.controls-hidden の cursor:none でカーソルまで見えなくなる)
+  const visible = controlsVisible || player.state.paused || styleOpen;
+
+  // 今出ている字幕が自前のスタイルを持っているか。持っていれば色を変えても効かない
+  const assWarning = (player.tracks ?? []).some(
+    (t) => t.kind === 'sub' && t.selected && isAssCodec(t.codec),
+  );
 
   return (
     <div
@@ -231,7 +244,17 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
         // 映像は mpv が描いているので、コマ出しは WebView2 側で元動画を開き直す
         previewSrc={convertFileSrc(video.path)}
         queue={queue}
+        subtitleStyleOpen={styleOpen}
+        onOpenSubtitleStyle={() => {
+          wake();
+          setStyleOpen((v) => !v);
+        }}
       />
+
+      {/* パネルも ContextMenu と同じく .mpv-overlay の内側に置くこと(v1.24) */}
+      {styleOpen && (
+        <SubtitleStylePanel assWarning={assWarning} onClose={() => setStyleOpen(false)} />
+      )}
 
       {/* **必ず .mpv-overlay の内側**。再生中は html.mpv-active が .app ごと消す */}
       {menu && (

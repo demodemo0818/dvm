@@ -9,6 +9,7 @@ import {
   Scaling,
   SkipBack,
   SkipForward,
+  Subtitles,
   Volume2,
   VolumeX,
 } from 'lucide-react';
@@ -162,6 +163,8 @@ export function PlayerControls({
   onSetThumbnail,
   previewSrc,
   queue,
+  onOpenSubtitleStyle,
+  subtitleStyleOpen = false,
 }: {
   player: VideoPlayer;
   isFullscreen: boolean;
@@ -175,6 +178,12 @@ export function PlayerControls({
    */
   previewSrc?: string;
   queue?: PlayQueueControls;
+  /**
+   * 字幕の見た目パネルの開閉(v1.24)。mpv 経路だけが渡す —
+   * WebView2 側は変換で字幕を落とすので、そもそも出す意味がない
+   */
+  onOpenSubtitleStyle?: () => void;
+  subtitleStyleOpen?: boolean;
 }) {
   const { state } = player;
   const { autoplayNext, toggle: toggleAutoplay } = useAutoplayToggle();
@@ -269,6 +278,20 @@ export function PlayerControls({
               onChange={(id) => player.setTrack!('sub', id)}
             />
           </>
+        )}
+        {/*
+          字幕の見た目(v1.24)。字幕トラックの select の隣に置く —
+          「字幕まわりの操作はこの一角にある」と一目で分かるようにするため
+        */}
+        {onOpenSubtitleStyle && (
+          <button
+            className={subtitleStyleOpen ? 'active' : ''}
+            onMouseDown={noFocus}
+            onClick={onOpenSubtitleStyle}
+            title="字幕の見た目(フォント・サイズ・色・縁取り)を変える"
+          >
+            <Subtitles />
+          </button>
         )}
         <select
           className="player-rate"

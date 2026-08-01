@@ -1,5 +1,6 @@
 pub mod fileops;
 pub mod folders;
+pub mod fonts;
 pub mod history;
 pub mod maintenance;
 pub mod playback;

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import './App.css';
 import { api } from './api';
 import { parseColumns } from './lib/listColumns';
+import { parseSubStyle, serializeSubStyle, SUB_STYLE_KEY } from './lib/subtitleStyle';
 import { AiPanel } from './components/AiPanel';
 import { Inspector } from './components/Inspector';
 import { PaneResizer } from './components/PaneResizer';
@@ -20,11 +21,13 @@ export default function App() {
     bumpVersion, bumpThumbVersion, setStatus, status, scanning, setPlayerPath, setPreviewOnHover,
     setViewMode, setCardWidth, setAutoplayNext, setSeekPreview, setCardTags, setCardSeries,
     setInspectorPinned, setMediaInfoOpen, setListColumns, setSidebarWidth, setInspectorWidth,
-    setSidebarCollapsed, setAiPanelWidth,
+    setSidebarCollapsed, setAiPanelWidth, setSubStyle, subStyle,
     inspectorPinned, sidebarWidth, inspectorWidth, sidebarCollapsed, selection,
     showAiPanel, aiPanelWidth,
   } = useLibrary();
   const debounceTimer = useRef<number | undefined>(undefined);
+  /** 字幕スタイルのロードが済んだか。済むまでは保存側を動かさない(下の effect 参照) */
+  const subStyleLoaded = useRef(false);
 
   // 詳細ペインは「固定表示」か「何か選択中」のときに出す。
   // 幅を変える帯もペインと一緒に出し入れするので、判定はここに置く
@@ -104,11 +107,37 @@ export default function App() {
       const n = Number(v);
       if (Number.isFinite(n) && n > 0) setAiPanelWidth(n);
     });
+    // 字幕の見た目(v1.24)。壊れた値は parseSubStyle がすべて既定に落とす
+    api.getSetting(SUB_STYLE_KEY)
+      .then((v) => setSubStyle(parseSubStyle(v)))
+      .finally(() => {
+        subStyleLoaded.current = true;
+      });
   }, [
     setPlayerPath, setPreviewOnHover, setSeekPreview, setViewMode, setCardWidth, setAutoplayNext,
     setInspectorPinned, setMediaInfoOpen, setListColumns, setSidebarWidth, setInspectorWidth,
-    setSidebarCollapsed, setAiPanelWidth, setCardTags, setCardSeries,
+    setSidebarCollapsed, setAiPanelWidth, setCardTags, setCardSeries, setSubStyle,
   ]);
+
+  /**
+   * 字幕の見た目を保存する(v1.24)。
+   *
+   * **スライダーの onChange から直接 setSetting を呼ばない** — set_setting は書き込み
+   * コネクションを使うので、ドラッグ中に毎フレーム叩くと取り込みワーカーとロックを
+   * 取り合う。ここで 400ms まとめてから 1 回だけ書く。
+   *
+   * **App に置く**理由: プレイヤーのパネルや設定モーダルは閉じると unmount するので、
+   * そちらにタイマーを置くと「値をいじって即閉じ」で最後の 1 手が消える。
+   * App は一度 mount したら畳まれないのでタイマーが生き残る
+   */
+  useEffect(() => {
+    // 起動時ロードの setSubStyle で書き戻さない(未設定の DB に '{}' を作らないため)
+    if (!subStyleLoaded.current) return;
+    const t = window.setTimeout(() => {
+      void api.setSetting(SUB_STYLE_KEY, serializeSubStyle(subStyle));
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [subStyle]);
 
   /**
    * ドロップされたパスを取り込む。フォルダが混ざっていたら扱いを尋ねる(v1.9)。

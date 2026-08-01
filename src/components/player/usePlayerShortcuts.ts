@@ -22,10 +22,15 @@ export function usePlayerShortcuts(
     onPrev?: () => void;
     /** 現在位置をサムネイルにする(T) */
     onSetThumbnail?: () => void;
+    /**
+     * 真の間はすべてのキーを無視する(v1.24)。
+     * 字幕設定パネルのように、入力欄が並んでいて Esc を自前で処理したい UI 用
+     */
+    suspended?: boolean;
   },
 ) {
   const { togglePlay, seekBy, changeVolume, toggleMute, cycleRate, toggleUnscaled } = player;
-  const { onEscape, toggleFullscreen, wake, onNext, onPrev, onSetThumbnail } = opts;
+  const { onEscape, toggleFullscreen, wake, onNext, onPrev, onSetThumbnail, suspended } = opts;
   // 連続再生・リピートは engine ごとに実装が変わらないので、opts を経由せず直接取る
   const { toggle: toggleAutoplay } = useAutoplayToggle();
   const { toggle: toggleRepeat } = useRepeatToggle();
@@ -39,6 +44,10 @@ export function usePlayerShortcuts(
        * **Esc の分岐より前に置くこと** — 後ろだと Esc でプレイヤーごと閉じる
        */
       if (useLibrary.getState().contextMenuOpen) return;
+      // 字幕設定パネル等を開いている間は全キーを譲る(v1.24)。
+      // **contextMenuOpen と同じくここに置く** — Esc の分岐より後ろだと、
+      // パネルを閉じるつもりの Esc でプレイヤーごと閉じてしまう
+      if (suspended) return;
       if (e.key === 'Escape') {
         onEscape();
         return;
@@ -122,6 +131,6 @@ export function usePlayerShortcuts(
     return () => window.removeEventListener('keydown', onKey);
   }, [
     onEscape, toggleFullscreen, wake, togglePlay, seekBy, changeVolume, toggleMute, cycleRate,
-    onNext, onPrev, onSetThumbnail, toggleUnscaled, toggleAutoplay, toggleRepeat,
+    onNext, onPrev, onSetThumbnail, toggleUnscaled, toggleAutoplay, toggleRepeat, suspended,
   ]);
 }

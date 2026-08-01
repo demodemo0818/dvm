@@ -24,6 +24,11 @@ export interface MediaTrack {
   kind: 'audio' | 'sub';
   label: string;
   selected: boolean;
+  /**
+   * mpv の codec(v1.24)。label にも畳み込まれているが、
+   * 「この字幕は ASS なので色を変えても効かない」の判定に生の値が要る
+   */
+  codec?: string;
 }
 
 /** PlayerControls・ショートカットが両エンジンで共用するインターフェイス */

@@ -109,6 +109,11 @@ export const api = {
   seriesForVideos: (videoIds: number[]) => call<Series[]>('series_for_videos', { videoIds }),
   getSetting: (key: string) => call<string | null>('get_setting', { key }),
   setSetting: (key: string, value: string) => call<void>('set_setting', { key, value }),
+  /**
+   * 字幕設定のフォント候補(v1.24)。取れなくても手入力できるので silent。
+   * 「候補が出ない」以上の意味を持たない失敗にトーストを出さない
+   */
+  listSystemFonts: () => call<string[]>('list_system_fonts', undefined, true),
   listSmartFolders: () => call<SmartFolder[]>('list_smart_folders'),
   createSmartFolder: (name: string, query: VideoQuery, actor?: 'user' | 'ai') =>
     call<number>('create_smart_folder', { name, queryJson: JSON.stringify(query), actor }),

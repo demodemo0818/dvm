@@ -3197,3 +3197,258 @@ input[type='range']:focus-visible {
   margin-left: auto;
   color: #8a8f9c;
 }
+
+/* ---- 字幕の見た目 (v1.24、mpv のみ) ---- */
+
+/*
+ * 再生画面から開くパネル。**必ず .mpv-overlay の内側**に描かれる前提で、
+ * 座標は帯の上に固定するだけにしてある。.mpv-overlay が fixed; inset: 0 なので
+ * ウィンドウ全画面でもリサイズでも位置の計算が要らない
+ */
+.sub-style-panel {
+  position: absolute;
+  right: 12px;
+  bottom: 76px;
+  z-index: 20;
+  width: 300px;
+  max-height: min(62vh, 520px);
+  overflow-y: auto;
+  padding: 8px 10px 10px;
+  background: rgba(24, 27, 33, 0.96);
+  border: 1px solid #3a3f4b;
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  /* 親の .mpv-overlay.controls-hidden が cursor:none にするので打ち消す */
+  cursor: default;
+}
+
+.sub-style-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 700;
+  color: #e2e5ec;
+  padding-bottom: 6px;
+}
+
+.sub-style-panel-head button {
+  display: flex;
+  padding: 2px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: #8a8f9c;
+  cursor: pointer;
+}
+
+.sub-style-panel-head button:hover {
+  color: #fff;
+  background: #3a4150;
+}
+
+.sub-style-panel-head svg {
+  width: 14px;
+  height: 14px;
+}
+
+.sub-style {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sub-style-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sub-style-group-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #aab0bd;
+}
+
+/* 「どのスライダーがどの字幕に効くのか」はここで説明を切る(見出しの直下) */
+.sub-style-group-note {
+  font-size: 11px;
+  color: #8a8f9c;
+  margin-top: -4px;
+}
+
+.sub-style-row {
+  display: grid;
+  grid-template-columns: 104px 1fr;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 12px;
+  color: #d8dbe2;
+}
+
+.sub-style.compact .sub-style-row {
+  grid-template-columns: 76px 1fr;
+  font-size: 11px;
+}
+
+.sub-style-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sub-style-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sub-style-control input[type='range'] {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.sub-style-control input[type='checkbox'] {
+  margin: 0;
+  cursor: pointer;
+}
+
+/* 値の桁で幅が揺れると、つまみを動かすたびに行がガタつく */
+.sub-style-value {
+  flex: none;
+  width: 40px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: #8a8f9c;
+}
+
+.sub-style-hint {
+  grid-column: 2;
+  font-size: 11px;
+  color: #8a8f9c;
+}
+
+.sub-style-font {
+  flex: 1;
+  min-width: 0;
+  background: #22252d;
+  border: 1px solid #343945;
+  color: #e2e5ec;
+  padding: 3px 6px;
+  border-radius: 4px;
+  outline: none;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+/*
+ * 色の行はスウォッチ → その他 → 不透明度の順。**折り返しを許す** —
+ * 幅 300px のパネルだと 1 行に押し込んだ不透明度スライダーが 30px まで潰れて
+ * つまめなくなる。min-width を割ったら 2 段目へ落とす
+ */
+.sub-style-color {
+  gap: 6px 8px;
+  flex-wrap: wrap;
+}
+
+.sub-style-color input[type='range'] {
+  min-width: 110px;
+}
+
+.sub-style-swatches {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+}
+
+.sub-style-swatch {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid #5a616f;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.sub-style-swatch.active {
+  border-color: #fff;
+  box-shadow: 0 0 0 1px #4a90d9;
+}
+
+.sub-style-picker {
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  background: none;
+  border: 1px solid #5a616f;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+/* ASS/SSA を選んでいるときの注意。出さないと「設定が壊れている」に見える */
+.sub-style-warn {
+  font-size: 11px;
+  line-height: 1.5;
+  color: #d9a05a;
+  background: rgba(217, 160, 90, 0.1);
+  border: 1px solid rgba(217, 160, 90, 0.35);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.sub-style-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.sub-style-actions button {
+  background: #22252d;
+  border: 1px solid #343945;
+  color: #d8dbe2;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sub-style-actions button:hover:not(:disabled) {
+  background: #2c303a;
+}
+
+.sub-style-actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* チェックは「ラベル + コントロール」の 2 列に収まらないので行を分ける */
+.sub-style-check-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sub-style-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #d8dbe2;
+  cursor: pointer;
+}
+
+.sub-style.compact .sub-style-check {
+  font-size: 11px;
+}
+
+.sub-style-check input {
+  margin: 0;
+  cursor: pointer;
+}
+
+.sub-style-check-row .sub-style-hint {
+  grid-column: auto;
+  padding-left: 20px;
+}
