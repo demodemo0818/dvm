@@ -45,7 +45,7 @@ interface LibraryState {
   folderId: number | null;
   /** フォルダ直下だけで絞る(サブフォルダは含まない)。サイドバー「フォルダー」タブのツリーから */
   dirPath: string | null;
-  /** 選択中のタグフィルタ(AND 条件) */
+  /** 選択中のタグフィルタ。同じグループ同士は OR、グループをまたぐと AND(v1.19。組み立ては Rust) */
   tagIds: number[];
   /** 選択中のシリーズフィルタ */
   seriesId: number | null;

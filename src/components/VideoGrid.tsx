@@ -15,6 +15,7 @@ import type { PlanItem, SortKey, VideoQuery, VideoRow, ViewMode } from '../types
 import { ContextMenu } from './ContextMenu';
 import { DeleteDialog } from './DeleteDialog';
 import { FileOpDialog } from './FileOpDialog';
+import { FilterBar } from './FilterBar';
 import type { FileOpKind } from './FileOpDialog';
 import { FolderCard, FolderListRow, toEntry, upEntry, type FolderEntry } from './FolderCard';
 import { ListHeader } from './ListHeader';
@@ -59,7 +60,7 @@ export function VideoGrid() {
    * リストは列ピッカー、グリッドは設定で決まるので、見ている表示モードのほうだけ見る
    */
   const showChips = viewMode === 'list' ? needsLabels(listColumns) : cardTags || cardSeries;
-  const { total, getVideo, getRange, getLabels } = useVideos(query, version, showChips);
+  const { total, counted, getVideo, getRange, getLabels } = useVideos(query, version, showChips);
 
   const parentRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -495,6 +496,11 @@ export function VideoGrid() {
 
   return (
     <>
+    {/*
+      絞り込み帯(v1.28)。フラグメントの子はそのまま .main の直接の子として並ぶので、
+      ツールバーと一覧の間に入る。件数は useVideos のものを渡す(数え直さない)
+    */}
+    <FilterBar filters={filters} total={total} counted={counted} />
     <div
       ref={parentRef}
       className={`grid-scroll ${list ? 'list-mode' : ''}`}

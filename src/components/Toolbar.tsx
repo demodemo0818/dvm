@@ -17,7 +17,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { api } from '../api';
 import { sortLabel, sortOptions } from '../lib/listColumns';
-import { advancedCount, buildQuery } from '../lib/query';
+import { advancedCount, buildQuery, DURATION_LABELS } from '../lib/query';
 import { splitToolbar, TOOLBAR_ITEMS, toolbarKeys } from '../lib/toolbarItems';
 import type { ToolbarItemKey } from '../lib/toolbarItems';
 import { CARD_WIDTH_MAX, CARD_WIDTH_MIN, useLibrary } from '../store';
@@ -240,10 +240,10 @@ export function Toolbar() {
             onChange={(v) => setDurationBucket((v || null) as DurationBucket | null)}
           >
             <option value="">長さ指定なし</option>
-            <option value="lt5">5 分未満</option>
-            <option value="5to20">5〜20 分</option>
-            <option value="20to60">20〜60 分</option>
-            <option value="gt60">60 分以上</option>
+            {/* 文言は絞り込み帯のチップと共有する(query.ts の DURATION_LABELS) */}
+            {(Object.keys(DURATION_LABELS) as DurationBucket[]).map((k) => (
+              <option key={k} value={k}>{DURATION_LABELS[k]}</option>
+            ))}
           </ToolSelect>
         );
 

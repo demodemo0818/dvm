@@ -20,6 +20,13 @@ const MAX_RETRY = 2;
  */
 export function useVideos(query: VideoQuery, version: number, withLabels = false) {
   const [total, setTotal] = useState(0);
+  /*
+   * 一度でも数え終わったか。total の初期値 0 は「まだ数えていない」と「0 件」の区別が
+   * つかず、起動直後に「0 件」が出て空ライブラリに見えるため(v1.28 の絞り込み帯用)。
+   * **一度 true にしたら false に戻さない** —— クエリを変えるたびに「集計中…」へ
+   * 落ちると数字がチラつく。数十 ms 古い数字が残るほうが目に優しい
+   */
+  const [counted, setCounted] = useState(false);
   const pages = useRef<Map<number, VideoRow[]>>(new Map());
   const inflight = useRef<Set<number>>(new Set());
   const failures = useRef<Map<number, number>>(new Map());
@@ -114,7 +121,9 @@ export function useVideos(query: VideoQuery, version: number, withLabels = false
     api
       .countVideos(query)
       .then((c) => {
-        if (generation.current === gen) setTotal(c);
+        if (generation.current !== gen) return;
+        setTotal(c);
+        setCounted(true);
       })
       .catch(() => {});
     for (const page of Array.from(pages.current.keys())) fetchPage(page);
@@ -185,5 +194,5 @@ export function useVideos(query: VideoQuery, version: number, withLabels = false
     [],
   );
 
-  return { total, getVideo, getRange, getLabels };
+  return { total, counted, getVideo, getRange, getLabels };
 }

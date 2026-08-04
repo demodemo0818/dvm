@@ -7,6 +7,7 @@ import { useContextMenu } from '../hooks/useContextMenu';
 import {
   buildLibraryMenu, buildSeriesMenu, buildSmartFolderMenu, buildWatchedFolderMenu,
 } from '../lib/contextMenu';
+import { baseName } from '../lib/paths';
 import { buildQuery } from '../lib/query';
 import { useLibrary } from '../store';
 import type {
@@ -23,11 +24,6 @@ const VIDEO_EXTENSIONS = [
   'mpg', 'mpeg', 'ts', 'm2ts', 'mts', 'vob', 'ogv', 'ogm',
   'rm', 'rmvb', 'asf', 'divx', '3gp',
 ];
-
-function folderName(path: string): string {
-  const parts = path.replace(/[\\/]+$/, '').split(/[\\/]/);
-  return parts[parts.length - 1] || path;
-}
 
 /** 右クリックメニューの対象(v1.20)。タグは TagTree、フォルダーツリーは FolderTree の担当 */
 type MenuTarget =
@@ -381,7 +377,7 @@ export function Sidebar() {
   const needle = sideFilter.trim().toLowerCase();
   const hit = (s: string) => !needle || s.toLowerCase().includes(needle);
   const shownSmart = smartFolders.filter((sf) => hit(sf.name));
-  const shownFolders = folders.filter((f) => hit(folderName(f.path)));
+  const shownFolders = folders.filter((f) => hit(baseName(f.path)));
   const shownSeries = seriesList.filter((s) => hit(s.name));
   // タグはグループ名でも引ける(「ジャンル」と打てばそのグループのタグが全部出る)
   const shownTags = tags.filter(
@@ -537,7 +533,7 @@ export function Sidebar() {
               title={`${f.path}\nクリックでこのフォルダ配下すべてを表示(サブフォルダ単位で絞るなら「フォルダー」タブ)`}
             >
               <span className={`dot ${f.online ? 'online' : 'offline'}`} />
-              <span className="folder-name">{folderName(f.path)}</span>
+              <span className="folder-name">{baseName(f.path)}</span>
               <span className="count">{f.videoCount}</span>
               <button
                 className="remove"

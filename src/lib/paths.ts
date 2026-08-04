@@ -17,6 +17,12 @@ export function normalizeDir(path: string): string {
   return trimmed;
 }
 
+/** 末尾の名前だけを返す。`C:\動画\アニメ` → `アニメ`。取れなければパスをそのまま */
+export function baseName(path: string): string {
+  const parts = path.replace(/[\\/]+$/, '').split(/[\\/]/);
+  return parts[parts.length - 1] || path;
+}
+
 /** 親フォルダを返す。`C:\v\a.mp4` → `C:\v`、`C:\a.mp4` → `C:\`。取れなければ null */
 export function parentDir(path: string): string | null {
   const p = path.replace(/\//g, '\\').replace(/\\+$/, '');

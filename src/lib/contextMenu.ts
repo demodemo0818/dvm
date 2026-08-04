@@ -8,8 +8,8 @@ import type { LucideIcon } from 'lucide-react';
 import type {
   FolderNode, LibraryEntry, Series, SmartFolder, Tag, TagGroup, VideoRow, ViewMode, WatchedFolder,
 } from '../types';
+import { hasActiveFilter } from './filterChips';
 import { sortLabel, sortOptions } from './listColumns';
-import { advancedCount } from './query';
 import type { FilterState } from './query';
 import { TAG_PALETTE } from './tagColors';
 
@@ -580,22 +580,6 @@ export interface GridBlankState {
   filters: FilterState;
 }
 
-/** 効いている絞り込みの数。0 なら「絞り込みをすべて解除」は押せない */
-function activeFilterCount(f: FilterState): number {
-  return (
-    (f.text.trim() !== '' ? 1 : 0) +
-    (f.tagIds.length > 0 ? 1 : 0) +
-    (f.seriesId !== null ? 1 : 0) +
-    (f.folderId !== null ? 1 : 0) +
-    (f.dirPath !== null ? 1 : 0) +
-    (f.minRating > 0 ? 1 : 0) +
-    (f.durationBucket !== null ? 1 : 0) +
-    (f.missingOnly ? 1 : 0) +
-    (f.duplicatesOnly ? 1 : 0) +
-    advancedCount(f.advanced)
-  );
-}
-
 /**
  * グリッドの余白(v1.20)。
  *
@@ -609,7 +593,9 @@ function activeFilterCount(f: FilterState): number {
 export function buildGridBlankMenu(s: GridBlankState): MenuEntry[] {
   const f = s.filters;
   const noFolder = f.dirPath === null ? 'フォルダーで絞り込んでいるときに使えます' : undefined;
-  const filterCount = activeFilterCount(f);
+  // 絞り込み帯(v1.28)と同じ判定を使う。「帯にチップが 1 つも無いのにここは押せる」
+  // という食い違いが構造的に起きないようにするため
+  const filtered = hasActiveFilter(f);
 
   return [
     {
@@ -669,8 +655,8 @@ export function buildGridBlankMenu(s: GridBlankState): MenuEntry[] {
       id: 'blank:clearFilters',
       label: '絞り込みをすべて解除',
       icon: FunnelX,
-      disabled: filterCount === 0,
-      hint: filterCount === 0 ? 'いま絞り込んでいる条件はありません' : undefined,
+      disabled: !filtered,
+      hint: filtered ? undefined : 'いま絞り込んでいる条件はありません',
     },
     { id: 'blank:refresh', label: '再読み込み', icon: RefreshCw },
   ];

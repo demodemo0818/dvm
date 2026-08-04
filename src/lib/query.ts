@@ -10,6 +10,17 @@ export const DURATION_RANGES: Record<DurationBucket, { min?: number; max?: numbe
   gt60: { min: 60 * MIN },
 };
 
+/**
+ * 尺プリセットの表示名。ツールバーの選択肢と絞り込み帯のチップが同じ文言を使う
+ * (片方だけ言い回しが変わるのを防ぐ)
+ */
+export const DURATION_LABELS: Record<DurationBucket, string> = {
+  lt5: '5 分未満',
+  '5to20': '5〜20 分',
+  '20to60': '20〜60 分',
+  gt60: '60 分以上',
+};
+
 /** 詳細検索の解像度プリセット(縦の下限) */
 export const RESOLUTION_OPTIONS: { value: number; label: string }[] = [
   { value: 0, label: '指定なし' },

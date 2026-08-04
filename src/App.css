@@ -1496,6 +1496,148 @@ html.mpv-active .app {
   padding: 2px 4px;
 }
 
+/* ---- 絞り込み帯(v1.28) ---- */
+/*
+ * 高さは定数。条件があるときだけ出す作りにすると、タグを 1 つ押すたびに
+ * 一覧が 32px 跳ねる。ツールバー(v1.17)と同じ理由で**折り返さない** ——
+ * .main は縦 flex なので、伸びたぶんだけ .grid-scroll が縮んでしまう
+ */
+.filterbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  flex: none;
+  padding: 0 12px;
+  border-bottom: 1px solid #2a2e37;
+  font-size: 11px;
+  color: #8a8f9c;
+  overflow: hidden;
+}
+
+/* 溢れたら横に流す。右端をフェードさせて「まだ続きがある」ことを示す */
+.fb-terms {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+}
+
+/* 溢れているときだけ右端をぼかす(出しっぱなしだと端のチップが薄いだけに見える) */
+.fb-terms.overflowing {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+}
+
+.fb-terms::-webkit-scrollbar {
+  height: 6px;
+}
+
+.fb-term {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+}
+
+/*
+ * 「または」の箱。**チップが 2 つ以上のときだけ**付ける。
+ * 塗りではなく枠で囲うのは、選択中(#2f66d0 のベタ塗り)と意味を分けるため ——
+ * ここに並ぶのは「選ばれているもの」ではなく「効いている条件の説明」
+ */
+.fb-term.or {
+  background: #1c1f26;
+  border: 1px solid #2a2e37;
+  border-radius: 6px;
+  padding: 1px 6px;
+}
+
+.fb-caption,
+.fb-join,
+.fb-or {
+  color: #8a8f9c;
+  flex: none;
+}
+
+/* 見出しと「箱ごと外す ×」を 1 かたまりにする */
+.fb-caption {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.fb-join {
+  padding: 0 2px;
+}
+
+.filterbar .chip {
+  font-size: 11px;
+  padding: 1px 6px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: none;
+}
+
+.filterbar .chip button {
+  font-size: 11px;
+}
+
+/* 名前がまだ引けていない / 消えた項目。破線は使わない(D&D の受け入れ先に予約済み) */
+.filterbar .chip.unresolved {
+  color: #6b7180;
+}
+
+/* 箱ごとまとめて外す × */
+.fb-term-clear {
+  background: none;
+  border: none;
+  color: #8a95ab;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 2px;
+}
+
+.fb-term-clear:hover {
+  color: #fff;
+}
+
+.fb-empty {
+  color: #6b7180;
+}
+
+/* 件数と「すべて解除」は flex: none。チップが溢れても絶対に隠れない */
+.fb-count {
+  flex: none;
+  white-space: nowrap;
+}
+
+.fb-count b {
+  color: #dfe6f5;
+  font-weight: 600;
+}
+
+.fb-clear {
+  flex: none;
+  background: none;
+  border: 1px solid #343945;
+  color: #aab0bd;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.fb-clear:hover {
+  background: #262a33;
+  border-color: #4a5163;
+}
+
 /* ---- ステータスバー ---- */
 .statusbar {
   height: 26px;
