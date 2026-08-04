@@ -17,6 +17,7 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { chapterLabelAt, hasChapters } from '../../lib/chapters';
 import { fmtTime } from '../../lib/format';
+import { hdrTooltip } from '../../lib/hdrInfo';
 import { useLibrary } from '../../store';
 import { ChapterList } from './ChapterList';
 import { SeekPreview } from './SeekPreview';
@@ -217,6 +218,8 @@ export function PlayerControls({
   const { state } = player;
   const { autoplayNext, toggle: toggleAutoplay } = useAutoplayToggle();
   const { repeatOne, toggle: toggleRepeat } = useRepeatToggle();
+  // HDR バッジ(v1.31)。パススルーの状態で見た目と説明を変える
+  const hdrPassthrough = useLibrary((s) => s.hdrPassthrough);
   // ボタンにフォーカスを残さない(スペース等のショートカットが二重発火しないように)
   const noFocus = (e: React.MouseEvent) => e.preventDefault();
 
@@ -291,6 +294,18 @@ export function PlayerControls({
           {fmtTime(state.currentTime)} / {fmtTime(state.duration)}
         </span>
         {queue?.position && <span className="player-position">{queue.position}</span>}
+        {/*
+          HDR バッジ(v1.31)。時刻の隣に置く —— 「今流れているものの説明」で、
+          右側の操作ボタン群とは性質が違う。SDR の動画では何も出さない
+        */}
+        {player.hdr && (
+          <span
+            className={`player-hdr ${hdrPassthrough ? 'passthrough' : ''}`}
+            title={hdrTooltip(player.hdr, hdrPassthrough)}
+          >
+            {player.hdr.short}
+          </span>
+        )}
         <div className="player-spacer" />
         {/*
           チャプター(v1.29)。音声・字幕の選択と同じ「この動画の中身から選ぶもの」の

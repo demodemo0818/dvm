@@ -3,6 +3,8 @@ import { command, observeProperties, setProperty } from 'tauri-plugin-libmpv-api
 import { useLibrary } from '../../store';
 import { chapterJumpTarget, toChapters } from '../../lib/chapters';
 import type { Chapter } from '../../lib/chapters';
+import { hdrFromVideoParams } from '../../lib/hdrInfo';
+import type { HdrInfo } from '../../lib/hdrInfo';
 import { mpvSubProps } from '../../lib/subtitleStyle';
 import { hdrHintValue, MPV_OBSERVED } from './mpv';
 import type { MpvTrackEntry } from './mpv';
@@ -76,6 +78,7 @@ export function useMpvPlayer(): VideoPlayer {
   }));
   const [tracks, setTracks] = useState<MediaTrack[]>([]);
   const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [hdr, setHdr] = useState<HdrInfo | null>(null);
   // リピートは engine をまたぐ設定なので store に置いている(v1.13)
   const repeatOne = useLibrary((s) => s.repeatOne);
   // 字幕の見た目(v1.24)。mpv 専用だが、設定モーダルからも触るので store 経由
@@ -96,6 +99,11 @@ export function useMpvPlayer(): VideoPlayer {
     const unlisten = observeProperties(MPV_OBSERVED, ({ name, data }) => {
       if (name === 'track-list') {
         setTracks(toTracks(data));
+        return;
+      }
+      if (name === 'video-params') {
+        // stop / ロード中は null。前のファイルのバッジを残さないよう素直に消す
+        setHdr(hdrFromVideoParams(data));
         return;
       }
       if (name === 'chapter-list') {
@@ -238,6 +246,6 @@ export function useMpvPlayer(): VideoPlayer {
 
   return {
     state, togglePlay, seekTo, seekBy, setVolume, changeVolume, toggleMute, setRate, cycleRate,
-    tracks, setTrack, unscaled, toggleUnscaled, chapters, jumpChapter,
+    tracks, setTrack, unscaled, toggleUnscaled, chapters, jumpChapter, hdr,
   };
 }

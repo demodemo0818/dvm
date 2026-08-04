@@ -1,4 +1,5 @@
 import type { Chapter } from '../../lib/chapters';
+import type { HdrInfo } from '../../lib/hdrInfo';
 
 /** プレイヤーが選べる再生速度(< > キーはこの並びを移動する) */
 export const RATE_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -61,6 +62,11 @@ export interface VideoPlayer {
   chapters?: Chapter[];
   /** 次(1)/前(-1)のチャプターへ。端では何もしない(動画の移動は N / P の役割) */
   jumpChapter?: (dir: 1 | -1) => void;
+  /**
+   * 今再生している映像の HDR 方式(v1.31)。SDR なら null。
+   * ファイルではなく mpv がデコードしている映像から取る
+   */
+  hdr?: HdrInfo | null;
 }
 
 export const clamp01 = (n: number) => Math.min(Math.max(n, 0), 1);

@@ -21,6 +21,11 @@ export const MPV_OBSERVED = [
    * シークバーの目盛りと現在チャプターの表示がずれて見える瞬間ができる
    */
   ['chapter-list', 'node', 'none'],
+  /*
+   * 映像のパラメータ(v1.31)。HDR バッジの判定に使う転送特性(gamma)がここに入る。
+   * **ファイルではなく「今デコードしている映像」が出所**なので追加の I/O が要らない
+   */
+  ['video-params', 'node', 'none'],
 ] as const satisfies MpvObservableProperty[];
 
 /** mpv の track-list の 1 要素(必要なフィールドだけ) */

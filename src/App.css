@@ -2670,6 +2670,30 @@ button.stats-tile:hover {
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * HDR バッジ (v1.31)。既定は落ち着いた枠だけにして、
+ * **パススルーがオンのときだけ色を付ける**(バーの中で一番目立つ必要はないが、
+ * 「今どちらで見ているか」は一目で分かってほしい)
+ */
+.player-hdr {
+  flex: none;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 3px;
+  border: 1px solid #4a505e;
+  color: #aeb5c2;
+  cursor: default;
+}
+
+.player-hdr.passthrough {
+  border-color: #4c8dff;
+  background: rgba(47, 102, 208, 0.3);
+  color: #cfe0ff;
+}
+
 .player-track {
   background: rgba(30, 33, 40, 0.85);
   border: 1px solid #3a3f4b;
