@@ -15,8 +15,10 @@ import {
   VolumeX,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { chapterLabelAt, hasChapters } from '../../lib/chapters';
 import { fmtTime } from '../../lib/format';
 import { useLibrary } from '../../store';
+import { ChapterList } from './ChapterList';
 import { SeekPreview } from './SeekPreview';
 import { RATE_OPTIONS } from './types';
 import type { MediaTrack, VideoPlayer } from './types';
@@ -77,6 +79,11 @@ function SeekBar({ player, previewSrc }: { player: VideoPlayer; previewSrc?: str
   const playedPct = state.duration > 0 ? (pos / state.duration) * 100 : 0;
   const bufferedPct = state.duration > 0 ? (state.bufferedEnd / state.duration) * 100 : 0;
 
+  // チャプター(v1.29、mpv のみ)。0:00 の目盛りは左端に埋もれるだけなので出さない
+  const chapters = player.chapters ?? [];
+  const marks = hasChapters(chapters) && state.duration > 0 ? chapters.filter((c) => c.time > 0) : [];
+  const hoverChapter = hover && hasChapters(chapters) ? chapterLabelAt(chapters, hover.time) : null;
+
   return (
     <div
       ref={barRef}
@@ -113,11 +120,21 @@ function SeekBar({ player, previewSrc }: { player: VideoPlayer; previewSrc?: str
             <SeekPreview src={previewSrc} time={hover.time} />
           )}
           <span className="seek-preview-time">{fmtTime(hover.time)}</span>
+          {/* 目盛りが見えている以上「この先は何のシーンか」を確かめたくなる(v1.29) */}
+          {hoverChapter && <span className="seek-preview-chapter">{hoverChapter}</span>}
         </div>
       )}
       <div className="seekbar-track">
         <div className="seekbar-buffered" style={{ width: `${bufferedPct}%` }} />
         <div className="seekbar-played" style={{ width: `${playedPct}%` }} />
+        {/* 再生済みの帯より後ろに置く(青く塗った上でも区切りが見えるように) */}
+        {marks.map((c) => (
+          <div
+            key={c.time}
+            className="seekbar-chapter"
+            style={{ left: `${(c.time / state.duration) * 100}%` }}
+          />
+        ))}
       </div>
     </div>
   );
@@ -167,6 +184,8 @@ export function PlayerControls({
   queue,
   onOpenSubtitleStyle,
   subtitleStyleOpen = false,
+  chaptersOpen = false,
+  onToggleChapters,
 }: {
   player: VideoPlayer;
   isFullscreen: boolean;
@@ -188,6 +207,12 @@ export function PlayerControls({
    */
   onOpenSubtitleStyle?: () => void;
   subtitleStyleOpen?: boolean;
+  /**
+   * チャプター一覧の開閉(v1.29)。字幕パネルと同じく**状態は呼び出し側が持つ** ——
+   * 開いている間はコントロールバーを隠せないし、Esc は一覧だけを閉じたいため
+   */
+  chaptersOpen?: boolean;
+  onToggleChapters?: () => void;
 }) {
   const { state } = player;
   const { autoplayNext, toggle: toggleAutoplay } = useAutoplayToggle();
@@ -267,6 +292,19 @@ export function PlayerControls({
         </span>
         {queue?.position && <span className="player-position">{queue.position}</span>}
         <div className="player-spacer" />
+        {/*
+          チャプター(v1.29)。音声・字幕の選択と同じ「この動画の中身から選ぶもの」の
+          一角に置く。チャプターが 2 つ未満のファイルでは ChapterList 側が何も描かない
+        */}
+        {player.chapters && onToggleChapters && (
+          <ChapterList
+            chapters={player.chapters}
+            currentTime={state.currentTime}
+            open={chaptersOpen}
+            onToggle={onToggleChapters}
+            onSeek={player.seekTo}
+          />
+        )}
         {player.tracks && player.setTrack && (
           <>
             <TrackSelect

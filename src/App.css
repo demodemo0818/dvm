@@ -3261,6 +3261,104 @@ input[type='range']:focus-visible {
   white-space: nowrap;
 }
 
+/* ---- チャプター (v1.29) ---- */
+
+/*
+ * シークバーの区切り。**幅は 2px の実寸で置く**(% で出すと長い動画で消える)。
+ * transform で半分ずらして、目盛りの中心を区切りの時刻に合わせる
+ */
+.seekbar-chapter {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: rgba(255, 255, 255, 0.85);
+  pointer-events: none;
+}
+
+/*
+ * ホバー時のチャプター名。**幅はコマ(.seek-preview-video)と同じ 160px で頭打ち**に
+ * する —— 画面端の寄せ計算(PREVIEW_W)がコマの幅を前提にしているので、
+ * これより広げると端で画面外にはみ出す
+ */
+.seek-preview-chapter {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: #dfe3ea;
+  background: rgba(0, 0, 0, 0.8);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+/* ボタンにぶら下げるので、位置の基準をここに作る */
+.chapter-anchor {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.chapter-popover {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  margin-bottom: 8px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  max-width: 360px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  background: rgba(24, 26, 32, 0.97);
+  border: 1px solid #3a3f4b;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+}
+
+/* .player-buttons button の見た目(中央寄せ・アイコン用)を打ち消して行にする */
+.chapter-popover .chapter-item {
+  display: flex;
+  justify-content: flex-start;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  text-align: left;
+  color: #d8dbe2;
+}
+
+.chapter-popover .chapter-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* 今いるチャプター。開いた瞬間にどこにいるか分かるようにする */
+.chapter-popover .chapter-item.current {
+  color: #9dc0ff;
+  background: rgba(47, 102, 208, 0.3);
+}
+
+.chapter-time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: #9aa1ad;
+}
+
+.chapter-item.current .chapter-time {
+  color: #9dc0ff;
+}
+
+/* 長い名前は折り返す(1 行に収めると何のシーンか分からなくなる) */
+.chapter-name {
+  overflow-wrap: anywhere;
+}
+
 /* ---- ツールバーの折りたたみ (v1.17) ---- */
 /*
  * 幅の予測(lib/toolbarItems.ts)と実寸を一致させるための明示幅。

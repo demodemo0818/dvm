@@ -37,6 +37,8 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
   const [controlsVisible, setControlsVisible] = useState(true);
   // 字幕の見た目パネル(v1.24)
   const [styleOpen, setStyleOpen] = useState(false);
+  // チャプター一覧(v1.29)。バーの自動非表示と Esc の分岐に関わるのでここで持つ
+  const [chaptersOpen, setChaptersOpen] = useState(false);
 
   const stateRef = useRef(player.state);
   stateRef.current = player.state;
@@ -185,9 +187,13 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
   }, [wake]);
 
   const onEscape = useCallback(() => {
-    if (isFullscreen) toggleFullscreen();
+    // チャプター一覧が開いていれば、まずそれだけ閉じる(v1.29)。
+    // 字幕パネルのように全キーを譲る(suspended)必要は無い —— 一覧に入力欄は無いので、
+    // 開いたまま Space で再生・停止できる方が使いやすい
+    if (chaptersOpen) setChaptersOpen(false);
+    else if (isFullscreen) toggleFullscreen();
     else close();
-  }, [isFullscreen, toggleFullscreen, close]);
+  }, [chaptersOpen, isFullscreen, toggleFullscreen, close]);
 
   // 今見ているコマをサムネイルにする(10% 固定で暗転を引いたときの手当て)
   const setThumbnail = useCallback(() => {
@@ -223,8 +229,9 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
     usePlayerMenu(video, { wake, onSetThumbnail: setThumbnail, onSaveFrame: saveFrame, onClose: close });
 
   // パネルを開いている間はバーを消さない(アンカーのボタンごと消えるうえ、
-  // .mpv-overlay.controls-hidden の cursor:none でカーソルまで見えなくなる)
-  const visible = controlsVisible || player.state.paused || styleOpen;
+  // .mpv-overlay.controls-hidden の cursor:none でカーソルまで見えなくなる)。
+  // チャプター一覧もボタンにぶら下がっているので同じ扱い(v1.29)
+  const visible = controlsVisible || player.state.paused || styleOpen || chaptersOpen;
 
   // 今出ている字幕が自前のスタイルを持っているか。持っていれば色を変えても効かない
   const assWarning = (player.tracks ?? []).some(
@@ -259,6 +266,11 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
         onOpenSubtitleStyle={() => {
           wake();
           setStyleOpen((v) => !v);
+        }}
+        chaptersOpen={chaptersOpen}
+        onToggleChapters={() => {
+          wake();
+          setChaptersOpen((v) => !v);
         }}
       />
 

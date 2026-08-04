@@ -7,6 +7,7 @@ import { useAutoplayToggle, useRepeatToggle } from './usePlayQueue';
  * プレイヤーのキーボードショートカット(両エンジン共用)。
  * Space/K=再生⇄停止、←→=±10秒、↑↓=音量±10%、M=ミュート、F=フルスクリーン、
  * < >=速度、A=連続再生の切替(v1.12)、R=リピート再生の切替(v1.13)、
+ * Ctrl+←→ / PageUp・PageDown=前後のチャプター(v1.29、mpv のみ)、
  * U=表示サイズ 等倍⇄フィット(v1.12、mpv のみ)、
  * T=この位置をサムネイルに(v1.8)、S=このコマを画像として保存(v1.26)、
  * Esc=onEscape(フルスクリーン解除か閉じるかは呼び出し側が決める)
@@ -32,7 +33,8 @@ export function usePlayerShortcuts(
     suspended?: boolean;
   },
 ) {
-  const { togglePlay, seekBy, changeVolume, toggleMute, cycleRate, toggleUnscaled } = player;
+  const { togglePlay, seekBy, changeVolume, toggleMute, cycleRate, toggleUnscaled, jumpChapter } =
+    player;
   const { onEscape, toggleFullscreen, wake, onNext, onPrev, onSetThumbnail, onSaveFrame, suspended } =
     opts;
   // 連続再生・リピートは engine ごとに実装が変わらないので、opts を経由せず直接取る
@@ -66,13 +68,30 @@ export function usePlayerShortcuts(
           e.preventDefault();
           togglePlay();
           break;
+        /*
+         * ←→ は 10 秒シーク、**Ctrl 付きは前後のチャプター**(v1.29)。
+         * Ctrl の分岐をここに書かないと、チャプターへ飛んだうえに 10 秒ぶん
+         * ずれてしまう(同じ case を 2 つの操作が通るため)。
+         * mpv 以外のエンジンでは jumpChapter が undefined なので何も起きない
+         */
         case 'ArrowLeft':
           e.preventDefault();
-          seekBy(-10);
+          if (e.ctrlKey) jumpChapter?.(-1);
+          else if (!e.altKey && !e.metaKey) seekBy(-10);
           break;
         case 'ArrowRight':
           e.preventDefault();
-          seekBy(10);
+          if (e.ctrlKey) jumpChapter?.(1);
+          else if (!e.altKey && !e.metaKey) seekBy(10);
+          break;
+        // mpv 本体と同じ割り当て。他のプレイヤーから来た手が覚えている
+        case 'PageUp':
+          e.preventDefault();
+          jumpChapter?.(-1);
+          break;
+        case 'PageDown':
+          e.preventDefault();
+          jumpChapter?.(1);
           break;
         case 'ArrowUp':
           e.preventDefault();
@@ -143,6 +162,6 @@ export function usePlayerShortcuts(
   }, [
     onEscape, toggleFullscreen, wake, togglePlay, seekBy, changeVolume, toggleMute, cycleRate,
     onNext, onPrev, onSetThumbnail, onSaveFrame, toggleUnscaled, toggleAutoplay, toggleRepeat,
-    suspended,
+    jumpChapter, suspended,
   ]);
 }

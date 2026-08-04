@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { command, observeProperties, setProperty } from 'tauri-plugin-libmpv-api';
 import { useLibrary } from '../../store';
+import { chapterJumpTarget, toChapters } from '../../lib/chapters';
+import type { Chapter } from '../../lib/chapters';
 import { mpvSubProps } from '../../lib/subtitleStyle';
 import { MPV_OBSERVED } from './mpv';
 import type { MpvTrackEntry } from './mpv';
@@ -73,6 +75,7 @@ export function useMpvPlayer(): VideoPlayer {
     bufferedEnd: 0,
   }));
   const [tracks, setTracks] = useState<MediaTrack[]>([]);
+  const [chapters, setChapters] = useState<Chapter[]>([]);
   // リピートは engine をまたぐ設定なので store に置いている(v1.13)
   const repeatOne = useLibrary((s) => s.repeatOne);
   // 字幕の見た目(v1.24)。mpv 専用だが、設定モーダルからも触るので store 経由
@@ -84,11 +87,19 @@ export function useMpvPlayer(): VideoPlayer {
   stateRef.current = state;
   const unscaledRef = useRef(unscaled);
   unscaledRef.current = unscaled;
+  const chaptersRef = useRef(chapters);
+  chaptersRef.current = chapters;
 
   useEffect(() => {
     const unlisten = observeProperties(MPV_OBSERVED, ({ name, data }) => {
       if (name === 'track-list') {
         setTracks(toTracks(data));
+        return;
+      }
+      if (name === 'chapter-list') {
+        // stop / 別ファイルへの切り替えでは null が来る。前のファイルの目盛りを
+        // 残さないよう、ここは time-pos と違って素直に空へ倒す
+        setChapters(toChapters(data));
         return;
       }
       setState((s) => {
@@ -201,8 +212,19 @@ export function useMpvPlayer(): VideoPlayer {
     );
   }, []);
 
+  /**
+   * 次(1)/前(-1)のチャプターへ(v1.29)。飛び先の計算は純関数に任せ、
+   * **端では何もしない** —— mpv の `add chapter 1` に任せると最後のチャプターで
+   * 終端に到達し、連続再生が次の動画を始めてしまう
+   */
+  const jumpChapter = useCallback((dir: 1 | -1) => {
+    const target = chapterJumpTarget(chaptersRef.current, stateRef.current.currentTime, dir);
+    if (target == null) return;
+    run(command('seek', [target, 'absolute']));
+  }, []);
+
   return {
     state, togglePlay, seekTo, seekBy, setVolume, changeVolume, toggleMute, setRate, cycleRate,
-    tracks, setTrack, unscaled, toggleUnscaled,
+    tracks, setTrack, unscaled, toggleUnscaled, chapters, jumpChapter,
   };
 }

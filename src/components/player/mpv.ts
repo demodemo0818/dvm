@@ -14,6 +14,12 @@ export const MPV_OBSERVED = [
   // 音声・字幕トラックの一覧と現在の選択(v1.8)。
   // node は JSON 相当のまま届くので、選択状態も track-list 側で分かる
   ['track-list', 'node', 'none'],
+  /*
+   * チャプター(v1.29)。**一覧だけ購読して現在位置は time-pos から自前で求める** ——
+   * `chapter` も購読すると「今どのチャプターか」の出所が 2 つになり、
+   * シークバーの目盛りと現在チャプターの表示がずれて見える瞬間ができる
+   */
+  ['chapter-list', 'node', 'none'],
 ] as const satisfies MpvObservableProperty[];
 
 /** mpv の track-list の 1 要素(必要なフィールドだけ) */

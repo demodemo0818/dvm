@@ -1,3 +1,5 @@
+import type { Chapter } from '../../lib/chapters';
+
 /** プレイヤーが選べる再生速度(< > キーはこの並びを移動する) */
 export const RATE_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
@@ -52,6 +54,13 @@ export interface VideoPlayer {
    */
   unscaled?: boolean;
   toggleUnscaled?: () => void;
+  /**
+   * mpv のみ。チャプター(v1.29)。ファイルに無ければ空。
+   * **1 つだけのときも UI は出さない**(`hasChapters` を通して判定すること)
+   */
+  chapters?: Chapter[];
+  /** 次(1)/前(-1)のチャプターへ。端では何もしない(動画の移動は N / P の役割) */
+  jumpChapter?: (dir: 1 | -1) => void;
 }
 
 export const clamp01 = (n: number) => Math.min(Math.max(n, 0), 1);
