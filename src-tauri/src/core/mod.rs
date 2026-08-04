@@ -6,6 +6,7 @@ pub mod fonts;
 pub mod frames;
 pub mod history;
 pub mod labels;
+pub mod libraries;
 pub mod library;
 pub mod mcp;
 pub mod metadata;

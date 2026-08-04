@@ -12,11 +12,23 @@ use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 use dvm_lib::core::query::{self, VideoQuery};
-use dvm_lib::core::{series, stats, tags, videos};
+use dvm_lib::core::{libraries, series, stats, tags, videos};
 
-fn default_db_path() -> PathBuf {
+fn data_dir() -> PathBuf {
     let appdata = std::env::var("APPDATA").expect("APPDATA is not set");
-    PathBuf::from(appdata).join("jp.demo2.dvm").join("library.db")
+    PathBuf::from(appdata).join("jp.demo2.dvm")
+}
+
+/// **アプリがいま開いているライブラリ**を見る(v1.27)。
+///
+/// スニペットに `DVM_DB` を書かせる方式は採らない —— 切り替えるたびに
+/// クライアント側の設定を貼り直す必要が生じ、貼り忘れると
+/// AI が古いライブラリを見たまま黙って書き込むことになる。
+/// 代わりにここでレジストリ(app.db)を引いて追従する。
+/// 明示指定したい人のために `DVM_DB` は最優先で残してある
+fn default_db_path() -> PathBuf {
+    let dir = data_dir();
+    libraries::resolve_db_path(&dir).unwrap_or_else(|| dir.join("library.db"))
 }
 
 fn main() {

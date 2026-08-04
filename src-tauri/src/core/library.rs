@@ -338,7 +338,8 @@ pub fn process_pending(app: &AppHandle, ids: Vec<i64>) {
     // 埋め込みカバーを使うかは全件で同じなので、ここで 1 回だけ読む
     // (1 本ごとに settings を引くと書き込みロックと競合する)
     let use_cover = {
-        let conn = state.db_read.lock().unwrap();
+        // サムネイル生成の方針はアプリ全体の設定(app.db。v1.27)
+        let conn = state.app_db.lock().unwrap();
         settings::get(&conn, "use_embedded_cover").ok().flatten().as_deref() != Some("0")
     };
 

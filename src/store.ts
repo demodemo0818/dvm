@@ -69,6 +69,13 @@ interface LibraryState {
    * version と分けてあるのは、タグ付けのたびに全サムネイルを読み直させないため
    */
   thumbVersion: number;
+  /**
+   * いま開いているライブラリの id(v1.27)。起動直後は空。
+   * **localStorage のキーを分けるのに使う** —— タググループの折りたたみ状態は
+   * `tag_groups.id` の配列で、id はライブラリごとに別物なので、共有すると
+   * 「ジャンル(id=3)」を畳んだ状態が別ライブラリの「出演者(id=3)」に効いてしまう
+   */
+  libraryId: string;
   status: string;
   scanning: boolean;
   /** グリッドで選択中の動画(行データごと保持) */
@@ -187,6 +194,7 @@ interface LibraryState {
   clearAdvanced: () => void;
   bumpVersion: () => void;
   bumpThumbVersion: () => void;
+  setLibraryId: (id: string) => void;
   setStatus: (scanning: boolean, status: string) => void;
   setPlayingVideo: (video: VideoRow | null) => void;
   /** 一覧から再生を始める(⏭ で次へ進めるようにキュー情報も持つ) */
@@ -259,6 +267,7 @@ export const useLibrary = create<LibraryState>((set) => ({
   randomSeed: newSeed(),
   version: 0,
   thumbVersion: 0,
+  libraryId: '',
   status: '',
   scanning: false,
   ...CLEARED,
@@ -399,6 +408,7 @@ export const useLibrary = create<LibraryState>((set) => ({
     }),
   bumpVersion: () => set((s) => ({ version: s.version + 1 })),
   bumpThumbVersion: () => set((s) => ({ thumbVersion: s.thumbVersion + 1 })),
+  setLibraryId: (libraryId) => set({ libraryId }),
   setStatus: (scanning, status) => set({ scanning, status }),
   selectOnly: (video, index = null) =>
     set({ selection: [video], anchorIndex: index, focusIndex: index }),

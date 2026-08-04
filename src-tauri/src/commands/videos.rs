@@ -140,8 +140,12 @@ pub async fn save_frame(app: AppHandle, id: i64, at_ms: i64) -> Result<String, S
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .map_err(|e| e.to_string())?;
-        let configured = settings::get(&conn, "frame_save_dir").ok().flatten();
         drop(conn);
+        // 保存先はアプリ全体の設定(app.db。ライブラリを切り替えても変わらない)
+        let configured = {
+            let app_conn = state.app_db.lock().unwrap();
+            settings::get(&app_conn, "frame_save_dir").ok().flatten()
+        };
         let dir = frames::resolve_dir(configured.as_deref(), &state.frames_dir);
         (path, filename, state.ffmpeg.clone(), dir)
     };
@@ -227,7 +231,10 @@ pub fn open_video(state: State<AppState>, id: i64) -> Result<(), String> {
             .query_row("SELECT path FROM videos WHERE id=?1", params![id], |r| r.get(0))
             .map_err(|e| e.to_string())?;
         let _ = videos::mark_viewed(&conn, id);
-        let player = crate::core::settings::get(&conn, "player_path").unwrap_or(None);
+        drop(conn);
+        // 外部プレイヤーはマシンの設定なのでアプリ全体側(app.db)
+        let app_conn = state.app_db.lock().unwrap();
+        let player = crate::core::settings::get(&app_conn, "player_path").unwrap_or(None);
         (p, player)
     };
 

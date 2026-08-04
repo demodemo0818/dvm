@@ -1,6 +1,6 @@
 import { ask } from '@tauri-apps/plugin-dialog';
 import { ChevronDown, Plus } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { useContextMenu } from '../hooks/useContextMenu';
 import { buildTagGroupMenu, buildTagMenu } from '../lib/contextMenu';
@@ -11,7 +11,14 @@ import { ContextMenu } from './ContextMenu';
 
 /** 折りたたんだグループの id。未分類は id を持たないので 0 で表す(グループ id は 1 以上) */
 const UNGROUPED = 0;
-const COLLAPSED_KEY = 'dvm.collapsedTagGroups';
+
+/**
+ * 折りたたみ状態の保存キー。**ライブラリごとに分ける**(v1.27) ——
+ * 中身は `tag_groups.id` の配列で、id はライブラリごとに別物なので、
+ * 共有すると「ジャンル(id=3)」を畳んだ状態が別のライブラリの
+ * 「出演者(id=3)」に効いて、身に覚えのないグループが畳まれる
+ */
+const collapsedKey = (libraryId: string) => `dvm.collapsedTagGroups.${libraryId}`;
 
 /**
  * ドラッグとみなすまでの移動量(px)。これ未満はクリック(絞り込みのトグル)として扱う。
@@ -22,9 +29,9 @@ const COLLAPSED_KEY = 'dvm.collapsedTagGroups';
  */
 const DRAG_THRESHOLD = 4;
 
-function loadCollapsed(): Set<number> {
+function loadCollapsed(libraryId: string): Set<number> {
   try {
-    const raw: unknown = JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '[]');
+    const raw: unknown = JSON.parse(localStorage.getItem(collapsedKey(libraryId)) ?? '[]');
     return new Set(Array.isArray(raw) ? raw.filter((v): v is number => typeof v === 'number') : []);
   } catch {
     return new Set();
@@ -228,8 +235,13 @@ export function TagTree({
   /** サイドバーの絞り込みが効いているか。効いている間は畳まず、空のグループも出さない */
   filtering: boolean;
 }) {
-  const { tagIds, toggleTagFilter, setTagFilter, bumpVersion } = useLibrary();
-  const [collapsed, setCollapsed] = useState<Set<number>>(loadCollapsed);
+  const { tagIds, toggleTagFilter, setTagFilter, bumpVersion, libraryId } = useLibrary();
+  // ライブラリ id が分かってから読む(App.tsx が起動直後に 1 回だけ入れる)。
+  // それまでは畳まれていない状態 = 全部見えている側に倒す
+  const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+  useEffect(() => {
+    if (libraryId) setCollapsed(loadCollapsed(libraryId));
+  }, [libraryId]);
   const [editingTag, setEditingTag] = useState<number | null>(null);
   const [editingGroup, setEditingGroup] = useState<number | null>(null);
   // 作成フォームの表示先。tag は「どのグループに作るか」を持つ(null = 未分類)
@@ -338,7 +350,8 @@ export function TagTree({
       const next = new Set(cur);
       if (next.has(id)) next.delete(id);
       else next.add(id);
-      localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next]));
+      // id が分かる前に書くと、どのライブラリのものか分からない行が残る
+      if (libraryId) localStorage.setItem(collapsedKey(libraryId), JSON.stringify([...next]));
       return next;
     });
 

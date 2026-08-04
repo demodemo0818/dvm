@@ -1,9 +1,9 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useLibrary } from './store';
 import type {
-  AppInfo, BackupInfo, FolderNode, LibraryStats, MediaInfo, OpEntry, OpResult, PlanItem, Series,
-  SmartFolder, SubfolderView, Tag, TagCount, TagGroup, VideoLabels, VideoQuery, VideoRow,
-  ViewEntry, WatchedFolder,
+  AppInfo, BackupInfo, FolderNode, LibraryEntry, LibraryState, LibraryStats, MediaInfo, OpEntry,
+  OpResult, PlanItem, Series, SmartFolder, SubfolderView, Tag, TagCount, TagGroup, VideoLabels,
+  VideoQuery, VideoRow, ViewEntry, WatchedFolder,
 } from './types';
 
 /**
@@ -132,6 +132,8 @@ export const api = {
   listDbBackups: () => call<BackupInfo[]>('list_db_backups'),
   openBackupsDir: () => call<void>('open_backups_dir'),
   openDataDir: () => call<void>('open_data_dir'),
+  /** ライブラリのフォルダを開く。id を省くといま開いているもの(データフォルダとは別物) */
+  openLibraryDir: (id?: string) => call<void>('open_library_dir', { id }),
   regenerateThumbnails: (onlyFailed: boolean) =>
     call<number>('regenerate_thumbnails', { onlyFailed }),
   /** atMs を省略するとサムネイルのコマ選びを自動に戻す */
@@ -180,4 +182,23 @@ export const api = {
   // --- 視聴履歴(v1.18)---
   listViewHistory: (limit: number, offset: number) =>
     call<ViewEntry[]>('list_view_history', { limit, offset }),
+
+  // --- ライブラリの切り替え(v1.27)---
+  listLibraries: () => call<LibraryEntry[]>('list_libraries'),
+  /** 起動時にライブラリを開けたか。ok 以外なら復旧画面を出す */
+  getLibraryState: () => call<LibraryState>('get_library_state'),
+  /** 新規作成の既定の置き場(フォルダ選択ダイアログの初期位置) */
+  defaultLibraryDir: () => call<string>('default_library_dir'),
+  /** parentDir を省くと既定の置き場に作る */
+  createLibrary: (name: string, parentDir?: string) =>
+    call<LibraryEntry>('create_library', { name, parentDir }),
+  addExistingLibrary: (root: string) => call<LibraryEntry>('add_existing_library', { root }),
+  renameLibrary: (id: string, name: string) => call<void>('rename_library', { id, name }),
+  /** 一覧から外すだけ。フォルダとファイルは消さない */
+  forgetLibrary: (id: string) => call<void>('forget_library', { id }),
+  /**
+   * ライブラリを切り替える。**成功するとアプリが再起動するのでこの Promise は解決しない**。
+   * 失敗したときだけ reject が返る(= call() のトーストが出る)
+   */
+  switchLibrary: (id: string) => call<void>('switch_library', { id }),
 };

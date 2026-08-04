@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { fmtSize } from '../lib/format';
 import { useLibrary } from '../store';
-import type { AppInfo, BackupInfo } from '../types';
+import type { AppInfo, BackupInfo, LibraryEntry } from '../types';
 import { McpSettings } from './McpSettings';
 import { SubtitleStyleEditor } from './SubtitleStyleEditor';
 
@@ -33,6 +33,11 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [useEmbeddedCover, setUseEmbeddedCover] = useState(true);
   /** コマの画像の保存先(v1.26)。空欄なら AppInfo.framesDir(ピクチャ\DVM) */
   const [frameSaveDir, setFrameSaveDir] = useState('');
+  /**
+   * ライブラリの管理(v1.27)。ここが持つのは**名前の変更と一覧からの削除**だけ。
+   * 切り替えの入口はサイドバーの上部に固定する(同じ操作の入口を 2 か所に置かない)
+   */
+  const [libraries, setLibraries] = useState<LibraryEntry[]>([]);
 
   useEffect(() => {
     api.getSetting('player_path').then((v) => setPlayerPath(v ?? ''));
@@ -50,7 +55,32 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     api.getSetting('mcp_allow_write').then((v) => setMcpAllowWrite(v === '1'));
     api.getAppInfo().then(setInfo).catch(() => {});
     api.listDbBackups().then(setBackups).catch(() => {});
+    api.listLibraries().then(setLibraries).catch(() => {});
   }, []);
+
+  /** 名前を変える。フォルダ名は変えない(開いている最中に動かせないため) */
+  const renameLibrary = async (lib: LibraryEntry) => {
+    const name = window.prompt('新しいライブラリ名', lib.name);
+    if (name === null || name.trim() === '' || name.trim() === lib.name) return;
+    await api.renameLibrary(lib.id, name.trim());
+    setLibraries(await api.listLibraries());
+    // サイドバーのボタンの表示を追従させる
+    useLibrary.getState().bumpVersion();
+  };
+
+  /** 一覧から外す。**ファイルは消さない**ことを文言で必ず言い切る */
+  const forgetLibrary = async (lib: LibraryEntry) => {
+    const yes = await ask(
+      `「${lib.name}」を一覧から外しますか?\n\n`
+        + 'フォルダとファイルは削除されません。\n'
+        + `${lib.root} はそのまま残るので、あとで「既存のライブラリを開く」から戻せます。`,
+      { title: '一覧から外す' },
+    );
+    if (!yes) return;
+    await api.forgetLibrary(lib.id);
+    setLibraries(await api.listLibraries());
+    useLibrary.getState().bumpVersion();
+  };
 
   const browseFrameDir = async () => {
     const selected = await open({
@@ -169,6 +199,49 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         <div className="modal-title">設定</div>
 
         <div className="settings-section">
+          <div className="settings-heading">ライブラリ</div>
+          <div className="settings-note">
+            ライブラリごとに動画・タグ・シリーズ・監視フォルダが分かれます。
+            見た目や API キーなどの設定は切り替えても変わりません。
+            切り替えはサイドバー上部のライブラリ名から行います
+          </div>
+          <ul className="library-list">
+            {libraries.map((lib) => {
+              const isCurrent = lib.id === info?.libraryId;
+              return (
+                <li key={lib.id} className={isCurrent ? 'current' : ''}>
+                  <div className="library-list-main">
+                    <span className="library-list-name">
+                      {lib.name}
+                      {isCurrent && <span className="library-badge">開いています</span>}
+                      {!lib.online && <span className="library-badge warn">未接続</span>}
+                    </span>
+                    <span className="library-list-root" title={lib.root}>{lib.root}</span>
+                  </div>
+                  <div className="library-list-actions">
+                    <button onClick={() => renameLibrary(lib)}>名前を変更...</button>
+                    <button onClick={() => api.openLibraryDir(lib.id)} disabled={!lib.online}>
+                      フォルダを開く
+                    </button>
+                    <button
+                      onClick={() => forgetLibrary(lib)}
+                      disabled={isCurrent}
+                      title={
+                        isCurrent
+                          ? '開いているライブラリは外せません(別のライブラリに切り替えてから)'
+                          : 'フォルダとファイルは削除されません'
+                      }
+                    >
+                      一覧から外す
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        <div className="settings-section">
           <div className="settings-heading">再生</div>
           <label className="modal-label">
             外部プレイヤー(空欄なら Windows の既定のプレイヤーで開く)
@@ -246,7 +319,11 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           {info && (
             <div className="settings-info">
               <div className="settings-info-row">
-                <span>データフォルダ</span>
+                <span>ライブラリ「{info.libraryName}」</span>
+                <span className="settings-path" title={info.libraryRoot}>{info.libraryRoot}</span>
+              </div>
+              <div className="settings-info-row">
+                <span>データフォルダ(アプリ全体)</span>
                 <span className="settings-path" title={info.dataDir}>{info.dataDir}</span>
               </div>
               <div className="settings-info-row">
@@ -261,7 +338,12 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
               </div>
             </div>
           )}
+          <div className="settings-note">
+            動画・タグ・サムネイル・バックアップはライブラリフォルダの中にあります。
+            設定と再生用の変換キャッシュだけがアプリ全体のデータフォルダに入ります
+          </div>
           <div className="modal-row">
+            <button onClick={() => api.openLibraryDir()}>ライブラリフォルダを開く</button>
             <button onClick={() => api.openDataDir()}>データフォルダを開く</button>
           </div>
         </div>
@@ -343,6 +425,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           exePath={info ? info.mcpPath : undefined}
           allowWrite={mcpAllowWrite}
           onAllowWriteChange={setMcpAllowWrite}
+          libraryName={info?.libraryName}
         />
 
         <div className="settings-section">

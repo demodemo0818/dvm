@@ -1,13 +1,15 @@
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { ask } from '@tauri-apps/plugin-dialog';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import './App.css';
 import { api } from './api';
 import { parseColumns } from './lib/listColumns';
 import { parseSubStyle, serializeSubStyle, SUB_STYLE_KEY } from './lib/subtitleStyle';
+import type { LibraryState } from './types';
 import { AiPanel } from './components/AiPanel';
 import { Inspector } from './components/Inspector';
+import { LibraryUnavailable } from './components/LibraryUnavailable';
 import { PaneResizer } from './components/PaneResizer';
 import { PlayerOverlay } from './components/PlayerOverlay';
 import { Sidebar } from './components/Sidebar';
@@ -28,6 +30,19 @@ export default function App() {
   const debounceTimer = useRef<number | undefined>(undefined);
   /** 字幕スタイルのロードが済んだか。済むまでは保存側を動かさない(下の effect 参照) */
   const subStyleLoaded = useRef(false);
+  /**
+   * ライブラリを開けたか(v1.27)。null は判定前。
+   * 起動時に 1 回だけ聞く —— 結果が変わるのは再起動したときだけなので、購読はしない
+   */
+  const [libState, setLibState] = useState<LibraryState | null>(null);
+
+  useEffect(() => {
+    void api.getLibraryState().then((s) => {
+      setLibState(s);
+      // localStorage をライブラリごとに分けるために store にも入れる(TagTree が使う)
+      useLibrary.getState().setLibraryId(s.current?.id ?? '');
+    });
+  }, []);
 
   // 詳細ペインは「固定表示」か「何か選択中」のときに出す。
   // 幅を変える帯もペインと一緒に出し入れするので、判定はここに置く
@@ -194,6 +209,18 @@ export default function App() {
 
     return () => unlisteners.forEach((u) => u());
   }, [bumpVersion, bumpThumbVersion, setStatus, handleDrop]);
+
+  // ライブラリを開けていないときは通常の UI を出さない(v1.27)。
+  // 空の placeholder で起動しているので、そのまま操作させると
+  // 「ライブラリが消えた」と誤解して作り直しにかかってしまう
+  if (libState && libState.status !== 'ok') {
+    return (
+      <>
+        <LibraryUnavailable state={libState} />
+        <Toasts />
+      </>
+    );
+  }
 
   return (
     <>

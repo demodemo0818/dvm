@@ -36,11 +36,14 @@ export function McpSettings({
   exePath,
   allowWrite,
   onAllowWriteChange,
+  libraryName,
 }: {
   /** undefined は取得中。null は同梱されていない(この 2 つで出す文言が変わる) */
   exePath: string | null | undefined;
   allowWrite: boolean;
   onAllowWriteChange: (v: boolean) => void;
+  /** いま開いているライブラリ(v1.27)。設定を貼り直す必要が無いことを説明するために出す */
+  libraryName?: string;
 }) {
   const [client, setClient] = useState<Client>('desktop');
   const [copied, setCopied] = useState<string | null>(null);
@@ -65,6 +68,11 @@ export function McpSettings({
         Claude Desktop などの AI アプリからライブラリを直接検索・整理できるようにします。
         「タグの付いていない動画を 20 件見せて」「このシリーズに評価を付けて」のように話しかけるだけです。
         DVM を起動していなくても動きます
+      </div>
+      <div className="settings-note">
+        AI が見るのは<b>いま DVM で開いているライブラリ</b>
+        {libraryName ? `(現在:「${libraryName}」)` : ''}です。
+        別のライブラリに切り替えると AI 側もそのまま追従するので、設定を貼り直す必要はありません
       </div>
 
       {exePath === undefined ? null : !exePath ? (

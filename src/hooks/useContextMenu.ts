@@ -27,13 +27,25 @@ export interface ContextMenuState<T> {
 export function useContextMenu<T>() {
   const [menu, setMenu] = useState<ContextMenuState<T> | null>(null);
 
-  /** 右クリックのイベントからメニューを開く。WebView2 の既定メニューはここで止める */
-  const open = useCallback((e: React.MouseEvent, entries: MenuEntry[], target: T) => {
-    e.preventDefault();
-    setMenu({ x: e.clientX, y: e.clientY, entries, target });
+  /**
+   * 座標を直接指定して開く(v1.27)。
+   * ボタンの真下に出したいとき(ライブラリ切り替えのようなドロップダウン)に使う —
+   * クリック位置に出すと、押した場所によってメニューの位置が毎回ずれる
+   */
+  const openAt = useCallback((x: number, y: number, entries: MenuEntry[], target: T) => {
+    setMenu({ x, y, entries, target });
   }, []);
+
+  /** 右クリックのイベントからメニューを開く。WebView2 の既定メニューはここで止める */
+  const open = useCallback(
+    (e: React.MouseEvent, entries: MenuEntry[], target: T) => {
+      e.preventDefault();
+      openAt(e.clientX, e.clientY, entries, target);
+    },
+    [openAt],
+  );
 
   const close = useCallback(() => setMenu(null), []);
 
-  return { menu, open, close };
+  return { menu, open, openAt, close };
 }

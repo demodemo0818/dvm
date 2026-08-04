@@ -1,5 +1,5 @@
 use crate::core::backup::{self, BackupInfo};
-use crate::core::{frames, library, offline, settings, thumbs};
+use crate::core::{frames, libraries, library, offline, settings, thumbs};
 use crate::db;
 use crate::AppState;
 use serde::Serialize;
@@ -48,7 +48,7 @@ pub fn restore_backup(state: State<AppState>, path: String) -> Result<String, St
     let conn = state.db.lock().unwrap();
     let safety = backup::request_restore(
         &conn,
-        &state.data_dir,
+        &state.library_root,
         &state.backups_dir,
         std::path::Path::new(&path),
     )
@@ -71,13 +71,30 @@ pub fn open_data_dir(state: State<AppState>) -> Result<(), String> {
     tauri_plugin_opener::open_path(&state.data_dir, None::<&str>).map_err(|e| e.to_string())
 }
 
+/// ライブラリのフォルダを開く(v1.27)。id を省くといま開いているもの。
+/// データフォルダとは別物 —— ライブラリは外付け HDD 上にも置ける
+#[tauri::command]
+pub fn open_library_dir(state: State<AppState>, id: Option<String>) -> Result<(), String> {
+    let dir = match id {
+        Some(id) => {
+            let conn = state.app_db.lock().unwrap();
+            let entry = libraries::get(&conn, &id)
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| "そのライブラリは一覧にありません".to_string())?;
+            std::path::PathBuf::from(entry.root)
+        }
+        None => state.library_root.clone(),
+    };
+    tauri_plugin_opener::open_path(&dir, None::<&str>).map_err(|e| e.to_string())
+}
+
 /// コマの画像の保存先を開く(v1.26)。設定が空なら既定(ピクチャ\DVM)。
 /// **実効フォルダを Rust 側で解決する**ので、フロントは既定値を知らなくてよい。
 /// まだ 1 枚も撮っていなければフォルダが無いので、ここで作ってから開く
 #[tauri::command]
 pub fn open_frame_dir(state: State<AppState>) -> Result<(), String> {
     let configured = {
-        let conn = state.db_read.lock().unwrap();
+        let conn = state.app_db.lock().unwrap();
         settings::get(&conn, "frame_save_dir").ok().flatten()
     };
     let dir = frames::resolve_dir(configured.as_deref(), &state.frames_dir);
@@ -89,6 +106,10 @@ pub fn open_frame_dir(state: State<AppState>) -> Result<(), String> {
 #[serde(rename_all = "camelCase")]
 pub struct AppInfo {
     pub data_dir: String,
+    /// いま開いているライブラリ(v1.27)。設定画面と MCP の案内に出す
+    pub library_id: String,
+    pub library_name: String,
+    pub library_root: String,
     pub db_path: String,
     pub db_size: i64,
     pub thumbs_dir: String,
@@ -104,9 +125,9 @@ pub struct AppInfo {
 
 #[tauri::command]
 pub fn get_app_info(state: State<AppState>) -> Result<AppInfo, String> {
-    let db_path = state.data_dir.join("library.db");
+    let db_path = state.library_root.join("library.db");
     // WAL モードなので -wal も込みで実サイズを見せる
-    let db_size = [db_path.clone(), state.data_dir.join("library.db-wal")]
+    let db_size = [db_path.clone(), state.library_root.join("library.db-wal")]
         .iter()
         .filter_map(|p| std::fs::metadata(p).ok())
         .map(|m| m.len() as i64)
@@ -122,8 +143,20 @@ pub fn get_app_info(state: State<AppState>) -> Result<AppInfo, String> {
         })
         .unwrap_or((0, 0));
 
+    let library_name = {
+        let conn = state.app_db.lock().unwrap();
+        libraries::get(&conn, &state.library_id)
+            .ok()
+            .flatten()
+            .map(|e| e.name)
+            .unwrap_or_default()
+    };
+
     Ok(AppInfo {
         data_dir: state.data_dir.to_string_lossy().to_string(),
+        library_id: state.library_id.clone(),
+        library_name,
+        library_root: state.library_root.to_string_lossy().to_string(),
         db_path: db_path.to_string_lossy().to_string(),
         db_size,
         thumbs_dir: state.thumbs_dir.to_string_lossy().to_string(),

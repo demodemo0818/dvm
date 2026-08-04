@@ -295,8 +295,38 @@ export interface Toast {
   kind: 'error' | 'info';
 }
 
+/** ライブラリ 1 つぶん(v1.27。Rust の core/libraries.rs と手動同期) */
+export interface LibraryEntry {
+  id: string;
+  name: string;
+  /** ライブラリフォルダの絶対パス。直下に library.db / thumbs / backups がある */
+  root: string;
+  sortOrder: number;
+  lastOpenedAt: string | null;
+  /** ルート(ドライブ・共有)に到達できるか。DB には持たず毎回判定している */
+  online: boolean;
+}
+
+/**
+ * 起動時にライブラリを開けたかどうか(v1.27)。
+ * `ok` 以外のときは空の placeholder で起動しているので、
+ * フロントは復旧画面を出して通常の操作をさせない
+ */
+export type LibraryStatus = 'ok' | 'offline' | 'missing' | 'broken' | 'none';
+
+export interface LibraryState {
+  status: LibraryStatus;
+  message: string;
+  /** 開こうとしたライブラリ。status が 'none' のときだけ null */
+  current: LibraryEntry | null;
+}
+
 export interface AppInfo {
   dataDir: string;
+  /** いま開いているライブラリ(v1.27) */
+  libraryId: string;
+  libraryName: string;
+  libraryRoot: string;
   dbPath: string;
   dbSize: number;
   thumbsDir: string;

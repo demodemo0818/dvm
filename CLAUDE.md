@@ -31,6 +31,10 @@ Windows 向け動画管理ソフト(Tauri 2 + React + TypeScript + Rust)。
 ## 技術メモ
 
 - DB アクセス: Rust 側から(sqlx または rusqlite)。フロントから直接 SQL を触らない
+- **DB は 2 本ある**(v1.27)。`library.db` = ライブラリの中身(動画・タグ・シリーズ・監視フォルダ)。
+  `app.db` = アプリ全体(ライブラリ一覧と、切り替えても変わるべきでない設定)。
+  `get_setting` / `set_setting` は常に `app_db` を使う。ライブラリごとの記録は
+  `core/backup.rs` のように conn を直接受け取る形で書く
 - フロントから Tauri コマンドを呼ぶときは必ず `src/api.ts` の `call()` を経由する(失敗をトーストで可視化するため)。`invoke` を直接呼ばない
 - Tauri コマンドは `src-tauri/src/commands/` に機能別に分ける
 - フロントの状態管理は軽く始める(Zustand)。過剰な抽象化をしない

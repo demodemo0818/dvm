@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 /// 起動時自動バックアップの保持世代数(manual- は対象外)
 pub const AUTO_KEEP: usize = 5;
 
-const LAST_AUTO_KEY: &str = "last_auto_backup_at";
+/// **ライブラリごと**の記録(v1.27)。アプリ全体設定(app.db)には移さない ——
+/// 移すと「A を開いた 24 時間以内に B を開くと B のバックアップが取られない」ことになる
+pub const LAST_AUTO_KEY: &str = "last_auto_backup_at";
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -105,37 +107,24 @@ const PENDING_RESTORE: &str = "restore.pending";
 /// ここでは中身を検証して予約ファイルを書くだけで、実際の差し替えは
 /// `apply_pending_restore` が db::init の**前**に行う。
 ///
+/// `lib_root` は**現在開いているライブラリのフォルダ**(v1.27。予約ファイルもそこに置く)。
+///
 /// 戻り値は退避した現行 DB のパス(取り違えたときの戻り先)
 pub fn request_restore(
     conn: &Connection,
-    data_dir: &Path,
+    lib_root: &Path,
     backups_dir: &Path,
     backup_path: &Path,
 ) -> Result<PathBuf> {
-    anyhow::ensure!(backup_path.is_file(), "バックアップファイルが見つかりません");
-
     // 壊れたファイルを予約すると次回起動できなくなるので、ここで必ず開いて確かめる
-    {
-        let check = Connection::open_with_flags(
-            backup_path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .map_err(|e| anyhow::anyhow!("バックアップを開けません: {e}"))?;
-        let has_videos: bool = check
-            .query_row(
-                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='videos'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap_or(false);
-        anyhow::ensure!(has_videos, "DVM のデータベースではないようです");
-    }
+    // (検証はライブラリ切り替えと共用。core/libraries.rs)
+    crate::core::libraries::validate_db(backup_path)?;
 
     // 今の DB もバックアップとして残す(復元を取り違えても戻せるように)
     let safety = backup_now(conn, backups_dir, "pre-restore")?;
 
     std::fs::write(
-        data_dir.join(PENDING_RESTORE),
+        lib_root.join(PENDING_RESTORE),
         backup_path.to_string_lossy().as_bytes(),
     )?;
     Ok(safety)
@@ -143,8 +132,8 @@ pub fn request_restore(
 
 /// 予約された復元を適用する。**db::init より前に呼ぶこと**(まだ誰も DB を開いていない状態)。
 /// 戻り値は適用したバックアップのパス
-pub fn apply_pending_restore(data_dir: &Path) -> Option<PathBuf> {
-    let pending = data_dir.join(PENDING_RESTORE);
+pub fn apply_pending_restore(lib_root: &Path) -> Option<PathBuf> {
+    let pending = lib_root.join(PENDING_RESTORE);
     let src = std::fs::read_to_string(&pending).ok()?;
     let src = PathBuf::from(src.trim());
     // 予約は成否にかかわらず消す(失敗したまま毎回試し続けないように)
@@ -153,14 +142,14 @@ pub fn apply_pending_restore(data_dir: &Path) -> Option<PathBuf> {
         return None;
     }
 
-    let db_path = data_dir.join("library.db");
+    let db_path = lib_root.join("library.db");
     if std::fs::copy(&src, &db_path).is_err() {
         return None;
     }
     // 差し替え前の WAL / SHM が残っていると新しい本体と食い違う。
     // VACUUM INTO の出力は単一ファイルなので消してよい
-    let _ = std::fs::remove_file(data_dir.join("library.db-wal"));
-    let _ = std::fs::remove_file(data_dir.join("library.db-shm"));
+    let _ = std::fs::remove_file(lib_root.join("library.db-wal"));
+    let _ = std::fs::remove_file(lib_root.join("library.db-shm"));
     Some(src)
 }
 
@@ -191,11 +180,14 @@ pub fn auto_backup_if_due(conn: &Connection, backups_dir: &Path) -> Result<Optio
 mod tests {
     use super::*;
 
+    /// v1.27 以降、予約ファイルと DB の置き場は**ライブラリフォルダ**。
+    /// アプリのデータフォルダと同じ場所ではないので、テストでも別の階層に作る
     fn workspace(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("dvm-test-backup-{name}"));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join("backups")).unwrap();
-        dir
+        let data_dir = std::env::temp_dir().join(format!("dvm-test-backup-{name}"));
+        let _ = std::fs::remove_dir_all(&data_dir);
+        let lib_root = data_dir.join("libraries").join("マイライブラリ");
+        std::fs::create_dir_all(lib_root.join("backups")).unwrap();
+        lib_root
     }
 
     /// 予約 → 再起動相当(apply)→ 中身が入れ替わっていることを通しで見る

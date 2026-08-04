@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { EMPTY_ADVANCED } from '../types';
 import type {
-  FolderNode, Series, SmartFolder, Tag, TagGroup, VideoRow, WatchedFolder,
+  FolderNode, LibraryEntry, Series, SmartFolder, Tag, TagGroup, VideoRow, WatchedFolder,
 } from '../types';
 import {
-  buildFolderMenu, buildFolderTreeMenu, buildGridBlankMenu, buildPlayerMenu, buildSeriesMenu,
-  buildSmartFolderMenu, buildTagGroupMenu, buildTagMenu, buildVideoMenu, buildWatchedFolderMenu,
-  isSeparator,
+  buildFolderMenu, buildFolderTreeMenu, buildGridBlankMenu, buildLibraryMenu, buildPlayerMenu,
+  buildSeriesMenu, buildSmartFolderMenu, buildTagGroupMenu, buildTagMenu, buildVideoMenu,
+  buildWatchedFolderMenu, isSeparator,
 } from './contextMenu';
 import type { GridBlankState, MenuEntry, MenuItem } from './contextMenu';
 import { CURATED_SORTS, sortLabel } from './listColumns';
@@ -584,6 +584,46 @@ describe('buildPlayerMenu', () => {
   });
 });
 
+const libRow = (patch: Partial<LibraryEntry> = {}): LibraryEntry => ({
+  id: 'aaaa1111', name: 'メイン', root: 'C:\\DVM\\メイン', sortOrder: 0,
+  lastOpenedAt: null, online: true, ...patch,
+});
+
+describe('buildLibraryMenu', () => {
+  const libs = [
+    libRow(),
+    libRow({ id: 'bbbb2222', name: 'アーカイブ', root: 'E:\\DVM', online: false }),
+  ];
+
+  it('登録順に並べ、開いているものにチェックを付ける', () => {
+    const m = buildLibraryMenu(libs, 'aaaa1111');
+    expect(ids(m)).toEqual([
+      'lib:switch:aaaa1111',
+      'lib:switch:bbbb2222',
+      'lib:create',
+      'lib:add',
+    ]);
+    expect(item(m, 'lib:switch:aaaa1111').checked).toBe(true);
+    expect(item(m, 'lib:switch:bbbb2222').checked).toBe(false);
+  });
+
+  /**
+   * 未接続でも選べるままにする。無効にすると「なぜ出ているのか」だけが残って
+   * 何も起きないので、選んだときにドライブを繋ぐよう案内するほうが先に進める
+   */
+  it('未接続のライブラリも選べる(ラベルと hint で理由を見せる)', () => {
+    const m = buildLibraryMenu(libs, 'aaaa1111');
+    const offline = item(m, 'lib:switch:bbbb2222');
+    expect(offline.disabled).toBeUndefined();
+    expect(offline.label).toContain('未接続');
+    expect(offline.hint).toContain('E:\\');
+  });
+
+  it('1 つも無くても新規作成と既存を開くは出す', () => {
+    expect(ids(buildLibraryMenu([], ''))).toEqual(['lib:create', 'lib:add']);
+  });
+});
+
 /**
  * 全ビルダーに共通で守らせる約束。
  * 新しいメニューを足したらここの配列にも足す(足し忘れても既存は守られる)
@@ -603,6 +643,7 @@ describe('メニュー共通の約束', () => {
     ['buildFolderTreeMenu', buildFolderTreeMenu(nodeRow({ online: false }), false, false, true), 'tree:'],
     ['buildGridBlankMenu', buildGridBlankMenu(blank({ total: 0 })), 'blank:'],
     ['buildPlayerMenu', buildPlayerMenu(row({ isMissing: true })), 'player:'],
+    ['buildLibraryMenu', buildLibraryMenu([libRow({ online: false })], 'zzz'), 'lib:'],
   ];
 
   for (const [name, menu, prefix] of menus) {

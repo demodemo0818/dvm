@@ -1,14 +1,17 @@
 import { ask, open } from '@tauri-apps/plugin-dialog';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
-import { Copy, FolderSearch, ListOrdered, TriangleAlert } from 'lucide-react';
+import { ChevronDown, Copy, FolderSearch, Library, ListOrdered, TriangleAlert } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useContextMenu } from '../hooks/useContextMenu';
-import { buildSeriesMenu, buildSmartFolderMenu, buildWatchedFolderMenu } from '../lib/contextMenu';
+import {
+  buildLibraryMenu, buildSeriesMenu, buildSmartFolderMenu, buildWatchedFolderMenu,
+} from '../lib/contextMenu';
 import { buildQuery } from '../lib/query';
 import { useLibrary } from '../store';
 import type {
-  FolderNode, PlanItem, Series, SidebarTab, SmartFolder, Tag, TagGroup, VideoQuery, WatchedFolder,
+  FolderNode, LibraryEntry, PlanItem, Series, SidebarTab, SmartFolder, Tag, TagGroup, VideoQuery,
+  WatchedFolder,
 } from '../types';
 import { ContextMenu } from './ContextMenu';
 import { FileOpDialog } from './FileOpDialog';
@@ -30,7 +33,9 @@ function folderName(path: string): string {
 type MenuTarget =
   | { kind: 'wf'; folder: WatchedFolder }
   | { kind: 'sf'; sf: SmartFolder }
-  | { kind: 'series'; series: Series };
+  | { kind: 'series'; series: Series }
+  // v1.27。これだけ右クリックではなくボタンの左クリックで開く
+  | { kind: 'library' };
 
 /** いま画面に効いている絞り込みを VideoQuery にする(スマートフォルダの上書き用) */
 function currentQuery(): VideoQuery {
@@ -49,6 +54,7 @@ export function Sidebar() {
     seriesId, toggleSeriesFilter,
     missingOnly, toggleMissingOnly,
     duplicatesOnly, toggleDuplicatesOnly, applyFilter, pushToast,
+    libraryId: currentLibId,
   } = useLibrary();
   const [tab, setTab] = useState<SidebarTab>('library');
   const [folderTree, setFolderTree] = useState<FolderNode[]>([]);
@@ -61,7 +67,11 @@ export function Sidebar() {
   const [missingCount, setMissingCount] = useState(0);
   const [duplicateCount, setDuplicateCount] = useState(0);
   const [relinkPlan, setRelinkPlan] = useState<PlanItem[] | null>(null);
-  const { menu, open: openMenu, close: closeMenu } = useContextMenu<MenuTarget>();
+  // ライブラリの切り替え(v1.27)。一覧は version で取り直す —— 設定モーダルで
+  // 名前を変えたときにボタンの表示を追従させるため(切り替え自体は再起動なので稀)
+  const [libraries, setLibraries] = useState<LibraryEntry[]>([]);
+  const [switching, setSwitching] = useState(false);
+  const { menu, open: openMenu, openAt, close: closeMenu } = useContextMenu<MenuTarget>();
   // ライブラリタブの項目名で絞り込む(v1.19)。DB は引かず手元の配列を絞るだけなので
   // デバウンスは要らない。動画そのものの検索はツールバー側の担当
   const [sideFilter, setSideFilter] = useState('');
@@ -75,6 +85,10 @@ export function Sidebar() {
     api.countVideos({}).then(setTotalCount);
     api.countVideos({ missing: true }).then(setMissingCount);
     api.countVideos({ duplicatesOnly: true }).then(setDuplicateCount);
+  }, [version]);
+
+  useEffect(() => {
+    api.listLibraries().then(setLibraries);
   }, [version]);
 
   // 前回開いていたタブを復元する(view_mode / card_width と同じく settings に持つ)
@@ -239,9 +253,68 @@ export function Sidebar() {
     }
   };
 
+  /**
+   * ライブラリを切り替える(v1.27)。**成功するとアプリが再起動する**ので、
+   * この呼び出しの後ろに処理を書かないこと(Promise は解決しない)。
+   * 再生中なら先に止める —— mpv は透過ウィンドウを別に持っているので、
+   * 再生したままプロセスを差し替えない
+   */
+  const switchLibrary = async (lib: LibraryEntry) => {
+    if (lib.id === currentLibId) return;
+    if (!lib.online) {
+      pushToast(`「${lib.name}」に接続できません(${lib.root})`);
+      return;
+    }
+    const yes = await ask(`「${lib.name}」に切り替えます。アプリを再起動しますか?`, {
+      title: 'ライブラリの切り替え',
+    });
+    if (!yes) return;
+    setSwitching(true);
+    useLibrary.getState().setPlayingVideo(null);
+    try {
+      await api.switchLibrary(lib.id);
+    } catch {
+      // ここに戻ってくるのは失敗したときだけ(トーストは call() の担当)
+      setSwitching(false);
+    }
+  };
+
+  /** 新規作成 → 置き場所を選ぶ → 空のライブラリを作る → 続けて切り替えるか聞く */
+  const createLibrary = async () => {
+    const name = window.prompt('新しいライブラリの名前');
+    if (name === null || name.trim() === '') return;
+    // 既定はアプリのデータフォルダ配下。外付け HDD を選べばドライブごと持ち運べる
+    const parent = await open({
+      directory: true,
+      defaultPath: await api.defaultLibraryDir(),
+      title: 'ライブラリを置くフォルダを選ぶ',
+    });
+    if (typeof parent !== 'string') return;
+    const lib = await api.createLibrary(name.trim(), parent);
+    setLibraries(await api.listLibraries());
+    await switchLibrary(lib);
+  };
+
+  /** 既存のライブラリフォルダを一覧に加える(外付け HDD を別の PC に挿したとき等) */
+  const addExistingLibrary = async () => {
+    const root = await open({ directory: true, title: 'ライブラリのフォルダを選ぶ' });
+    if (typeof root !== 'string') return;
+    const lib = await api.addExistingLibrary(root);
+    setLibraries(await api.listLibraries());
+    await switchLibrary(lib);
+  };
+
   /** 右クリックメニューの実行(v1.20)。削除系は × ボタンと同じ関数を呼ぶ */
   const runMenuAction = async (id: string, target: MenuTarget) => {
     try {
+      if (target.kind === 'library') {
+        if (id === 'lib:create') return await createLibrary();
+        if (id === 'lib:add') return await addExistingLibrary();
+        const lib = libraries.find((l) => `lib:switch:${l.id}` === id);
+        if (lib) await switchLibrary(lib);
+        return;
+      }
+
       if (target.kind === 'wf') {
         const f = target.folder;
         switch (id) {
@@ -314,6 +387,7 @@ export function Sidebar() {
   const shownTags = tags.filter(
     (t) => hit(t.name) || hit(t.groupName ?? '') || (t.groupId == null && hit('未分類')),
   );
+  const currentLib = libraries.find((l) => l.id === currentLibId) ?? null;
   const nothingMatches =
     needle !== '' &&
     shownSmart.length === 0 &&
@@ -324,7 +398,28 @@ export function Sidebar() {
   return (
     // 幅はドラッグで変えられる。min-width も同じ値にして flex に縮められないようにする
     <aside className="sidebar" style={{ width: sidebarWidth, minWidth: sidebarWidth }}>
-      <div className="sidebar-title">DVM</div>
+      {/*
+        v1.27。ここは v1.26 まで「DVM」の固定文字列だった。
+        切り替えの入口はここだけ(名前の変更と一覧からの削除は設定モーダルの担当)
+      */}
+      <button
+        className="sidebar-title library-switch"
+        disabled={switching}
+        title={currentLib ? `${currentLib.root}\nクリックでライブラリを切り替え` : 'DVM'}
+        onClick={(e) => {
+          // クリック位置ではなくボタンの真下に出す(押す場所で位置がずれない)
+          const r = e.currentTarget.getBoundingClientRect();
+          openAt(r.left, r.bottom + 2, buildLibraryMenu(libraries, currentLibId), {
+            kind: 'library',
+          });
+        }}
+      >
+        <Library />
+        <span className="library-name">
+          {switching ? '切り替え中...' : (currentLib?.name ?? 'DVM')}
+        </span>
+        <ChevronDown className="library-caret" />
+      </button>
       <button
         className={`side-item ${folderId === null && dirPath === null && !missingOnly ? 'active' : ''}`}
         onClick={() => {

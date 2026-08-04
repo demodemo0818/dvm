@@ -13,7 +13,17 @@ pub struct AppState {
     /// 一覧・サイドバーなど読み取りだけのコマンド用。書き込みロックと競合させないため
     /// 別コネクションにしている(db.rs の open_read 参照)
     pub db_read: Mutex<rusqlite::Connection>,
+    /// アプリ全体のもの(ライブラリの一覧と、切り替えても変わらない設定)を置く DB(v1.27)。
+    /// **読み書きを分けない** —— 取り込みワーカーが触らないので書き込みは設定変更時の単発だけ
+    pub app_db: Mutex<rusqlite::Connection>,
+    /// アプリのデータフォルダ(%APPDATA%\jp.demo2.dvm)。ライブラリを切り替えても変わらない
     pub data_dir: PathBuf,
+    /// いま開いているライブラリのフォルダ。この直下に library.db / thumbs / backups がある
+    pub library_root: PathBuf,
+    pub library_id: String,
+    /// 開けなかったとき(未接続・消失・破損)の理由。フロントが復旧画面を出すのに使う
+    pub library_status: crate::core::libraries::LibraryStatus,
+    pub library_message: String,
     pub thumbs_dir: PathBuf,
     pub backups_dir: PathBuf,
     /// 再生用変換(remux/transcode)のキャッシュ置き場
@@ -41,23 +51,51 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_libmpv::init())
         .setup(|app| {
+            use crate::core::libraries::{self, LibraryStatus};
+
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
-            let thumbs_dir = data_dir.join("thumbs");
+            // ライブラリの一覧とアプリ全体設定。初回は v1.26 までのデータをここで引き継ぐ
+            let app_db = libraries::open_app_db(&data_dir)?;
+            let resolved = libraries::resolve_current(&app_db, &data_dir);
+            let healthy = resolved.status == LibraryStatus::Ok;
+            // 開けないときも AppState は必ず有効な Connection を持たせる(空の placeholder)。
+            // Option にすると 60 以上ある既存コマンドが全部 unwrap 地獄になる
+            let library_root = if healthy {
+                resolved.root.clone()
+            } else {
+                eprintln!("ライブラリを開けません: {}", resolved.message);
+                libraries::reset_placeholder(&data_dir)?
+            };
+            let library_id = resolved
+                .entry
+                .as_ref()
+                .map(|e| e.id.clone())
+                .unwrap_or_default();
+
+            let thumbs_dir = library_root.join("thumbs");
             std::fs::create_dir_all(&thumbs_dir)?;
-            let backups_dir = data_dir.join("backups");
+            let backups_dir = library_root.join("backups");
             std::fs::create_dir_all(&backups_dir)?;
-            let transcode_dir = data_dir.join("transcode");
+            // 変換キャッシュだけはアプリのデータフォルダに残す(捨ててよい派生物なので
+            // 遅い外付けに 20GB を書かない)。ただしファイル名が {video_id}.mp4 固定なので、
+            // ライブラリ id でサブフォルダを切らないと id 衝突で別の動画が再生される
+            let cache_key = if healthy {
+                library_id.as_str()
+            } else {
+                libraries::PLACEHOLDER_CACHE_KEY
+            };
+            let transcode_dir = data_dir.join("transcode").join(cache_key);
             std::fs::create_dir_all(&transcode_dir)?;
             // ピクチャが取れなくても起動は続ける(データフォルダに逃がす)
             let frames_dir = crate::core::frames::default_dir(
                 app.path().picture_dir().ok().as_deref(),
                 &data_dir,
             );
-            let db_path = data_dir.join("library.db");
+            let db_path = library_root.join("library.db");
             // 復元の予約があればここで差し替える。**db::init より前**であることが重要
             // (まだ誰も DB を開いていないので、コネクションと競合しない)
-            if let Some(src) = crate::core::backup::apply_pending_restore(&data_dir) {
+            if let Some(src) = crate::core::backup::apply_pending_restore(&library_root) {
                 eprintln!("バックアップから復元しました: {}", src.display());
             }
             let conn = db::init(&db_path)?;
@@ -66,7 +104,12 @@ pub fn run() {
             app.manage(AppState {
                 db: Mutex::new(conn),
                 db_read: Mutex::new(conn_read),
+                app_db: Mutex::new(app_db),
                 data_dir,
+                library_root,
+                library_id,
+                library_status: resolved.status,
+                library_message: resolved.message,
                 thumbs_dir,
                 backups_dir,
                 transcode_dir,
@@ -102,22 +145,28 @@ pub fn run() {
                 }
             });
 
-            // ファイル監視を開始し、自動バックアップ → 起動時スキャンを回す(バックグラウンド)
-            crate::core::watcher::init(app.handle());
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn_blocking(move || {
-                {
-                    let state = handle.state::<AppState>();
-                    let conn = state.db.lock().unwrap();
-                    // スキャン前の DB 状態を保全するため、先にバックアップする
-                    if let Err(e) = crate::core::backup::auto_backup_if_due(&conn, &state.backups_dir) {
-                        eprintln!("auto backup failed: {e}");
+            // ファイル監視を開始し、自動バックアップ → 起動時スキャンを回す(バックグラウンド)。
+            // **placeholder では一切走らせない** —— 空の DB をバックアップして世代を埋めたり、
+            // 復旧画面の裏で誤ってスキャンが動いたりしないように
+            if healthy {
+                crate::core::watcher::init(app.handle());
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    {
+                        let state = handle.state::<AppState>();
+                        let conn = state.db.lock().unwrap();
+                        // スキャン前の DB 状態を保全するため、先にバックアップする
+                        if let Err(e) =
+                            crate::core::backup::auto_backup_if_due(&conn, &state.backups_dir)
+                        {
+                            eprintln!("auto backup failed: {e}");
+                        }
                     }
-                }
-                // 前回の書きかけ .tmp.mp4 掃除 + キャッシュ上限の適用
-                crate::core::playback::purge_cache(&handle, None);
-                crate::core::library::run_scan_all(&handle);
-            });
+                    // 前回の書きかけ .tmp.mp4 掃除 + キャッシュ上限の適用
+                    crate::core::playback::purge_cache(&handle, None);
+                    crate::core::library::run_scan_all(&handle);
+                });
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -178,6 +227,7 @@ pub fn run() {
             commands::maintenance::list_db_backups,
             commands::maintenance::open_backups_dir,
             commands::maintenance::open_data_dir,
+            commands::maintenance::open_library_dir,
             commands::maintenance::open_frame_dir,
             commands::maintenance::get_app_info,
             commands::maintenance::regenerate_thumbnails,
@@ -196,6 +246,14 @@ pub fn run() {
             commands::history::undo_operation,
             commands::playback::prepare_video,
             commands::playback::cancel_prepare,
+            commands::libraries::list_libraries,
+            commands::libraries::get_library_state,
+            commands::libraries::default_library_dir,
+            commands::libraries::create_library,
+            commands::libraries::add_existing_library,
+            commands::libraries::rename_library,
+            commands::libraries::forget_library,
+            commands::libraries::switch_library,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")

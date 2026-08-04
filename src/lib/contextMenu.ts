@@ -1,12 +1,12 @@
 import {
   AppWindow, ArrowDown, ArrowDownUp, ArrowUp, BookmarkPlus, Camera, ChevronDown, Copy, ExternalLink,
   Folder, FolderInput, FolderOpen, FolderPlus, FolderSearch, FolderUp, Funnel, FunnelPlus, FunnelX,
-  GalleryThumbnails, Layers, LayoutGrid, ListOrdered, ListX, Palette, Pencil, Play, Plus, RefreshCw,
-  SquareCheck, SquareDashed, Star, Trash2, X,
+  GalleryThumbnails, Layers, LayoutGrid, Library, ListOrdered, ListX, Palette, Pencil, Play, Plus,
+  RefreshCw, SquareCheck, SquareDashed, Star, Trash2, Unplug, X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type {
-  FolderNode, Series, SmartFolder, Tag, TagGroup, VideoRow, ViewMode, WatchedFolder,
+  FolderNode, LibraryEntry, Series, SmartFolder, Tag, TagGroup, VideoRow, ViewMode, WatchedFolder,
 } from '../types';
 import { sortLabel, sortOptions } from './listColumns';
 import { advancedCount } from './query';
@@ -541,6 +541,31 @@ export function buildFolderTreeMenu(
       // 「外す」は監視フォルダ行の担当。入口を 2 か所に置かない
       hint: watched ? 'すでに監視フォルダです' : '起動時のスキャンと自動監視の対象になります',
     },
+  ];
+}
+
+/**
+ * ライブラリの切り替え(v1.27)。サイドバー最上部のボタンから**左クリックで**開く。
+ *
+ * **「名前を変更」「一覧から外す」はここに置かない。** 破壊的に見える操作と
+ * 候補一覧から選ぶ入力が要るものは管理画面(設定モーダル)の担当、という v1.14 の基準。
+ * 逆に切り替えは設定モーダルに置かない —— 同じ操作の入口を 2 か所に作らない。
+ *
+ * **未接続のライブラリも押せるままにする。** 無効にすると「なぜ出ているのか」だけが
+ * 残って何も起きないので、選んだときにドライブを繋ぐよう案内するほうが先に進める
+ */
+export function buildLibraryMenu(libraries: LibraryEntry[], currentId: string): MenuEntry[] {
+  return [
+    ...libraries.map((lib) => ({
+      id: `lib:switch:${lib.id}`,
+      label: lib.online ? lib.name : `${lib.name}(未接続)`,
+      icon: lib.online ? Library : Unplug,
+      checked: lib.id === currentId,
+      hint: lib.online ? lib.root : `${lib.root} に接続できません`,
+    })),
+    { separator: true },
+    { id: 'lib:create', label: 'ライブラリを新規作成...', icon: FolderPlus },
+    { id: 'lib:add', label: '既存のライブラリを開く...', icon: FolderOpen },
   ];
 }
 

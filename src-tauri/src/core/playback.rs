@@ -106,7 +106,8 @@ pub fn prepare(app: &AppHandle, video_id: i64, mode: &str) -> Result<PathBuf> {
     if let RunOutcome::Failed(_) = &outcome {
         if mode == "transcode" && !encoder.is_empty() && encoder != "libx264" {
             {
-                let conn = state.db.lock().unwrap();
+                // HW エンコーダはマシンの能力なのでアプリ全体側(app.db)に記録する
+                let conn = state.app_db.lock().unwrap();
                 let _ = settings::set(&conn, "hw_encoder", "libx264");
             }
             outcome = run_ffmpeg(
@@ -292,7 +293,7 @@ fn build_args(
 pub fn detect_encoder(app: &AppHandle) -> String {
     let state = app.state::<AppState>();
     {
-        let conn = state.db.lock().unwrap();
+        let conn = state.app_db.lock().unwrap();
         if let Ok(Some(enc)) = settings::get(&conn, "hw_encoder") {
             if !enc.is_empty() {
                 return enc;
@@ -305,7 +306,7 @@ pub fn detect_encoder(app: &AppHandle) -> String {
         .unwrap_or("libx264")
         .to_string();
     {
-        let conn = state.db.lock().unwrap();
+        let conn = state.app_db.lock().unwrap();
         let _ = settings::set(&conn, "hw_encoder", &found);
     }
     found
@@ -350,35 +351,51 @@ pub fn kill_current(state: &AppState) {
     }
 }
 
-/// キャッシュ掃除: 書きかけの .tmp.mp4 を消し、上限超過分を古い順に削除する。
-/// keep(直近生成分)は削除対象から除外する
+/// キャッシュ掃除。設定と現在のライブラリ一覧を読んで `purge_cache_in` に渡すだけの薄いラッパ
 pub fn purge_cache(app: &AppHandle, keep: Option<&Path>) {
     let state = app.state::<AppState>();
-    let limit_gb: u64 = {
-        let conn = state.db.lock().unwrap();
-        settings::get(&conn, "transcode_cache_limit_gb")
+    let (limit_gb, mut known) = {
+        let conn = state.app_db.lock().unwrap();
+        let limit: u64 = settings::get(&conn, "transcode_cache_limit_gb")
             .ok()
             .flatten()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(20)
+            .unwrap_or(20);
+        let ids = crate::core::libraries::list(&conn)
+            .map(|v| v.into_iter().map(|e| e.id).collect::<Vec<String>>())
+            .unwrap_or_default();
+        (limit, ids)
     };
-    let limit_bytes = limit_gb.saturating_mul(1024 * 1024 * 1024);
+    known.push(crate::core::libraries::PLACEHOLDER_CACHE_KEY.to_string());
+    purge_cache_in(
+        &state.data_dir.join("transcode"),
+        limit_gb.saturating_mul(1024 * 1024 * 1024),
+        &known,
+        keep,
+    );
+}
 
-    let Ok(entries) = std::fs::read_dir(&state.transcode_dir) else { return };
+/// 書きかけの .tmp.mp4 を消し、上限超過分を古い順に削除する。
+/// keep(直近生成分)は削除対象から除外する。
+///
+/// **上限はライブラリ横断で見る**(v1.27)。`root` の直下はライブラリ id ごとの
+/// サブフォルダで、ライブラリ単位に上限をかけると「ライブラリ数 × 20GB」に化ける。
+/// `known_ids` に無いサブフォルダは、一覧から外したライブラリの残骸なので丸ごと消す
+pub fn purge_cache_in(root: &Path, limit_bytes: u64, known_ids: &[String], keep: Option<&Path>) {
+    let Ok(entries) = std::fs::read_dir(root) else { return };
     let mut files: Vec<(PathBuf, u64, std::time::SystemTime)> = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
         let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-        if name.ends_with(".tmp.mp4") {
-            // 変換は同時 1 本なので、ここに残る .tmp は書きかけの残骸
+        if path.is_dir() {
+            if !known_ids.iter().any(|id| *id == name) {
+                let _ = std::fs::remove_dir_all(&path);
+                continue;
+            }
+            collect_cache_files(&path, &mut files);
+        } else if name.ends_with(".mp4") {
+            // v1.26 以前のフラット配置の残骸(移行で消しているが取りこぼしの保険)
             let _ = std::fs::remove_file(&path);
-            continue;
-        }
-        if !name.ends_with(".mp4") {
-            continue;
-        }
-        if let Ok(meta) = entry.metadata() {
-            files.push((path, meta.len(), meta.modified().unwrap_or(std::time::UNIX_EPOCH)));
         }
     }
 
@@ -400,8 +417,113 @@ pub fn purge_cache(app: &AppHandle, keep: Option<&Path>) {
     }
 }
 
+/// 1 ライブラリぶんのキャッシュを走査する。.tmp.mp4 はその場で消す
+fn collect_cache_files(dir: &Path, out: &mut Vec<(PathBuf, u64, std::time::SystemTime)>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        if name.ends_with(".tmp.mp4") {
+            // 変換は同時 1 本なので、ここに残る .tmp は書きかけの残骸
+            let _ = std::fs::remove_file(&path);
+            continue;
+        }
+        if !name.ends_with(".mp4") {
+            continue;
+        }
+        if let Ok(meta) = entry.metadata() {
+            out.push((path, meta.len(), meta.modified().unwrap_or(std::time::UNIX_EPOCH)));
+        }
+    }
+}
+
 /// 動画をライブラリから削除したときに対応するキャッシュも消す
 pub fn remove_cache_for(transcode_dir: &Path, video_id: i64) {
     let _ = std::fs::remove_file(cache_path(transcode_dir, video_id));
     let _ = std::fs::remove_file(tmp_path(transcode_dir, video_id));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn workspace(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("dvm-test-cache-{name}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// mtime を指定して 1MB のダミーキャッシュを置く(古い順の削除を確かめるため)
+    fn put(dir: &Path, name: &str, age_secs: u64) -> PathBuf {
+        std::fs::create_dir_all(dir).unwrap();
+        let path = dir.join(name);
+        std::fs::write(&path, vec![0u8; 1024 * 1024]).unwrap();
+        let when = std::time::SystemTime::now() - Duration::from_secs(age_secs);
+        let f = std::fs::File::options().write(true).open(&path).unwrap();
+        f.set_modified(when).unwrap();
+        path
+    }
+
+    /// **上限はライブラリ横断で見る**。ライブラリごとに掛けると
+    /// 実効の上限が「ライブラリ数 × 20GB」に化ける
+    #[test]
+    fn purge_enforces_the_limit_across_libraries() {
+        let root = workspace("across");
+        let a = root.join("aaa");
+        let b = root.join("bbb");
+        let known = vec!["aaa".to_string(), "bbb".to_string()];
+
+        let oldest = put(&a, "1.mp4", 300);
+        let middle = put(&b, "2.mp4", 200);
+        let newest = put(&a, "3.mp4", 100);
+        let tmp = put(&b, "9.tmp.mp4", 50);
+
+        // 3MB あるところに上限 2MB。古いものから 1 つだけ落ちる
+        purge_cache_in(&root, 2 * 1024 * 1024, &known, None);
+
+        assert!(!oldest.exists(), "いちばん古いものから消すこと");
+        assert!(middle.exists());
+        assert!(newest.exists());
+        assert!(!tmp.exists(), "書きかけの .tmp はどのサブフォルダでも消すこと");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 直近に作ったものは、いちばん古くても消さない(再生しようとしている本人なので)
+    #[test]
+    fn purge_never_removes_the_file_we_just_made() {
+        let root = workspace("keep");
+        let a = root.join("aaa");
+        let known = vec!["aaa".to_string()];
+        let oldest = put(&a, "1.mp4", 300);
+        let newer = put(&a, "2.mp4", 100);
+
+        purge_cache_in(&root, 1024, &known, Some(&oldest));
+
+        assert!(oldest.exists(), "keep は上限を割っても残すこと");
+        assert!(!newer.exists());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 一覧から外したライブラリのキャッシュを永久に残さない
+    #[test]
+    fn purge_removes_unknown_library_folders() {
+        let root = workspace("unknown");
+        let known_dir = root.join("aaa");
+        let gone_dir = root.join("deleted-library");
+        let kept = put(&known_dir, "1.mp4", 10);
+        put(&gone_dir, "1.mp4", 10);
+        // v1.26 以前のフラット配置の残骸
+        let legacy = put(&root, "7.mp4", 10);
+
+        purge_cache_in(&root, 100 * 1024 * 1024, &["aaa".to_string()], None);
+
+        assert!(kept.exists());
+        assert!(!gone_dir.exists(), "登録に無いサブフォルダは丸ごと消すこと");
+        assert!(!legacy.exists(), "ルート直下の旧キャッシュも掃除すること");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
