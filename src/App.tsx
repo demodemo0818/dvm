@@ -21,7 +21,8 @@ import { AI_PANEL_WIDTH, INSPECTOR_WIDTH, SIDEBAR_WIDTH, useLibrary } from './st
 export default function App() {
   const {
     bumpVersion, bumpThumbVersion, setStatus, status, scanning, setPlayerPath, setPreviewOnHover,
-    setViewMode, setCardWidth, setAutoplayNext, setSeekPreview, setCardTags, setCardSeries,
+    setViewMode, setCardWidth, setAutoplayNext, setSeekPreview, setHdrPassthrough,
+    setCardTags, setCardSeries,
     setInspectorPinned, setMediaInfoOpen, setListColumns, setListZebra, setSidebarWidth,
     setInspectorWidth, setSidebarCollapsed, setAiPanelWidth, setSubStyle, subStyle,
     inspectorPinned, sidebarWidth, inspectorWidth, sidebarCollapsed, selection,
@@ -89,6 +90,12 @@ export default function App() {
     api.getSetting('preview_on_hover').then((v) => setPreviewOnHover(v !== '0'));
     // シークバーのコマ出しも既定 ON
     api.getSetting('seek_preview').then((v) => setSeekPreview(v !== '0'));
+    /*
+     * HDR パススルー(v1.30)は既定 OFF。見え方が変わる設定なので黙って入れない。
+     * **mpv の初期化(ensureMpv)より先に読めている必要がある**が、初期化は
+     * 初回再生まで遅延するので、起動時にここで読んでおけば必ず間に合う
+     */
+    api.getSetting('hdr_passthrough').then((v) => setHdrPassthrough(v === '1'));
     api.getSetting('view_mode').then((v) => {
       if (v === 'list' || v === 'grid') setViewMode(v);
     });
@@ -131,7 +138,8 @@ export default function App() {
         subStyleLoaded.current = true;
       });
   }, [
-    setPlayerPath, setPreviewOnHover, setSeekPreview, setViewMode, setCardWidth, setAutoplayNext,
+    setPlayerPath, setPreviewOnHover, setSeekPreview, setHdrPassthrough,
+    setViewMode, setCardWidth, setAutoplayNext,
     setInspectorPinned, setMediaInfoOpen, setListColumns, setListZebra, setSidebarWidth,
     setInspectorWidth, setSidebarCollapsed, setAiPanelWidth, setCardTags, setCardSeries,
     setSubStyle,

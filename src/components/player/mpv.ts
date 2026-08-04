@@ -1,5 +1,6 @@
 import { init } from 'tauri-plugin-libmpv-api';
 import type { MpvObservableProperty } from 'tauri-plugin-libmpv-api';
+import { useLibrary } from '../../store';
 
 /** useMpvPlayer が購読するプロパティ(init 時に登録が必要) */
 export const MPV_OBSERVED = [
@@ -32,6 +33,16 @@ export interface MpvTrackEntry {
   codec?: string;
 }
 
+/**
+ * HDR パススルー(v1.30)の mpv 値。`target-colorspace-hint` に渡す。
+ *
+ * `auto` は「**ディスプレイが HDR のときだけ** HDR のまま出し、SDR なら従来どおり
+ * トーンマップする」。`yes` 固定にしないのは、SDR モニタで色が転ぶのを避けるため。
+ * ensureMpv(初期化時)と useMpvPlayer(実行中の切り替え)の両方がこれを使う ——
+ * **片方だけ直さないこと**(初回再生と設定変更で挙動が食い違う)
+ */
+export const hdrHintValue = (on: boolean) => (on ? 'auto' : 'no');
+
 let initPromise: Promise<boolean> | null = null;
 
 /**
@@ -46,6 +57,12 @@ export function ensureMpv(): Promise<boolean> {
       initialOptions: {
         vo: 'gpu-next',
         hwdec: 'auto-safe',
+        /*
+         * HDR パススルー(v1.30)。実行中は useMpvPlayer が setProperty で押し込むが、
+         * **初期化時にも渡しておく** —— 初回再生を必ず正しい状態で始めるため。
+         * 設定は App.tsx が起動時に読んでおり、init はここまで遅延しているので間に合う
+         */
+        'target-colorspace-hint': hdrHintValue(useLibrary.getState().hdrPassthrough),
         // EOF で最終フレーム停止(自動で閉じない)。stop 後もコアを維持して使い回す
         'keep-open': 'yes',
         idle: 'yes',

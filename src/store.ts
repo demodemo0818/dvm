@@ -147,6 +147,15 @@ interface LibraryState {
    */
   seekPreview: boolean;
   /**
+   * HDR 動画を HDR のまま画面へ渡すか(v1.30、mpv のみ。設定 `hdr_passthrough`、既定 OFF)。
+   * mpv の `target-colorspace-hint` に `auto` / `no` として渡る。
+   *
+   * `auto` は「Windows 側が HDR モードのときだけ HDR 出力し、SDR なら従来どおり
+   * トーンマップする」挙動だが、**既定は OFF にしてある** —— 見え方が変わる設定を
+   * 黙って入れないため。ensureMpv(初期化)と useMpvPlayer(実行中の反映)が見る
+   */
+  hdrPassthrough: boolean;
+  /**
    * 字幕の見た目(v1.24、mpv のみ)。設定 `subtitle_style` に永続化する。
    * プレイヤーのパネル・設定モーダル・useMpvPlayer の 3 か所が同じ値を見るので store に置く。
    *
@@ -216,6 +225,7 @@ interface LibraryState {
   setCardTags: (cardTags: boolean) => void;
   setCardSeries: (cardSeries: boolean) => void;
   setSeekPreview: (seekPreview: boolean) => void;
+  setHdrPassthrough: (hdrPassthrough: boolean) => void;
   /** 字幕の見た目を部分更新する(スライダー 1 本ぶんの patch を渡す) */
   setSubStyle: (patch: Partial<SubStyle>) => void;
   /** 字幕の見た目を mpv 素の状態に戻す(保存される JSON も '{}' になる) */
@@ -291,6 +301,7 @@ export const useLibrary = create<LibraryState>((set) => ({
   cardTags: true,
   cardSeries: false,
   seekPreview: true,
+  hdrPassthrough: false,
   subStyle: DEFAULT_SUB_STYLE,
   contextMenuOpen: false,
   contextMenuDepth: 0,
@@ -326,6 +337,7 @@ export const useLibrary = create<LibraryState>((set) => ({
   setCardTags: (cardTags) => set({ cardTags }),
   setCardSeries: (cardSeries) => set({ cardSeries }),
   setSeekPreview: (seekPreview) => set({ seekPreview }),
+  setHdrPassthrough: (hdrPassthrough) => set({ hdrPassthrough }),
   setSubStyle: (patch) => set((s) => ({ subStyle: { ...s.subStyle, ...patch } })),
   resetSubStyle: () => set({ subStyle: DEFAULT_SUB_STYLE }),
   setContextMenuOpen: (open) =>

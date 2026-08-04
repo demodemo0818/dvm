@@ -4,7 +4,7 @@ import { useLibrary } from '../../store';
 import { chapterJumpTarget, toChapters } from '../../lib/chapters';
 import type { Chapter } from '../../lib/chapters';
 import { mpvSubProps } from '../../lib/subtitleStyle';
-import { MPV_OBSERVED } from './mpv';
+import { hdrHintValue, MPV_OBSERVED } from './mpv';
 import type { MpvTrackEntry } from './mpv';
 import {
   clamp01,
@@ -80,6 +80,8 @@ export function useMpvPlayer(): VideoPlayer {
   const repeatOne = useLibrary((s) => s.repeatOne);
   // 字幕の見た目(v1.24)。mpv 専用だが、設定モーダルからも触るので store 経由
   const subStyle = useLibrary((s) => s.subStyle);
+  // HDR パススルー(v1.30)。同じく設定モーダルから変わるので store 経由
+  const hdrPassthrough = useLibrary((s) => s.hdrPassthrough);
   // 表示サイズ(v1.12)。mpv 側は購読しない — 変更できるのはこの UI だけなので手元が真実
   const [unscaled, setUnscaled] = useState(savedUnscaled);
   // 操作コールバックから最新状態を読むための ref(stale closure 回避)
@@ -162,6 +164,17 @@ export function useMpvPlayer(): VideoPlayer {
       runSub(name, setProperty(name, value));
     }
   }, [subStyle]);
+
+  /**
+   * HDR パススルー(v1.30)。loop-file / sub-* と同じく loadfile を跨いで残る
+   * グローバルプロパティなので、変わるたび押し込むだけでよい(mount 時にも走る)。
+   *
+   * 失敗は `runSub` と同じく**名前を出して警告する** —— 黙って消えると
+   * 「設定を入れたのに HDR にならない」の原因に辿り着けない
+   */
+  useEffect(() => {
+    runSub('target-colorspace-hint', setProperty('target-colorspace-hint', hdrHintValue(hdrPassthrough)));
+  }, [hdrPassthrough]);
 
   const togglePlay = useCallback(() => run(command('cycle', ['pause'])), []);
   const seekTo = useCallback((sec: number) => run(command('seek', [sec, 'absolute'])), []);

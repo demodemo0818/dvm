@@ -29,6 +29,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [cardTags, setCardTags] = useState(true);
   const [cardSeries, setCardSeries] = useState(false);
   const [seekPreview, setSeekPreview] = useState(true);
+  /** HDR パススルー(v1.30、mpv のみ)。見え方が変わるので既定 OFF */
+  const [hdrPassthrough, setHdrPassthrough] = useState(false);
   const [autoplayNext, setAutoplayNext] = useState(false);
   const [useEmbeddedCover, setUseEmbeddedCover] = useState(true);
   /** コマの画像の保存先(v1.26)。空欄なら AppInfo.framesDir(ピクチャ\DVM) */
@@ -47,6 +49,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     // シリーズ行だけは既定 OFF(付いている動画が限られるので、既定で行を空けたくない)
     api.getSetting('card_series').then((v) => setCardSeries(v === '1'));
     api.getSetting('seek_preview').then((v) => setSeekPreview(v !== '0'));
+    api.getSetting('hdr_passthrough').then((v) => setHdrPassthrough(v === '1'));
     api.getSetting('autoplay_next').then((v) => setAutoplayNext(v === '1'));
     api.getSetting('use_embedded_cover').then((v) => setUseEmbeddedCover(v !== '0'));
     api.getSetting('frame_save_dir').then((v) => setFrameSaveDir(v ?? ''));
@@ -113,6 +116,9 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     useLibrary.getState().setCardSeries(cardSeries);
     await api.setSetting('seek_preview', seekPreview ? '1' : '0');
     useLibrary.getState().setSeekPreview(seekPreview);
+    // store に入れた瞬間 useMpvPlayer が setProperty で押し込む(再生中でも切り替わる)
+    await api.setSetting('hdr_passthrough', hdrPassthrough ? '1' : '0');
+    useLibrary.getState().setHdrPassthrough(hdrPassthrough);
     await api.setSetting('autoplay_next', autoplayNext ? '1' : '0');
     useLibrary.getState().setAutoplayNext(autoplayNext);
     // 次にサムネイルを作るときから効く(既存のサムネイルは「すべて再生成」で作り直す)
@@ -294,6 +300,19 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             />
             最後まで再生したら次の動画へ進む(一覧の並び順。⏭ / N キーでも進めます)
           </label>
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={hdrPassthrough}
+              onChange={(e) => setHdrPassthrough(e.target.checked)}
+            />
+            HDR パススルーを有効にする
+          </label>
+          <div className="settings-note">
+            HDR パススルーは、HDR 対応モニタで Windows の HDR をオンにしているときだけ効きます。
+            オフのときは従来どおり SDR に変換して表示します(アプリ内再生のみ)。
+            切り替えても変わらない場合はアプリを再起動してください
+          </div>
           <div className="settings-note">
             プレビューは元の動画ファイルを直接読みます。外付け HDD / NAS のアクセスを抑えたいときは
             オフにしてください
