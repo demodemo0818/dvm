@@ -85,9 +85,60 @@ export function VideoGrid() {
    * 「すべての動画」などフォルダ以外の絞り込みでは出さない(従来の見た目のまま)
    */
   const [folderEntries, setFolderEntries] = useState<FolderEntry[]>([]);
+  /*
+   * 見ているものが変わったら先頭から見せる(前の絞り込みのスクロール位置が残ると迷子になる)。
+   *
+   * **`version` を混ぜないこと**(v1.32 で分離)。`version` は「中身が変わったので
+   * 取り直せ」の合図で、再生中の `setResume` / `markViewed` / 視聴履歴の記録でも上がる。
+   * 下のサブフォルダ取得と同じ effect に入れていたせいで、**動画を再生しただけで
+   * 一覧が先頭に飛んでいた**(実測: scrollTop 22890 → 0)。
+   *
+   * 見ている対象そのものは `query` が表す(検索語・並び順・フォルダ・タグ・シリーズ・
+   * 詳細検索など一式)。フォルダ移動だけでなく、絞り込みや並び替えでも先頭に戻る
+   */
+  /** mpv 再生中に一覧が消える間、位置を控えておく場所(下の effect 2 つで使う) */
+  const savedTop = useRef(0);
+
   useEffect(() => {
-    // フォルダを移ったら先頭から見せる(前のフォルダのスクロール位置が残ると迷子になる)
     parentRef.current?.scrollTo({ top: 0 });
+    savedTop.current = 0;
+  }, [query]);
+
+  /*
+   * mpv 再生中の位置の退避(v1.32)。
+   *
+   * 透過ウィンドウ方式では再生中に `html.mpv-active .app { display: none }` で
+   * **一覧ごとレイアウトから外れる**ため、`scrollTop` が 0 に落ちる(DESIGN.md 参照)。
+   * `display: none` 自体は mpv を透かして見せるのに要るので変えられない。
+   * そこで見えている間の位置を控えておき、閉じたら戻す。
+   *
+   * **開始の瞬間に読むのではなく scroll イベントで控える** —— `.app` が消えるのは
+   * mpv の非同期な初期化のあとなので、「いつ消えるか」に依存しない形にしておく。
+   * 隠れている間の 0 を拾わないよう、高さがあるときだけ控える
+   */
+  useEffect(() => {
+    const el = parentRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      if (el.clientHeight > 0) savedTop.current = el.scrollTop;
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
+
+  useEffect(() => {
+    if (playingVideo) return;
+    const el = parentRef.current;
+    const top = savedTop.current;
+    if (!el || top === 0) return;
+    // display:none が外れた直後はまだ高さが 0 のことがあるので、次のフレームで当てる
+    const id = requestAnimationFrame(() => {
+      if (el.clientHeight > 0) el.scrollTop = top;
+    });
+    return () => cancelAnimationFrame(id);
+  }, [playingVideo]);
+
+  useEffect(() => {
     if (dirPath === null) {
       setFolderEntries([]);
       return;

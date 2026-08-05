@@ -1891,6 +1891,21 @@ mpv に渡す直前に合成する。合成・分解は `toMpvColor` / `splitMpv
 - 再生中だけ `html.mpv-active` クラスを付け、html/body を透過 + `.app` を display:none → 背後の mpv が見える。
   HTML のコントロール(PlayerControls)はその上に重なる
 - CSS ロード前の素通し防止に index.html へインライン背景 style を記述
+- **`display: none` は一覧のスクロール位置を壊す**(v1.32 で対処)。レイアウトから外れるので
+  `scrollTop` が 0 に落ち、再生して戻ると一覧の位置が変わる。`display: none` 自体は透過に要るため、
+  `VideoGrid` 側で見えている間の位置を scroll イベントで控え、`playingVideo` が解けたら戻している。
+  **再生開始の瞬間に読むのではなく scroll イベントで控える** —— `.app` が消えるのは mpv の
+  非同期な初期化のあとで、「いつ消えるか」に依存させたくないため
+
+### 一覧を先頭に戻す条件(v1.32 で整理)
+
+`VideoGrid` の「先頭にスクロールし直す」effect は **`query`(見ている対象)だけを見る**。
+検索語・並び順・フォルダ・タグ・シリーズ・詳細検索が変わったときに先頭へ戻す。
+
+**`version` を混ぜないこと。** `version` は「中身が変わったので取り直せ」の合図で、
+再生中の `setResume` / `markViewed` / 視聴履歴の記録でも上がる。v1.31 まではサブフォルダ取得の
+effect と同居していて `[dirPath, version]` だったため、**動画を再生しただけで一覧が先頭に飛んでいた**
+(実測: scrollTop 22890 → 0)。
 
 ### mpv のライフサイクル(StrictMode 対策)
 
