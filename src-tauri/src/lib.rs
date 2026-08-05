@@ -217,6 +217,7 @@ pub fn run() {
             commands::settings::get_setting,
             commands::settings::set_setting,
             commands::fonts::list_system_fonts,
+            commands::display::is_hdr_display,
             commands::smart_folders::list_smart_folders,
             commands::smart_folders::create_smart_folder,
             commands::smart_folders::update_smart_folder,

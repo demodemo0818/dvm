@@ -114,6 +114,11 @@ export const api = {
    * 「候補が出ない」以上の意味を持たない失敗にトーストを出さない
    */
   listSystemFonts: () => call<string[]>('list_system_fonts', undefined, true),
+  /**
+   * ウィンドウが乗っているモニタで Windows の HDR がオンか(v1.31)。
+   * HDR バッジの色に使うだけなので silent —— 取れなくても再生には影響しない
+   */
+  isHdrDisplay: () => call<boolean>('is_hdr_display', undefined, true),
   listSmartFolders: () => call<SmartFolder[]>('list_smart_folders'),
   createSmartFolder: (name: string, query: VideoQuery, actor?: 'user' | 'ai') =>
     call<number>('create_smart_folder', { name, queryJson: JSON.stringify(query), actor }),

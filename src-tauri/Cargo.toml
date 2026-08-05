@@ -37,7 +37,9 @@ trash = "5"
 windows-sys = { version = "0.60", features = [
   "Win32_Storage_FileSystem",
   "Win32_Foundation",
-  # 字幕設定のフォント候補(EnumFontFamiliesExW)
+  # 字幕設定のフォント候補(EnumFontFamiliesExW)と、モニタの特定(MonitorFromWindow)
   "Win32_Graphics_Gdi",
+  # ディスプレイの HDR 状態(QueryDisplayConfig / DisplayConfigGetDeviceInfo)
+  "Win32_Devices_Display",
 ] }
 

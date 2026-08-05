@@ -67,6 +67,12 @@ export interface VideoPlayer {
    * ファイルではなく mpv がデコードしている映像から取る
    */
   hdr?: HdrInfo | null;
+  /**
+   * **実際に HDR のまま画面へ出しているか**(v1.31)。設定ではなく結果 ——
+   * パススルー設定がオン **かつ** ウィンドウの乗っているモニタが HDR モードのとき真。
+   * 後者は Windows に直接聞いている(`is_hdr_display`)
+   */
+  hdrOutput?: boolean;
 }
 
 export const clamp01 = (n: number) => Math.min(Math.max(n, 0), 1);

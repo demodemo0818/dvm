@@ -1,4 +1,5 @@
 pub mod backup;
+pub mod display;
 pub mod ffmpeg;
 pub mod fileops;
 pub mod folders;

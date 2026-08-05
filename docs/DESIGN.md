@@ -1495,19 +1495,49 @@ Windows の HDR は環境差が大きいので、「この設定を切れば元�
 #### HDR バッジ(v1.31)
 
 **今 HDR を再生しているかどうかがコントロールバーで分かる**。時刻の隣に `HDR10` / `HLG`
-のバッジを出し、パススルーがオンのときだけ青くする(オフのときは枠だけの落ち着いた見た目)。
-SDR の動画では何も出さない。
+のバッジを出し、**実際に HDR で出ているときだけ青くする**(そうでなければ枠だけの
+落ち着いた見た目)。SDR の動画では何も出さない。
 
-- 出所は **mpv の `video-params`**。ffprobe は叩かない —— 詳細ペインのメディア情報は
+##### 「HDR の映像か」は mpv、「HDR で出ているか」は Windows
+
+出所が 2 つに分かれる。ここを混ぜると嘘の表示になる。
+
+| 知りたいこと | 出所 |
+|---|---|
+| この映像は HDR か(`HDR10` / `HLG`) | mpv の `video-params` の転送特性 |
+| いま HDR で出ているか(バッジの色) | パススルー設定 **かつ** `is_hdr_display` |
+
+- 映像側は **`video-params`**。ffprobe は叩かない —— 詳細ペインのメディア情報は
   同じことをファイル側から調べているが、こちらは「今デコードしている映像」なので
   追加のファイル I/O がゼロで済む(チャプターと同じ考え方)
 - 見るのは**転送特性(`gamma`)だけ**。色域が bt.2020 でも転送特性が SDR なら HDR ではない
   (広色域 SDR が実在する)
 - **Dolby Vision は判定しない**。`video-params` に DV かどうかは出ず、DV の多くは
   PQ ベースなので `HDR10` として出る。正確な種別は詳細ペインのメディア情報を見ること
-- ツールチップでは **「HDR で出力している」と言い切らない**。パススルーは `auto` なので、
-  設定がオンでもディスプレイが HDR モードでなければ mpv はトーンマップする。
-  フロントから実際の出力先は分からない
+
+##### 出力側を mpv に聞けない(実機で確認)
+
+- `target-colorspace-hint` は**こちらが出した希望**であって結果ではない
+- 実際の出力を返す **`target-params` は同梱 libmpv では `property not found`**。
+  dll に文字列自体はあるがプロパティとしては生えていない(実機で確認済み)
+
+なので **Windows に直接聞く**(`core/display.rs` → `is_hdr_display`)。
+CCD API(`QueryDisplayConfig` + `DisplayConfigGetDeviceInfo` の
+`GET_ADVANCED_COLOR_INFO`)で「設定 > ディスプレイ > HDR」のトグルそのものを読む。
+DXGI(`IDXGIOutput6::GetDesc1`)でも取れるが、あちらは COM なので windows-sys では
+手書きの vtable 呼び出しになる。CCD は素の C API で済む。
+
+- **ウィンドウが乗っているモニタだけを見る**。`MonitorFromWindow` →
+  `GetMonitorInfoW` の `szDevice` → パスの `GET_SOURCE_NAME` で突き合わせる。
+  「どれか 1 枚でも HDR なら真」にすると、HDR と SDR のモニタを併用している人に嘘をつく
+- **取れなかったら false**。「分からない」を「HDR で出ている」に倒さない
+- 聞き直すのは mount(再生開始)・パススルー設定の変更・`video-params` の更新
+  (ファイル切替や vo の再構成)・**ウィンドウの移動**の 4 つ。
+  ポーリングはしない —— **再生中に Windows 側の HDR を切り替えたときだけは
+  開き直すまで追従しない**が、そのために毎秒 IPC を投げる価値はない
+
+ツールチップは実際の出力で言い分け、SDR のときは**なぜそうなのか**まで出す
+(「HDR パススルーはオンですが、ディスプレイが HDR モードではありません」)。
 
 **`observeProperties` は購読を登録しない**(イベントを名前で絞り込むだけ)。実際の
 `mpv_observe_property` は `init` の `observedProperties` で行われるので、
@@ -2412,14 +2442,16 @@ DVM を 2 つ起動して別々に切り替えると `current_library_id` は後
   (残る理由はビルドではなく「無加工で保存する」方針との衝突)。
   Rust も DB も変更なし(前述「HDR パススルー(v1.30、mpv のみ)」節)
 - **v1.31** ✅(2026-08-05 実装済み): **HDR バッジ**(mpv のみ)。コントロールバーの
-  時刻の隣に `HDR10` / `HLG` を出し、**パススルーがオンのときだけ青くする**。
-  出所は `video-params`(ffprobe を叩かない)で、見るのは転送特性だけ ——
-  広色域 SDR を HDR と誤って出さないため。Dolby Vision は `video-params` から
-  分からないので `HDR10` として出る(正確な種別は詳細ペインのメディア情報)。
-  実機で HDR10 の映画(3840×2160)を再生し、パススルー ON / OFF / SDR 動画の
-  3 状態を目視確認した。あわせて **`observeProperties` は購読を登録せず
-  イベントを絞り込むだけ**で、`MPV_OBSERVED` への追加は HMR では届かないことが
-  分かったので書き残した。Rust も DB も変更なし
+  時刻の隣に `HDR10` / `HLG` を出し、**実際に HDR で出ているときだけ青くする**。
+  映像側の判定は `video-params` の転送特性(ffprobe を叩かない。広色域 SDR を
+  HDR と誤って出さないため色域では判定しない)。**出力側は mpv に聞けない** ——
+  `target-colorspace-hint` は希望であって結果ではなく、`target-params` は同梱
+  libmpv では property not found(実機で確認)。そこで `core/display.rs` を新設し、
+  CCD API でウィンドウの乗っているモニタの HDR トグルを読む(`is_hdr_display`)。
+  最初は「パススルー設定がオンなら青」にしていたが、**Windows 側が HDR オフでも
+  青くなり嘘になる**ので作り直した。あわせて **`observeProperties` は購読を登録せず
+  イベントを絞り込むだけ**で、`MPV_OBSERVED` への追加は HMR では届かないことも
+  分かったので書き残した。DB は変更なし
   (前述「HDR バッジ(v1.31)」節)
 - **将来**: フォールバック側の HLS 追いかけ再生、mac/Linux 対応
 

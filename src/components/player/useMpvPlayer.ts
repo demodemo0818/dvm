@@ -1,9 +1,11 @@
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { command, observeProperties, setProperty } from 'tauri-plugin-libmpv-api';
+import { api } from '../../api';
 import { useLibrary } from '../../store';
 import { chapterJumpTarget, toChapters } from '../../lib/chapters';
 import type { Chapter } from '../../lib/chapters';
-import { hdrFromVideoParams } from '../../lib/hdrInfo';
+import { hdrFromParams } from '../../lib/hdrInfo';
 import type { HdrInfo } from '../../lib/hdrInfo';
 import { mpvSubProps } from '../../lib/subtitleStyle';
 import { hdrHintValue, MPV_OBSERVED } from './mpv';
@@ -79,6 +81,8 @@ export function useMpvPlayer(): VideoPlayer {
   const [tracks, setTracks] = useState<MediaTrack[]>([]);
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [hdr, setHdr] = useState<HdrInfo | null>(null);
+  /** ウィンドウが乗っているモニタで Windows の HDR がオンか(v1.31) */
+  const [displayHdr, setDisplayHdr] = useState(false);
   // リピートは engine をまたぐ設定なので store に置いている(v1.13)
   const repeatOne = useLibrary((s) => s.repeatOne);
   // 字幕の見た目(v1.24)。mpv 専用だが、設定モーダルからも触るので store 経由
@@ -103,7 +107,7 @@ export function useMpvPlayer(): VideoPlayer {
       }
       if (name === 'video-params') {
         // stop / ロード中は null。前のファイルのバッジを残さないよう素直に消す
-        setHdr(hdrFromVideoParams(data));
+        setHdr(hdrFromParams(data));
         return;
       }
       if (name === 'chapter-list') {
@@ -184,6 +188,37 @@ export function useMpvPlayer(): VideoPlayer {
     runSub('target-colorspace-hint', setProperty('target-colorspace-hint', hdrHintValue(hdrPassthrough)));
   }, [hdrPassthrough]);
 
+  /**
+   * ディスプレイの HDR 状態を Windows に聞き直す(v1.31)。
+   *
+   * **mpv には聞けない**。`target-colorspace-hint` は「こちらが出した希望」で、
+   * 実際の出力を返す `target-params` は同梱 libmpv では property not found になる
+   * (実機で確認済み)。なので Rust の `is_hdr_display` を叩く
+   */
+  const refreshDisplayHdr = useCallback(() => {
+    api.isHdrDisplay().then((v) => setDisplayHdr(v === true)).catch(() => setDisplayHdr(false));
+  }, []);
+
+  /*
+   * 聞き直す機会は 3 つ: mount(= 再生開始)、パススルー設定の変更、
+   * そして **video-params が届いたとき**(ファイル切替や vo の再構成)。
+   * `hdr` を deps に入れているのがその 3 つ目。
+   *
+   * ポーリングはしない。再生中に Windows 側の HDR を切り替えた場合だけは
+   * 開き直すまで追従しないが、そのために毎秒 IPC を投げる価値はない
+   */
+  useEffect(() => {
+    refreshDisplayHdr();
+  }, [refreshDisplayHdr, hdrPassthrough, hdr]);
+
+  // 別のモニタへ動かしたら聞き直す(HDR のモニタと SDR のモニタの併用は普通にある)
+  useEffect(() => {
+    const un = getCurrentWindow().onMoved(() => refreshDisplayHdr());
+    return () => {
+      un.then((u) => u()).catch(() => {});
+    };
+  }, [refreshDisplayHdr]);
+
   const togglePlay = useCallback(() => run(command('cycle', ['pause'])), []);
   const seekTo = useCallback((sec: number) => run(command('seek', [sec, 'absolute'])), []);
   const seekBy = useCallback((delta: number) => run(command('seek', [delta, 'relative'])), []);
@@ -247,5 +282,8 @@ export function useMpvPlayer(): VideoPlayer {
   return {
     state, togglePlay, seekTo, seekBy, setVolume, changeVolume, toggleMute, setRate, cycleRate,
     tracks, setTrack, unscaled, toggleUnscaled, chapters, jumpChapter, hdr,
+    // 実際に HDR で出ている = パススルーがオン **かつ** ディスプレイが HDR モード。
+    // hint は `auto` なので、片方でも欠けたら mpv は SDR にトーンマップしている
+    hdrOutput: hdrPassthrough && displayHdr,
   };
 }

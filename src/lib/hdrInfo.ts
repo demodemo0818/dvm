@@ -6,6 +6,11 @@
  * ファイル側から調べているが、こちらは「今デコードしている映像」が出所なので
  * 追加のファイル I/O がゼロで済む(チャプターと同じ考え方)。
  *
+ * **「実際に HDR で出ているか」は mpv からは取れない**。`target-colorspace-hint` は
+ * こちらが出した希望で、実際の出力を返す `target-params` は同梱 libmpv では
+ * property not found になる(実機で確認済み)。そちらは Windows に直接聞く
+ * (`core/display.rs` / `is_hdr_display`)。
+ *
  * **Dolby Vision は判定しない**。mpv の `video-params` には DV かどうかが出ず、
  * DV の多くは PQ ベースなので `HDR10` として出る。ファイル側の正確な種別は
  * 詳細ペインのメディア情報を見ること
@@ -23,7 +28,7 @@ export interface HdrInfo {
  * 見るのは**転送特性(gamma)だけ**。色域(primaries)が bt.2020 でも
  * 転送特性が SDR なら HDR ではない(広色域 SDR というものが実在する)
  */
-export function hdrFromVideoParams(data: unknown): HdrInfo | null {
+export function hdrFromParams(data: unknown): HdrInfo | null {
   const gamma = (data as { gamma?: unknown } | null)?.gamma;
   if (typeof gamma !== 'string') return null;
   switch (gamma.toLowerCase()) {
@@ -42,12 +47,19 @@ export function hdrFromVideoParams(data: unknown): HdrInfo | null {
 }
 
 /**
- * バッジのツールチップ。**「HDR で出力している」とは言い切らない** ——
- * パススルーは `auto` なので、設定がオンでもディスプレイが HDR モードでなければ
- * mpv はトーンマップする。こちらから実際の出力先は分からない
+ * バッジのツールチップ。
+ *
+ * **設定ではなく実際の出力で言い分ける**。パススルーは `auto` なので、設定を
+ * オンにしても Windows 側が HDR モードでなければ mpv はトーンマップする ——
+ * そこを「オンだから HDR で出ている」と書くと嘘になる。
+ * SDR で出ているときは**なぜそうなっているか**まで出す
  */
-export function hdrTooltip(info: HdrInfo, passthrough: boolean): string {
+export function hdrTooltip(info: HdrInfo, hdrOutput: boolean, passthrough: boolean): string {
+  if (hdrOutput) {
+    return `${info.full} の映像を HDR のまま出力しています`;
+  }
   return passthrough
-    ? `${info.full} の映像です(HDR パススルー: オン —— HDR モードのディスプレイなら HDR のまま出力します)`
-    : `${info.full} の映像です(HDR パススルー: オフ —— SDR に変換して表示しています)`;
+    ? `${info.full} の映像です。SDR に変換して表示しています`
+      + '(HDR パススルーはオンですが、ディスプレイが HDR モードではありません)'
+    : `${info.full} の映像です。SDR に変換して表示しています(HDR パススルー: オフ)`;
 }

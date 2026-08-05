@@ -300,8 +300,13 @@ export function PlayerControls({
         */}
         {player.hdr && (
           <span
-            className={`player-hdr ${hdrPassthrough ? 'passthrough' : ''}`}
-            title={hdrTooltip(player.hdr, hdrPassthrough)}
+            /*
+              色は**設定ではなく実際の出力**で決める(v1.31)。設定がオンでも
+              Windows 側が HDR モードでなければ mpv はトーンマップしており、
+              そこで青くすると「HDR で見えている」と嘘をつくことになる
+            */
+            className={`player-hdr ${player.hdrOutput ? 'passthrough' : ''}`}
+            title={hdrTooltip(player.hdr, player.hdrOutput === true, hdrPassthrough)}
           >
             {player.hdr.short}
           </span>

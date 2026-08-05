@@ -1,3 +1,4 @@
+pub mod display;
 pub mod fileops;
 pub mod folders;
 pub mod fonts;
