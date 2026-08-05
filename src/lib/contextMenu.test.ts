@@ -20,7 +20,8 @@ function row(patch: Partial<VideoRow> = {}): VideoRow {
     durationMs: null, width: null, height: null, rating: 0, viewCount: 0, lastViewedAt: null,
     resumeMs: 0, videoCodec: null, audioCodec: null, isMissing: false, isOffline: false,
     thumbState: 0, thumbPath: null, addedAt: '',
-    fileCreatedAt: null, fileModifiedAt: null, fps: null, bitrate: null, ...patch,
+    fileCreatedAt: null, fileModifiedAt: null, fps: null, bitrate: null,
+    watchedFolderId: null, ...patch,
   };
 }
 
@@ -424,6 +425,7 @@ describe('buildFolderTreeMenu', () => {
   it('項目の並びは固定', () => {
     expect(ids(buildFolderTreeMenu(nodeRow(), true, false, false))).toEqual([
       'tree:open', 'tree:expand', 'tree:reveal', 'tree:copyPath', 'tree:watch',
+      'tree:dedupe', 'tree:exclude',
     ]);
   });
 
@@ -449,7 +451,9 @@ describe('buildFolderTreeMenu', () => {
   it('オフラインで無効になるのはエクスプローラー表示だけ', () => {
     const menu = buildFolderTreeMenu(nodeRow({ online: false }), true, false, false);
     expect(isDisabled(menu, 'tree:reveal')).toBe(true);
-    for (const id of ['tree:open', 'tree:expand', 'tree:copyPath', 'tree:watch']) {
+    for (const id of [
+      'tree:open', 'tree:expand', 'tree:copyPath', 'tree:watch', 'tree:dedupe', 'tree:exclude',
+    ]) {
       expect(isDisabled(menu, id)).toBe(false);
     }
   });

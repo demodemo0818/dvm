@@ -6,6 +6,7 @@ import { api } from '../api';
 import { useContextMenu } from '../hooks/useContextMenu';
 import { useVideos } from '../hooks/useVideos';
 import { buildFolderMenu, buildGridBlankMenu, buildVideoMenu } from '../lib/contextMenu';
+import { excludeTargets, type ExcludeTargets } from '../lib/excludeOnDelete';
 import { GRID_GAP, GRID_PAD, gridMetrics } from '../lib/grid';
 import { gridTemplate, needsLabels, totalWidth } from '../lib/listColumns';
 import { parentDir } from '../lib/paths';
@@ -14,6 +15,7 @@ import { useLibrary } from '../store';
 import type { PlanItem, SortKey, VideoQuery, VideoRow, ViewMode } from '../types';
 import { ContextMenu } from './ContextMenu';
 import { DeleteDialog } from './DeleteDialog';
+import { ExcludeOnDeleteDialog, type ExcludeChoice } from './ExcludeOnDeleteDialog';
 import { FileOpDialog } from './FileOpDialog';
 import { FilterBar } from './FilterBar';
 import type { FileOpKind } from './FileOpDialog';
@@ -67,6 +69,12 @@ export function VideoGrid() {
   const { menu, open: openMenu, close: closeMenu } = useContextMenu<MenuTarget>();
   /** Delete キーで開く「どちらの削除か」の確認 */
   const [askDelete, setAskDelete] = useState(false);
+  /**
+   * 監視除外を勧めるダイアログの対象(v1.33)。
+   * 開いた時点の選択を持たせる —— 削除は除外の登録を待つので、
+   * その間に選択が変わっても取り違えないようにする
+   */
+  const [askExclude, setAskExclude] = useState<VideoRow[] | null>(null);
   /** dry-run の結果。null の間はダイアログを出さない(プレビューなしに実行させない) */
   const [fileOp, setFileOp] = useState<{ kind: FileOpKind; plan: PlanItem[] } | null>(null);
 
@@ -257,6 +265,18 @@ export function VideoGrid() {
     const s = useLibrary.getState();
     const sel = s.selection;
     if (sel.length === 0) return;
+    /*
+     * 監視フォルダ由来のものが混じっていたら、消す前に監視除外を勧める。
+     * このまま消しても次のスキャンで再登録されるのはこの場合だけなので、
+     * 個別登録しか選んでいなければ黙って消す(問いかけを騒がしくしない)。
+     *
+     * **こちらを先に見る**。あのダイアログは削除の確認も兼ねているので、
+     * 手前で ask を出すと同じことを 2 回聞くことになる
+     */
+    if (excludeTargets(sel).files.length > 0) {
+      setAskExclude(sel);
+      return;
+    }
     if (confirm) {
       const yes = await ask(
         `${sel.length} 件をライブラリから削除しますか?\n(登録とタグ情報が消えます。ファイル自体は削除されません)`,
@@ -268,6 +288,33 @@ export function VideoGrid() {
     s.clearSelection();
     s.bumpVersion();
   }, []);
+
+  /**
+   * 監視除外の選択を受けて、除外に入れてから削除する。
+   * **順番が逆だと、間に監視が走ったときに拾い直される**
+   */
+  const removeWithExclude = useCallback(
+    async (choice: ExcludeChoice, targets: ExcludeTargets, sel: VideoRow[]) => {
+      const s = useLibrary.getState();
+      setAskExclude(null);
+      const paths =
+        choice === 'files' ? targets.files : choice === 'folders' ? targets.folders : [];
+      if (paths.length > 0) {
+        // 削除はこのあと自分でやるので、除外側では登録を触らせない
+        await api.addExcludedPaths(paths, false);
+      }
+      await api.removeVideos(sel.map((v) => v.id));
+      s.clearSelection();
+      s.bumpVersion();
+      if (choice !== 'none') {
+        pushToast(
+          `${sel.length.toLocaleString()} 件を削除し、${paths.length.toLocaleString()} 件を監視除外に登録しました`,
+          'info',
+        );
+      }
+    },
+    [pushToast],
+  );
 
   /** ファイルをごみ箱へ。実行前に必ず dry-run の表を見せる(FileOpDialog が承認を取る) */
   const trashSelection = useCallback(async () => {
@@ -689,6 +736,13 @@ export function VideoGrid() {
           setAskDelete(false);
           void trashSelection();
         }}
+      />
+    )}
+    {askExclude && (
+      <ExcludeOnDeleteDialog
+        selection={askExclude}
+        onClose={() => setAskExclude(null)}
+        onChoose={(choice, targets) => void removeWithExclude(choice, targets, askExclude)}
       />
     )}
     {fileOp && (

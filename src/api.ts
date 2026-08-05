@@ -1,7 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useLibrary } from './store';
 import type {
-  AppInfo, BackupInfo, FolderNode, LibraryEntry, LibraryState, LibraryStats, MediaInfo, OpEntry,
+  AppInfo, BackupInfo, DedupePlan, DedupeResult, ExcludedPath, FolderNode, LibraryEntry,
+  LibraryState, LibraryStats, MediaInfo, OpEntry,
   OpResult, PlanItem, Series, SmartFolder, SubfolderView, Tag, TagCount, TagGroup, VideoLabels,
   VideoQuery, VideoRow, ViewEntry, WatchedFolder,
 } from './types';
@@ -33,6 +34,16 @@ export const api = {
   removeWatchedFolder: (id: number, removeVideos: boolean) =>
     call<void>('remove_watched_folder', { id, removeVideos }),
   rescanAll: () => call<void>('rescan_all'),
+  /** 監視除外フォルダの一覧(フォルダのほか、ファイル 1 個の登録も混ざる) */
+  listExcludedPaths: () => call<ExcludedPath[]>('list_excluded_paths'),
+  /**
+   * 監視除外に登録する(フォルダでもファイルでもよい)。removeVideos を立てると
+   * 該当する登録も外す(ファイルは消さない)。戻り値は外した件数
+   */
+  addExcludedPaths: (paths: string[], removeVideos: boolean) =>
+    call<number>('add_excluded_paths', { paths, removeVideos }),
+  /** 監視除外を解除する。該当ファイルは次のスキャンで取り込まれる */
+  removeExcludedPath: (id: number) => call<void>('remove_excluded_path', { id }),
   countVideos: (query: VideoQuery) => call<number>('count_videos', { query }),
   queryVideos: (query: VideoQuery, limit: number, offset: number) =>
     call<VideoRow[]>('query_videos', { query, limit, offset }),
@@ -158,6 +169,18 @@ export const api = {
   getMediaInfo: (id: number) => call<MediaInfo>('get_media_info', { id }, true),
   purgeOrphanThumbnails: () =>
     call<{ removed: number; freedBytes: number }>('purge_orphan_thumbnails'),
+  /**
+   * 重複解消の下見。scope にフォルダを渡すとその配下だけを対象にする。
+   * DB を読むだけなので、実行前に何度呼んでもよい
+   */
+  planDedupe: (scope?: string) => call<DedupePlan>('plan_dedupe', { scope }),
+  /**
+   * 重複解消の実行。呼ぶ前に必ず planDedupe の結果をユーザーに見せること。
+   * trashFiles を立てるとファイルをごみ箱へ送ってから登録を外す(完全削除ではない)。
+   * 既定(false)ならファイルには触らず、ライブラリの登録を外すだけ
+   */
+  applyDedupe: (scope: string | undefined, trashFiles: boolean) =>
+    call<DedupeResult>('apply_dedupe', { scope, trashFiles }),
   /** 復元の予約。実際の差し替えは次回起動時。戻り値は退避した現行 DB のファイル名 */
   restoreBackup: (path: string) => call<string>('restore_backup', { path }),
 

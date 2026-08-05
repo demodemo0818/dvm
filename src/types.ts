@@ -30,6 +30,11 @@ export interface VideoRow {
   fileModifiedAt: string | null;
   fps: number | null;
   bitrate: number | null;
+  /**
+   * 発見元の監視フォルダ(null = 個別登録)。v1.33 で追加。
+   * 削除するとき「消しても次のスキャンで再登録されるか」の判定に使う
+   */
+  watchedFolderId: number | null;
 }
 
 export interface WatchedFolder {
@@ -39,6 +44,45 @@ export interface WatchedFolder {
   enabled: boolean;
   online: boolean;
   videoCount: number;
+}
+
+/**
+ * 監視フォルダの中の「取り込まない場所」(v1.33)。
+ * 監視フォルダは再帰的に走査されるので、ここに入れない限り
+ * 配下のファイルは一覧から消しても次のスキャンで再登録される
+ */
+export interface ExcludedPath {
+  id: number;
+  path: string;
+  /** まだ配下に残っている登録数(0 でなければ消し残し) */
+  videoCount: number;
+}
+
+/** 重複解消の下見(実行前に必ずこれを見せる) */
+export interface DedupePlan {
+  /** 対象になった重複グループ数(= 残る本数) */
+  groups: number;
+  /** ライブラリから外す本数 */
+  removeCount: number;
+  /** スコープの外にも同じ内容があったので見送ったグループ数 */
+  skippedOutside: number;
+  /** サイズ 0 で判定できず見送ったグループ数 */
+  skippedZeroSize: number;
+  /** 外す本数のフォルダ別内訳(多い順・上位 20) */
+  byFolder: { path: string; count: number }[];
+  /** 先頭 20 グループの中身 */
+  samples: { keep: string; remove: string[] }[];
+  removeIds: number[];
+}
+
+/** 重複解消の実行結果 */
+export interface DedupeResult {
+  /** ライブラリから外した本数 */
+  removed: number;
+  /** ごみ箱へ送れた本数(登録を外すだけのときは 0) */
+  trashed: number;
+  /** ごみ箱へ送れなかった本数(未接続のドライブ・権限・使用中など) */
+  failed: number;
 }
 
 /**

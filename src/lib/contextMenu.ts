@@ -1,8 +1,8 @@
 import {
-  AppWindow, ArrowDown, ArrowDownUp, ArrowUp, BookmarkPlus, Camera, ChevronDown, Copy, ExternalLink,
-  Folder, FolderInput, FolderOpen, FolderPlus, FolderSearch, FolderUp, Funnel, FunnelPlus, FunnelX,
-  GalleryThumbnails, Layers, LayoutGrid, Library, ListOrdered, ListX, Palette, Pencil, Play, Plus,
-  RefreshCw, SquareCheck, SquareDashed, Star, Trash2, Unplug, X,
+  AppWindow, ArrowDown, ArrowDownUp, ArrowUp, BookmarkPlus, Camera, ChevronDown, Copy, CopyMinus,
+  ExternalLink, EyeOff, Folder, FolderInput, FolderOpen, FolderPlus, FolderSearch, FolderUp, Funnel,
+  FunnelPlus, FunnelX, GalleryThumbnails, Layers, LayoutGrid, Library, ListOrdered, ListX, Palette,
+  Pencil, Play, Plus, RefreshCw, SquareCheck, SquareDashed, Star, Trash2, Unplug, X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type {
@@ -540,6 +540,20 @@ export function buildFolderTreeMenu(
       disabled: watched,
       // 「外す」は監視フォルダ行の担当。入口を 2 か所に置かない
       hint: watched ? 'すでに監視フォルダです' : '起動時のスキャンと自動監視の対象になります',
+    },
+    { separator: true },
+    {
+      // 実行前に必ず下見(件数と内訳)を出すので、ここでは確認を挟まず開くだけ
+      id: 'tree:dedupe',
+      label: 'このフォルダーの重複を解消',
+      icon: CopyMinus,
+      hint: '同じ内容の動画を 1 本だけ残します(ファイルは消しません)',
+    },
+    {
+      id: 'tree:exclude',
+      label: '監視除外フォルダに登録',
+      icon: EyeOff,
+      hint: '次のスキャンから配下を無視します(ファイルは消しません)',
     },
   ];
 }

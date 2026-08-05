@@ -22,16 +22,18 @@ pub fn init(app: &AppHandle) {
 /// 監視対象フォルダの変更(追加・削除)後に呼び、ウォッチャーを作り直す
 pub fn rebuild(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let folders: Vec<(i64, String, bool)> = {
+    let (folders, excluded): (Vec<(i64, String, bool)>, Vec<String>) = {
         let conn = state.db.lock().unwrap();
-        conn.prepare("SELECT id, path, recursive FROM watched_folders WHERE enabled=1")
+        let folders = conn
+            .prepare("SELECT id, path, recursive FROM watched_folders WHERE enabled=1")
             .and_then(|mut stmt| {
                 stmt.query_map([], |r| {
                     Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)? != 0))
                 })
                 .map(|it| it.filter_map(|r| r.ok()).collect())
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+        (folders, crate::core::excludes::list_normalized(&conn))
     };
 
     let tx = match state.watch_tx.lock().unwrap().clone() {
@@ -52,6 +54,10 @@ pub fn rebuild(app: &AppHandle) {
         }
         let mut sent: HashSet<i64> = HashSet::new();
         for path in &event.paths {
+            // 除外パスの中の変更でスキャンを起こさない(起こしても取り込まれないので無駄)
+            if crate::core::excludes::is_excluded(&excluded, &path.to_string_lossy()) {
+                continue;
+            }
             let p = path.to_string_lossy().to_lowercase();
             // 最も深くマッチする監視フォルダに割り当てる
             let mut best: Option<(i64, usize)> = None;

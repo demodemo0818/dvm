@@ -3989,3 +3989,206 @@ input[type='range']:focus-visible {
   flex-shrink: 0;
   gap: 6px;
 }
+
+/* ---- 重複解消ダイアログ (v1.33) ---- */
+.dedupe-modal {
+  width: 560px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.dedupe-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 0;
+  color: #8a8f9c;
+  font-size: 12px;
+}
+
+/* lucide のアイコンをそのまま回す(.spinner は自前で円を描く別物) */
+.dedupe-loading .spin {
+  animation: spin 0.9s linear infinite;
+}
+
+/* 「何本外れて何本残るか」を最初に大きく出す。押す前に結果が分かるように */
+.dedupe-summary {
+  display: flex;
+  gap: 10px;
+  margin: 10px 0;
+}
+
+.dedupe-stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: #22252d;
+  border: 1px solid #343945;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.dedupe-num {
+  font-size: 22px;
+  font-weight: 600;
+  color: #dfe6f5;
+}
+
+.dedupe-label {
+  font-size: 11px;
+  color: #8a8f9c;
+}
+
+/* 触らなかったグループの理由。件数と同じ強さで出すと本題が埋もれるので控えめに */
+.dedupe-skipped {
+  border-left: 2px solid #4a5163;
+  padding-left: 8px;
+  margin: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.dedupe-breakdown {
+  margin: 10px 0;
+}
+
+.dedupe-breakdown-title {
+  font-size: 11px;
+  color: #8a8f9c;
+  margin-bottom: 4px;
+}
+
+.dedupe-breakdown ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 160px;
+  overflow-y: auto;
+  border: 1px solid #343945;
+  border-radius: 6px;
+}
+
+.dedupe-breakdown li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  font-size: 11px;
+  border-bottom: 1px solid #2a2e37;
+}
+
+.dedupe-breakdown li:last-child {
+  border-bottom: none;
+}
+
+/* パスは長いので省略。全体は title 属性で見せる */
+.dedupe-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  color: #aab0bd;
+}
+
+.dedupe-count {
+  flex: none;
+  color: #dfe6f5;
+}
+
+.dedupe-samples {
+  font-size: 11px;
+  color: #8a8f9c;
+}
+
+.dedupe-samples summary {
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.dedupe-sample {
+  padding: 4px 0 4px 8px;
+  border-left: 2px solid #2a2e37;
+  margin-bottom: 4px;
+}
+
+.dedupe-keep,
+.dedupe-remove {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dedupe-keep {
+  color: #7fb069;
+}
+
+.dedupe-remove {
+  color: #8a8f9c;
+}
+
+/* 絞り込み帯の「重複を解消」。重複を見ているときだけ出る作業ボタン */
+.fb-dedupe {
+  flex: none;
+  background: none;
+  border: 1px solid #343945;
+  color: #aab0bd;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.fb-dedupe:hover {
+  background: #262a33;
+  border-color: #4a5163;
+}
+
+/* ---- 取り込まない場所の一覧 (v1.33) ---- */
+.excluded-list {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+  border: 1px solid #343945;
+  border-radius: 6px;
+}
+
+.excluded-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  font-size: 11px;
+  border-bottom: 1px solid #2a2e37;
+}
+
+.excluded-list li:last-child {
+  border-bottom: none;
+}
+
+.excluded-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  color: #d8dbe2;
+}
+
+/* 除外したのに一覧に残っているぶん。気付けるよう注意色にする */
+.excluded-count {
+  flex: none;
+  color: #d9a05a;
+}
+
+/* 削除時に監視除外を勧めるダイアログ (v1.33)。選択肢が 3 つあるぶん幅を広く取る */
+.exclude-on-delete-modal {
+  width: 520px;
+}

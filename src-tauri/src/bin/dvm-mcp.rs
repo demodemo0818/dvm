@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 use dvm_lib::core::query::{self, VideoQuery};
-use dvm_lib::core::{libraries, series, stats, tags, videos};
+use dvm_lib::core::{dedupe, libraries, series, stats, tags, videos};
 
 fn data_dir() -> PathBuf {
     let appdata = std::env::var("APPDATA").expect("APPDATA is not set");
@@ -270,6 +270,19 @@ fn write_tool_definitions() -> Value {
             }
         },
         {
+            "name": "dedupe",
+            "description": "同じ内容(サイズ + 先頭ハッシュが一致)の動画を 1 本だけ残し、残りを整理する。既定はライブラリの登録を外すだけでファイルは残す。必ず dry_run: true で対象と件数を確認してから dry_run: false で実行すること。scope を指定すると、そのフォルダ配下だけが対象になる(配下と外にまたがるグループは触らない)。タグ・レーティング・視聴履歴が付いた動画は優先して残す。サイズ 0 のファイルは対象外",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "scope": { "type": "string", "description": "対象フォルダの絶対パス。省略するとライブラリ全体" },
+                    "dry_run": { "type": "boolean", "description": "true: 件数と内訳のプレビューのみ / false: 実際に実行する" },
+                    "trash_files": { "type": "boolean", "description": "true にすると重複したファイル本体を Windows のごみ箱へ送ってから登録を外す(完全削除ではない。ごみ箱から戻して再スキャンすれば復帰できる)。既定 false = 登録を外すだけでファイルは残す。ユーザーがファイルの削除まで明示的に求めたときだけ true にすること" }
+                },
+                "required": ["dry_run"]
+            }
+        },
+        {
             "name": "trash_video_files",
             "description": "動画ファイル本体を Windows のごみ箱へ送る。必ず dry_run: true で実行内容(対象パス一覧)を確認し、ユーザーの意図と一致することを確かめてから dry_run: false で実行すること。実行後の登録は missing 状態で残る(ごみ箱から戻して再スキャンすれば復帰できる)",
             "inputSchema": {
@@ -305,6 +318,7 @@ fn call_tool(
     const WRITE_TOOLS: &[&str] = &[
         "tag_videos", "untag_videos", "add_to_series", "remove_from_series",
         "set_rating", "set_video_info", "remove_from_library", "trash_video_files",
+        "dedupe",
     ];
     if WRITE_TOOLS.contains(&name) && !allow_write {
         anyhow::bail!("書き込みは無効です。環境変数 DVM_ALLOW_WRITE=1 を付けて起動してください");
@@ -471,6 +485,52 @@ fn call_tool(
                 }
             }
             Ok(format!("{} 件をライブラリから削除しました(ファイルは残っています)", ids.len()))
+        }
+        "dedupe" => {
+            let dry_run = args["dry_run"]
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("dry_run (true/false) が必要です"))?;
+            let scope = args["scope"].as_str().filter(|s| !s.trim().is_empty());
+            let trash = args["trash_files"].as_bool().unwrap_or(false);
+            if dry_run {
+                let plan = dedupe::plan(conn, scope)?;
+                return Ok(serde_json::to_string_pretty(&json!({
+                    "dryRun": true,
+                    "scope": scope.unwrap_or("(ライブラリ全体)"),
+                    "groups": plan.groups,
+                    "removeCount": plan.remove_count,
+                    "skippedOutsideScope": plan.skipped_outside,
+                    "skippedZeroSize": plan.skipped_zero_size,
+                    "byFolder": plan.by_folder,
+                    "samples": plan.samples,
+                    "trashFiles": trash,
+                    "note": if trash {
+                        "実行するには dry_run: false で再度呼び出してください。対象のファイルはごみ箱へ送られます(完全削除ではありません)"
+                    } else {
+                        "実行するには dry_run: false で再度呼び出してください。ファイルは削除されません"
+                    },
+                }))?);
+            }
+            let (result, removed_ids) = dedupe::apply(conn, "ai", scope, trash)?;
+            if removed_ids.is_empty() && result.failed == 0 {
+                return Ok("解消できる重複はありませんでした".to_string());
+            }
+            if let Some(dir) = default_thumbs_dir() {
+                for id in &removed_ids {
+                    let _ = std::fs::remove_file(dir.join(format!("{id}.jpg")));
+                }
+            }
+            if trash {
+                Ok(format!(
+                    "{} 件をごみ箱へ送り、ライブラリからも外しました(失敗 {} 件)",
+                    result.trashed, result.failed
+                ))
+            } else {
+                Ok(format!(
+                    "{} 件をライブラリから外しました(ファイルは残っています)",
+                    result.removed
+                ))
+            }
         }
         "trash_video_files" => {
             let ids = ids_arg(args)?;

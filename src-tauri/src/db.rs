@@ -84,6 +84,13 @@ CREATE TABLE IF NOT EXISTS watched_folders (
   volume_serial TEXT
 );
 
+-- 監視除外フォルダ(v1.33)。監視フォルダは再帰的に走査されるので、ここに入れない限り
+-- 配下のファイルは消しても次のスキャンで再登録される。ファイル 1 個の登録も入る
+CREATE TABLE IF NOT EXISTS excluded_paths (
+  id INTEGER PRIMARY KEY,
+  path TEXT NOT NULL UNIQUE
+);
+
 CREATE TABLE IF NOT EXISTS videos (
   id INTEGER PRIMARY KEY,
   path TEXT NOT NULL UNIQUE,

@@ -4,9 +4,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { useContextMenu } from '../hooks/useContextMenu';
 import { buildFolderTreeMenu } from '../lib/contextMenu';
+import { dedupeMessage } from '../lib/dedupeMessage';
 import { useLibrary } from '../store';
 import type { FolderNode } from '../types';
 import { ContextMenu } from './ContextMenu';
+import { DedupeDialog } from './DedupeDialog';
+import { ExcludeDialog } from './ExcludeDialog';
 
 /** Windows のパスは大文字小文字を区別しない。ASCII だけ畳む(Rust / SQL 側の lower に合わせる) */
 const sameDir = (a: string | null, b: string) =>
@@ -67,6 +70,9 @@ export function FolderTree({ nodes }: { nodes: FolderNode[] }) {
     });
 
   const { menu, open: openMenu, close: closeMenu } = useContextMenu<FolderNode>();
+  // 右クリックから開く確認ダイアログ(重複解消 / 取り込まない場所にする)
+  const [dedupeScope, setDedupeScope] = useState<string | null>(null);
+  const [excluding, setExcluding] = useState<FolderNode | null>(null);
 
   /**
    * 右クリックメニューの実行(v1.20)。
@@ -98,6 +104,9 @@ export function FolderTree({ nodes }: { nodes: FolderNode[] }) {
           await api.addWatchedFolder(n.path);
           bumpVersion();
           break;
+        // 下見を出すだけ。実行するかはダイアログで決める
+        case 'tree:dedupe': setDedupeScope(n.path); break;
+        case 'tree:exclude': setExcluding(n); break;
         default:
       }
     } catch {
@@ -184,6 +193,38 @@ export function FolderTree({ nodes }: { nodes: FolderNode[] }) {
           entries={menu.entries}
           onClose={closeMenu}
           onSelect={(id) => void runMenuAction(id, menu.target)}
+        />
+      )}
+
+      {dedupeScope !== null && (
+        <DedupeDialog
+          scope={dedupeScope}
+          onClose={() => setDedupeScope(null)}
+          onDone={(result, trashed) => {
+            const { pushToast, bumpVersion } = useLibrary.getState();
+            setDedupeScope(null);
+            bumpVersion();
+            pushToast(dedupeMessage(result, trashed), result.failed > 0 ? 'error' : 'info');
+          }}
+        />
+      )}
+
+      {excluding !== null && (
+        <ExcludeDialog
+          path={excluding.path}
+          videoCount={excluding.totalCount}
+          onClose={() => setExcluding(null)}
+          onDone={(removed) => {
+            const { pushToast, bumpVersion } = useLibrary.getState();
+            setExcluding(null);
+            bumpVersion();
+            pushToast(
+              removed > 0
+                ? `監視除外フォルダに登録しました(${removed.toLocaleString()} 件を外しました。ファイルは残っています)`
+                : '監視除外フォルダに登録しました',
+              'info',
+            );
+          }}
         />
       )}
     </>

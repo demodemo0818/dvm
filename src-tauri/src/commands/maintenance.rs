@@ -1,5 +1,5 @@
 use crate::core::backup::{self, BackupInfo};
-use crate::core::{frames, libraries, library, offline, settings, thumbs};
+use crate::core::{dedupe, frames, libraries, library, offline, settings, thumbs};
 use crate::db;
 use crate::AppState;
 use serde::Serialize;
@@ -10,6 +10,46 @@ use tauri::{AppHandle, Manager, State};
 pub struct PurgeResult {
     pub removed: usize,
     pub freed_bytes: u64,
+}
+
+/// 重複解消の計画を立てる(DB は読むだけ。実行はしない)。
+/// `scope` にフォルダの絶対パスを渡すと、その配下だけを対象にする
+#[tauri::command]
+pub fn plan_dedupe(
+    state: State<AppState>,
+    scope: Option<String>,
+) -> Result<dedupe::DedupePlan, String> {
+    let conn = state.db_read.lock().unwrap();
+    dedupe::plan(&conn, scope.as_deref()).map_err(|e| e.to_string())
+}
+
+/// 重複解消を実行する。計画を立て直してから実行するので、
+/// 画面を開いている間に増えた動画も反映される。
+///
+/// `trash_files` を立てるとファイルを**ごみ箱へ**送ってから登録を外す(完全削除はしない)。
+/// 立てなければ従来どおり登録を外すだけで、ファイルには触らない。
+/// ごみ箱送りは 1 件ずつシェル API を叩いて待つので、UI を止めないよう別スレッドに逃がす
+#[tauri::command]
+pub async fn apply_dedupe(
+    app: AppHandle,
+    scope: Option<String>,
+    trash_files: bool,
+) -> Result<dedupe::DedupeResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let (result, removed_ids) = {
+            let conn = state.db.lock().unwrap();
+            dedupe::apply(&conn, "user", scope.as_deref(), trash_files)
+                .map_err(|e| e.to_string())?
+        };
+        for id in &removed_ids {
+            let _ = std::fs::remove_file(state.thumbs_dir.join(format!("{id}.jpg")));
+            crate::core::playback::remove_cache_for(&state.transcode_dir, *id);
+        }
+        Ok(result)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// videos に対応しない孤児サムネイルを掃除する

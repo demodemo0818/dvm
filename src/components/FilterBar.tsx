@@ -1,9 +1,11 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { useFilterMasters } from '../hooks/useFilterMasters';
+import { dedupeMessage } from '../lib/dedupeMessage';
 import { describeFilter, type ClearAction } from '../lib/filterChips';
 import type { FilterState } from '../lib/query';
 import { useLibrary } from '../store';
 import { EMPTY_ADVANCED, type AdvancedFilter } from '../types';
+import { DedupeDialog } from './DedupeDialog';
 
 /**
  * 絞り込み帯(v1.28)。ツールバーと一覧の間に常駐する 1 行。
@@ -30,8 +32,9 @@ export function FilterBar({
   const {
     setText, setAdvanced, toggleTagFilter, setTagFilter, setFolderId, toggleDirPath,
     toggleSeriesFilter, setMinRating, setDurationBucket, toggleMissingOnly,
-    toggleDuplicatesOnly, applyFilter, version,
+    toggleDuplicatesOnly, applyFilter, version, bumpVersion, pushToast,
   } = useLibrary();
+  const [showDedupe, setShowDedupe] = useState(false);
 
   // 名前を引かないと出せない条件が効いているときだけマスタを取りに行く
   const needsMasters =
@@ -156,6 +159,24 @@ export function FilterBar({
           ? <>{terms.length > 0 ? '' : '全 '}<b>{total.toLocaleString()}</b> 件</>
           : '集計中…'}
       </span>
+      {/*
+        重複を見ているときだけ出す作業ボタン(v1.33)。ツールバーではなくここに置くのは、
+        「いま画面に出ている重複」が対象だと分かる場所だから。
+        フォルダで絞り込んでいれば、そのフォルダ配下だけが対象になる
+      */}
+      {filters.duplicatesOnly && (
+        <button
+          className="fb-dedupe"
+          title={
+            filters.dirPath !== null
+              ? `${filters.dirPath} の配下で、同じ内容の動画を 1 本だけ残す(ファイルは消しません)`
+              : 'ライブラリ全体で、同じ内容の動画を 1 本だけ残す(ファイルは消しません)'
+          }
+          onClick={() => setShowDedupe(true)}
+        >
+          重複を解消
+        </button>
+      )}
       {terms.length > 0 && (
         <button
           className="fb-clear"
@@ -164,6 +185,18 @@ export function FilterBar({
         >
           すべて解除
         </button>
+      )}
+
+      {showDedupe && (
+        <DedupeDialog
+          scope={filters.dirPath ?? undefined}
+          onClose={() => setShowDedupe(false)}
+          onDone={(result, trashed) => {
+            setShowDedupe(false);
+            bumpVersion();
+            pushToast(dedupeMessage(result, trashed), result.failed > 0 ? 'error' : 'info');
+          }}
+        />
       )}
     </div>
   );

@@ -1,4 +1,4 @@
-use crate::core::{metadata, offline, settings, thumbs};
+use crate::core::{excludes, metadata, offline, settings, thumbs};
 use crate::db;
 use crate::AppState;
 use anyhow::Result;
@@ -193,13 +193,14 @@ fn deepest_owner(index: &[(i64, String)], path: &str) -> Option<i64> {
 /// 監視フォルダを 1 つスキャンし、メタデータ取得が必要な video id 一覧を返す
 pub fn scan_folder(app: &AppHandle, folder_id: i64) -> Result<Vec<i64>> {
     let state = app.state::<AppState>();
-    let (folder_path, recursive) = {
+    let (folder_path, recursive, excluded) = {
         let conn = state.db.lock().unwrap();
-        conn.query_row(
+        let (path, recursive) = conn.query_row(
             "SELECT path, recursive FROM watched_folders WHERE id=?1 AND enabled=1",
             params![folder_id],
             |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
-        )?
+        )?;
+        (path, recursive, excludes::list_normalized(&conn))
     };
 
     // オフラインのドライブ/NAS には一切触らない(missing 誤判定防止)
@@ -213,8 +214,12 @@ pub fn scan_folder(app: &AppHandle, folder_id: i64) -> Result<Vec<i64>> {
     } else {
         WalkDir::new(&folder_path).max_depth(1)
     };
+    // 除外パスは filter_entry で弾く。ディレクトリごと降りずに済むので、除外した場所の
+    // ファイルは stat すらしない(NAS だとここの往復が効く)
+    let ex = excluded.clone();
     let files: Vec<_> = walker
         .into_iter()
+        .filter_entry(move |e| !excludes::is_excluded(&ex, &e.path().to_string_lossy()))
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file() && is_video_file(e.path()))
         .collect();
@@ -301,6 +306,14 @@ pub fn register_paths(app: &AppHandle, paths: Vec<String>) -> Result<usize> {
         } else if path.is_file() && is_video_file(path) {
             targets.push(path.to_path_buf());
         }
+    }
+
+    // 個別登録(D&D)でも監視除外は尊重する。除外に入れた場所がドロップ経由で
+    // 入ってくると、除外したはずのものが一覧に現れて混乱するため
+    {
+        let conn = state.db.lock().unwrap();
+        let excluded = excludes::list_normalized(&conn);
+        targets.retain(|p| !excludes::is_excluded(&excluded, &p.to_string_lossy()));
     }
 
     let mut pending: Vec<i64> = Vec::new();

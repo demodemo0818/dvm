@@ -113,6 +113,77 @@ pub fn remove_watched_folder(app: AppHandle, id: i64, remove_videos: bool) -> Re
     Ok(())
 }
 
+/// 監視除外フォルダの一覧(フォルダのほか、ファイル 1 個の登録も混ざる)
+#[tauri::command]
+pub fn list_excluded_paths(
+    state: State<AppState>,
+) -> Result<Vec<core::excludes::ExcludedPath>, String> {
+    let conn = state.db_read.lock().unwrap();
+    core::excludes::list(&conn).map_err(|e| e.to_string())
+}
+
+/// 監視除外に登録する(フォルダでもファイルでもよい)。
+/// `remove_videos` が true なら、該当する登録も外す(ファイルは消さない)。外した件数を返す。
+/// 削除ダイアログからは「先に除外へ入れてから消す」ので false で呼ばれる
+#[tauri::command]
+pub fn add_excluded_paths(
+    app: AppHandle,
+    paths: Vec<String>,
+    remove_videos: bool,
+) -> Result<usize, String> {
+    if paths.is_empty() {
+        return Ok(0);
+    }
+    let removed = {
+        let state = app.state::<AppState>();
+        let conn = state.db.lock().unwrap();
+        conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
+        for path in &paths {
+            if let Err(e) = core::excludes::add(&conn, path) {
+                let _ = conn.execute_batch("ROLLBACK");
+                return Err(e.to_string());
+            }
+        }
+        conn.execute_batch("COMMIT").map_err(|e| e.to_string())?;
+
+        let ids = if remove_videos {
+            core::excludes::video_ids_under_any(&conn, &paths).map_err(|e| e.to_string())?
+        } else {
+            Vec::new()
+        };
+        if !ids.is_empty() {
+            core::videos::remove_videos(&conn, "user", &ids).map_err(|e| e.to_string())?;
+        }
+        db::log_op(
+            &conn,
+            "user",
+            "add_excluded_paths",
+            &format!("{} 件 (removed={}): {}", paths.len(), ids.len(), paths.join(", ")),
+        );
+        for id in &ids {
+            let _ = std::fs::remove_file(state.thumbs_dir.join(format!("{id}.jpg")));
+            core::playback::remove_cache_for(&state.transcode_dir, *id);
+        }
+        ids.len()
+    };
+    // 除外が増えた分、監視の対象も狭める
+    crate::core::watcher::rebuild(&app);
+    Ok(removed)
+}
+
+/// 監視除外を解除する。該当するファイルは次のスキャンで取り込まれる
+#[tauri::command]
+pub fn remove_excluded_path(app: AppHandle, id: i64) -> Result<(), String> {
+    {
+        let state = app.state::<AppState>();
+        let conn = state.db.lock().unwrap();
+        core::excludes::remove(&conn, id).map_err(|e| e.to_string())?;
+        db::log_op(&conn, "user", "remove_excluded_path", &format!("id={id}"));
+    }
+    crate::core::watcher::rebuild(&app);
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn rescan_all(app: AppHandle) -> Result<(), String> {
     let app2 = app.clone();

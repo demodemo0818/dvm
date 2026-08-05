@@ -10,6 +10,7 @@ function row(path: string, videoCodec: string | null, audioCodec: string | null)
     resumeMs: 0, videoCodec, audioCodec, isMissing: false, isOffline: false,
     thumbState: 0, thumbPath: null, addedAt: '',
     fileCreatedAt: null, fileModifiedAt: null, fps: null, bitrate: null,
+    watchedFolderId: null,
   };
 }
 

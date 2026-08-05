@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { fmtSize } from '../lib/format';
 import { useLibrary } from '../store';
-import type { AppInfo, BackupInfo, LibraryEntry } from '../types';
+import type { AppInfo, BackupInfo, ExcludedPath, LibraryEntry } from '../types';
 import { McpSettings } from './McpSettings';
 import { SubtitleStyleEditor } from './SubtitleStyleEditor';
 
@@ -40,6 +40,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
    * 切り替えの入口はサイドバーの上部に固定する(同じ操作の入口を 2 か所に置かない)
    */
   const [libraries, setLibraries] = useState<LibraryEntry[]>([]);
+  /** 監視フォルダの中で取り込まない場所(v1.33) */
+  const [excluded, setExcluded] = useState<ExcludedPath[]>([]);
 
   useEffect(() => {
     api.getSetting('player_path').then((v) => setPlayerPath(v ?? ''));
@@ -59,6 +61,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     api.getAppInfo().then(setInfo).catch(() => {});
     api.listDbBackups().then(setBackups).catch(() => {});
     api.listLibraries().then(setLibraries).catch(() => {});
+    api.listExcludedPaths().then(setExcluded).catch(() => {});
   }, []);
 
   /** 名前を変える。フォルダ名は変えない(開いている最中に動かせないため) */
@@ -145,6 +148,50 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     }
     // 進捗は画面下部のステータスバーに表示される
     onClose();
+  };
+
+  /**
+   * 監視除外フォルダを足す。監視フォルダの中のフォルダを選ぶのが本来の使い方なので、
+   * ここでは監視フォルダかどうかの検査はしない(外を選んでも害は無い)
+   */
+  const addExclude = async () => {
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: '監視除外フォルダを選ぶ',
+    });
+    if (typeof selected !== 'string') return;
+    const alsoRemove = await ask(
+      `${selected} の配下を、次のスキャンから取り込まないようにします。\n\n` +
+        '今ライブラリに入っている配下の動画も外しますか?\n' +
+        '「いいえ」を選ぶと一覧には残ったまま、今後増えなくなります。\n\n' +
+        'どちらを選んでも動画ファイルは削除しません。',
+      { title: '監視除外フォルダに登録' },
+    );
+    setBusy(true);
+    try {
+      const removed = await api.addExcludedPaths([selected], alsoRemove);
+      setExcluded(await api.listExcludedPaths());
+      useLibrary.getState().bumpVersion();
+      if (removed > 0) {
+        await message(`${removed.toLocaleString()} 件をライブラリから外しました(ファイルは残っています)`, {
+          title: '監視除外フォルダに登録',
+        });
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** 監視除外を解除する。該当ファイルは次のスキャンで取り込まれる */
+  const removeExclude = async (id: number, path: string) => {
+    const yes = await ask(
+      `${path} を監視除外から外しますか?\n\n次のスキャンで該当する動画がライブラリに再登録されます。`,
+      { title: '監視除外を解除' },
+    );
+    if (!yes) return;
+    await api.removeExcludedPath(id);
+    setExcluded(await api.listExcludedPaths());
   };
 
   /** ライブラリから外した動画のサムネイルが残っていたら消す */
@@ -364,6 +411,41 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           <div className="modal-row">
             <button onClick={() => api.openLibraryDir()}>ライブラリフォルダを開く</button>
             <button onClick={() => api.openDataDir()}>データフォルダを開く</button>
+          </div>
+        </div>
+
+        <div className="settings-section">
+          <div className="settings-heading">監視除外フォルダ</div>
+          <div className="settings-note">
+            監視フォルダの中でも、ここに入れたフォルダの配下はスキャンで取り込みません。
+            世代ごとのバックアップや作業用の書き出し先など、ライブラリに出したくない場所に使います。
+            動画を削除するときに登録したファイル 1 個だけの行も、ここに並びます。
+            <strong>動画ファイルは削除しません。</strong>
+          </div>
+          {excluded.length > 0 && (
+            <ul className="excluded-list">
+              {excluded.map((e) => (
+                <li key={e.id}>
+                  <span className="excluded-path" title={e.path}>{e.path}</span>
+                  {/* 消し残しがあるときだけ件数を出す(0 を並べても意味が無い) */}
+                  {e.videoCount > 0 && (
+                    <span
+                      className="excluded-count"
+                      title="除外したあとも一覧に残っている登録数。除外したときに外さなかったぶんです"
+                    >
+                      {e.videoCount.toLocaleString()} 件が一覧に残っています
+                    </span>
+                  )}
+                  <button onClick={() => removeExclude(e.id, e.path)}>解除</button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="modal-row">
+            <button onClick={addExclude} disabled={busy}>フォルダを選んで追加...</button>
+          </div>
+          <div className="settings-note">
+            サイドバーのフォルダーツリーを右クリックしても追加できます
           </div>
         </div>
 

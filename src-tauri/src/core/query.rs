@@ -90,6 +90,9 @@ pub struct VideoRow {
     pub file_modified_at: Option<String>,
     pub fps: Option<f64>,
     pub bitrate: Option<i64>,
+    /// 発見元の監視フォルダ(NULL = 個別登録)。v1.33 で追加。
+    /// 削除するとき「消しても次のスキャンで再登録されるか」の判定に使う
+    pub watched_folder_id: Option<i64>,
 }
 
 /// LIKE のワイルドカードを打ち消す(日本語の部分一致はこれで正しく動く)
@@ -333,7 +336,8 @@ pub fn count(conn: &Connection, query: &VideoQuery) -> Result<i64> {
 /// SELECT の列と `map_row` の添字はここで 1 対 1 に対応する。片方だけ触らないこと
 const SELECT_COLUMNS: &str = "id, path, filename, title, size, duration_ms, width, height,
      rating, view_count, last_viewed_at, resume_ms, video_codec, audio_codec,
-     is_missing, thumb_state, added_at, file_created_at, file_modified_at, fps, bitrate";
+     is_missing, thumb_state, added_at, file_created_at, file_modified_at, fps, bitrate,
+     watched_folder_id";
 
 /// 1 行を VideoRow に写す。オフライン判定とサムネイルパスだけは
 /// 行をまたぐ状態(RootCache)と設定が要るので、呼び出し側で後から埋める
@@ -360,6 +364,7 @@ fn map_row(r: &rusqlite::Row) -> rusqlite::Result<VideoRow> {
         file_modified_at: r.get(18)?,
         fps: r.get(19)?,
         bitrate: r.get(20)?,
+        watched_folder_id: r.get(21)?,
         // 後段で埋める
         is_offline: false,
         thumb_path: None,

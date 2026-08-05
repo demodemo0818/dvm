@@ -1,5 +1,7 @@
 pub mod backup;
+pub mod dedupe;
 pub mod display;
+pub mod excludes;
 pub mod ffmpeg;
 pub mod fileops;
 pub mod folders;

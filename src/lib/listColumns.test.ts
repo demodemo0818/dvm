@@ -14,6 +14,7 @@ function row(patch: Partial<VideoRow> = {}): VideoRow {
     isMissing: false, isOffline: false, thumbState: 0, thumbPath: null,
     addedAt: '2026-07-20 19:55:05',
     fileCreatedAt: null, fileModifiedAt: null, fps: null, bitrate: null,
+    watchedFolderId: null,
     ...patch,
   };
 }
