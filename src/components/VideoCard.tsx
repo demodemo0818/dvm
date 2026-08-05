@@ -60,11 +60,20 @@ export function VideoCard({
           setHovering(false);
         }}
       >
-        {/* 一覧クエリではサムネイルの実在確認をしていない(I/O 削減)。
-            読めなかった img を隠して、下に敷いたプレースホルダを見せる */}
-        <div className="thumb-placeholder">
-          {video.thumbState === 2 ? <TriangleAlert size={22} /> : '…'}
-        </div>
+        {/*
+          一覧クエリではサムネイルの実在確認をしていない(I/O 削減)。
+          読めなかった img は onError で隠し、下の `.thumb` の地色を見せる。
+
+          **読み込み待ちの「…」は出さない**(v1.32) —— img は lazy 読み込みなので、
+          スクロールするたび画面じゅうのカードで「…」が一瞬出ては消えて目障りだった。
+          地色のままでも「まだ出ていない」ことは分かる。
+          生成に失敗したものだけは地色と区別が付かないので警告アイコンを残す
+        */}
+        {video.thumbState === 2 && (
+          <div className="thumb-placeholder">
+            <TriangleAlert size={22} />
+          </div>
+        )}
         {video.thumbPath && (
           <img
             key={video.id}
