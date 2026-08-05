@@ -32,6 +32,7 @@ rayon = "1.12.0"
 anyhow = "1.0.104"
 notify = "8.2.0"
 trash = "5"
+tauri-plugin-window-state = "2.4.1"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.60", features = [

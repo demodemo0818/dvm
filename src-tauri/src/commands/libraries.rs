@@ -5,6 +5,8 @@ use crate::AppState;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager, State};
+// save_window_state(ライブラリ切り替えの再起動でウィンドウ位置を失わないため)
+use tauri_plugin_window_state::AppHandleExt;
 
 /// 起動時にライブラリを開けたかどうか。ok 以外ならフロントが復旧画面を出す
 #[derive(Serialize)]
@@ -112,6 +114,15 @@ pub fn switch_library(app: AppHandle, id: String) -> Result<(), String> {
     // AppHandle::restart() は RunEvent::Exit の配送を保証しない(tauri#12310)。
     // 終了ハンドラを当てにせず、ここで変換中の ffmpeg を確実に殺す
     playback::kill_current(&state);
+    /*
+     * ウィンドウの位置・サイズも同じ理由でここで書き出す(v1.32)。
+     * window-state プラグインの保存は RunEvent::Exit と CloseRequested に載っているので、
+     * **ライブラリ切り替えの再起動だけがすり抜けて位置がリセットされる**。
+     * 失敗しても切り替えは続ける(位置を覚え損ねるだけで、切り替えは成立させたい)
+     */
+    if let Err(e) = app.save_window_state(crate::WINDOW_STATE_FLAGS) {
+        eprintln!("ウィンドウ位置の保存に失敗しました: {e}");
+    }
     // ファイル監視を止める(None を入れると Drop でスレッドが畳まれる)
     {
         let mut w = state.watcher.lock().unwrap();

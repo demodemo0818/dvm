@@ -7,6 +7,20 @@ use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Sender;
 use std::sync::Mutex;
 use tauri::Manager;
+use tauri_plugin_window_state::StateFlags;
+
+/// 前回のウィンドウ位置・サイズを覚える対象(v1.32)。
+///
+/// **FULLSCREEN は入れない** —— プレイヤーを全画面にしたまま終了すると次の起動が
+/// 全画面で始まり、ライブラリ画面が出ないので「壊れた」ように見える。
+/// **VISIBLE / DECORATIONS も入れない** —— 隠したまま終了して二度と出せなくなる事故と、
+/// `transparent: true` と枠の復元がぶつかるのを避けるため。
+///
+/// `switch_library` の再起動でも同じ値で保存するので、**変えるときは両方直すこと**
+/// (だからここに定数として置いてある)。
+pub const WINDOW_STATE_FLAGS: StateFlags = StateFlags::SIZE
+    .union(StateFlags::POSITION)
+    .union(StateFlags::MAXIMIZED);
 
 pub struct AppState {
     pub db: Mutex<rusqlite::Connection>,
@@ -50,8 +64,52 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_libmpv::init())
+        /*
+         * 前回のウィンドウ位置・サイズを覚える(v1.32)。
+         * 保存先は %APPDATA%\jp.demo2.dvm\.window-state.json。
+         * **設定なので本来は app.db だが、ここだけ例外的に保存先をプラグインに預けている** ——
+         * 最大化の復元と「保存したモニタが今あるか」の判定(無ければ OS に任せる)を
+         * 自前で書き直す価値がないため。外付けモニタを外して起動しても画面外に出ない。
+         * ただし**復元を実行するのは setup 側**(ちらつきを消すため。下のコメント参照)
+         */
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(WINDOW_STATE_FLAGS)
+                /*
+                 * **復元はプラグインに任せず setup 側で自分でやる**(理由は setup のコメント)。
+                 * ここで止めておかないと二重に復元が走る。とくに最大化で終了した場合、
+                 * プラグイン側の復元が「位置と大きさを戻す → 最大化し直す」の順で動くため、
+                 * 起動直後に一度ウィンドウが縮んで戻るのが見える(実測で 122ms〜376ms)
+                 */
+                .skip_initial_state("main")
+                .build(),
+        )
         .setup(|app| {
             use crate::core::libraries::{self, LibraryStatus};
+
+            /*
+             * 前回のウィンドウ位置・サイズを当ててから窓を出す(v1.32)。
+             *
+             * **プラグイン任せにすると既定サイズが 1.6 秒ほど見えてしまう** ——
+             * プラグインの復元は `on_window_ready`(WebView2 の準備完了)に載っており、
+             * 窓はその前から表示されている。実測で「0ms に 1616x989 で出る →
+             * 1648ms で位置 → 1683ms でサイズ」と 2 段階に動くのが見えていた。
+             * そこで tauri.conf.json 側を `visible: false` にして作り、ここで
+             * 先に位置・サイズを当ててから show() する。
+             *
+             * **setup の先頭に置くこと。** 下の DB 初期化やマイグレーションを待たせると
+             * その分だけ窓が出ない。
+             *
+             * プラグイン側の自動復元は `skip_initial_state("main")` で止めてある ——
+             * 二重に走らせると、最大化で終了したときに「縮む → 最大化し直す」が見える
+             */
+            {
+                use tauri_plugin_window_state::WindowExt;
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.restore_state(WINDOW_STATE_FLAGS);
+                    let _ = win.show();
+                }
+            }
 
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;

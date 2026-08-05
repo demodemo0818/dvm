@@ -15,7 +15,8 @@
         "title": "DVM",
         "width": 1600,
         "height": 950,
-        "transparent": true
+        "transparent": true,
+        "visible": false
       }
     ],
     "security": {
