@@ -4,7 +4,7 @@
 //! **ディスクを走査しない**のが要点で、外付け HDD / NAS が未接続でも即座に返る
 //! (オフライン判定だけはドライブのルート単位で `RootCache` を使う)。
 
-use crate::core::offline::RootCache;
+use crate::core::offline::{root_of, RootCache};
 use anyhow::Result;
 use rusqlite::Connection;
 use serde::Serialize;
@@ -167,48 +167,43 @@ pub fn folder_tree(conn: &Connection) -> Result<Vec<FolderNode>> {
         let Some(dir) = parent_dir(&path) else { continue };
         let dir_key = key_of(&dir);
 
-        // ルートは入れ子を潰してあるので、当てはまるのは高々 1 つ
-        let root_key = root_keys.iter().find(|k| is_within(k, &dir_key)).cloned();
+        /*
+         * どこをルートにするか。
+         *
+         * 監視フォルダ配下ならその監視フォルダ(入れ子は潰してあるので高々 1 つ)。
+         * 外なら**ドライブ**(UNC は共有まで)。v1.32 まで監視フォルダ外は
+         * 「その動画の親ディレクトリ自体をルート」にしていたが、それだと
+         * 監視を後から外したライブラリで**フルパスの行が 631 個フラットに並んだ**。
+         * ルートの決め方が違うだけで、そこから先の畳み方は監視フォルダ配下と同じ
+         */
+        let root_key = match root_keys.iter().find(|k| is_within(k, &dir_key)) {
+            Some(k) => k.clone(),
+            None => key_of(&normalize_dir(&root_of(&dir))),
+        };
 
-        match root_key {
-            // 監視フォルダ配下: ルートまで遡って中間ノードも作る
-            Some(root_key) => {
-                let mut cur = Some(dir);
-                let mut first = true;
-                while let Some(c) = cur {
-                    let k = key_of(&c);
-                    let is_root = k == root_key;
-                    let parent = if is_root { None } else { parent_dir(&c) };
-                    let e = nodes.entry(k).or_insert_with(|| Acc {
-                        path: c.clone(),
-                        direct: 0,
-                        total: 0,
-                        watched_folder_id: None,
-                        is_root,
-                    });
-                    e.total += 1;
-                    if first {
-                        e.direct += 1;
-                        first = false;
-                    }
-                    if is_root {
-                        break;
-                    }
-                    cur = parent;
-                }
-            }
-            // 監視フォルダ外: そのディレクトリ自体をルートにする(「その他の場所」)
-            None => {
-                let e = nodes.entry(dir_key).or_insert_with(|| Acc {
-                    path: dir,
-                    direct: 0,
-                    total: 0,
-                    watched_folder_id: None,
-                    is_root: true,
-                });
+        // ルートまで遡りながら、通り道の中間ノードも作る
+        let mut cur = Some(dir);
+        let mut first = true;
+        while let Some(c) = cur {
+            let k = key_of(&c);
+            let is_root = k == root_key;
+            let parent = if is_root { None } else { parent_dir(&c) };
+            let e = nodes.entry(k).or_insert_with(|| Acc {
+                path: c.clone(),
+                direct: 0,
+                total: 0,
+                watched_folder_id: None,
+                is_root,
+            });
+            e.total += 1;
+            if first {
                 e.direct += 1;
-                e.total += 1;
+                first = false;
             }
+            if is_root {
+                break;
+            }
+            cur = parent;
         }
     }
     drop(stmt);
@@ -420,15 +415,64 @@ mod tests {
     }
 
     #[test]
-    fn paths_outside_watched_folders_become_their_own_roots() {
+    fn paths_outside_watched_folders_hang_off_their_drive() {
         let conn = setup(&[(1, r"C:\動画")], &[r"C:\動画\a.mp4", r"D:\dl\b.mp4"]);
         let tree = folder_tree(&conn).unwrap();
 
-        let other = find(&tree, r"D:\dl");
-        assert_eq!(other.parent, None);
-        assert_eq!(other.watched_folder_id, None);
-        assert_eq!(other.direct_count, 1);
-        assert_eq!(other.name, r"D:\dl", "ルートはフルパスを表示する");
+        // v1.33: ドライブがルートで、その下にぶら下がる
+        // (v1.32 までは D:\dl 自体がルートで、フルパスの行がフラットに並んでいた)
+        let drive = find(&tree, r"D:\");
+        assert_eq!(drive.parent, None);
+        assert_eq!(drive.watched_folder_id, None);
+        assert_eq!(drive.direct_count, 0, "ドライブ直下には動画が無い");
+        assert_eq!(drive.total_count, 1);
+        assert_eq!(drive.name, r"D:\", "ルートはフルパスを表示する");
+
+        let dl = find(&tree, r"D:\dl");
+        assert_eq!(dl.parent.as_deref(), Some(r"D:\"));
+        assert_eq!(dl.direct_count, 1);
+        assert_eq!(dl.name, "dl", "ルートでなければ末尾セグメントだけ");
+    }
+
+    #[test]
+    fn deep_paths_outside_watched_folders_get_intermediate_nodes() {
+        let conn = setup(&[], &[r"N:\BD\作品A\BDMV\STREAM\a.mp4", r"N:\BD\作品B\BDMV\STREAM\b.mp4"]);
+        let tree = folder_tree(&conn).unwrap();
+
+        // ルートはドライブ 1 つだけ(以前はここが 2 行に分かれてフラットに並んだ)
+        assert_eq!(tree.iter().filter(|n| n.parent.is_none()).count(), 1);
+        assert_eq!(find(&tree, r"N:\").total_count, 2);
+        assert_eq!(find(&tree, r"N:\BD").total_count, 2);
+        assert_eq!(find(&tree, r"N:\BD").direct_count, 0, "通り道は直下 0 件");
+        assert_eq!(find(&tree, r"N:\BD\作品A").parent.as_deref(), Some(r"N:\BD"));
+        assert_eq!(find(&tree, r"N:\BD\作品A\BDMV\STREAM").direct_count, 1);
+    }
+
+    #[test]
+    fn each_drive_outside_watched_folders_gets_its_own_root() {
+        let conn = setup(&[], &[r"N:\a\x.mp4", r"P:\b\y.mp4"]);
+        let tree = folder_tree(&conn).unwrap();
+        let mut roots: Vec<&str> = tree
+            .iter()
+            .filter(|n| n.parent.is_none())
+            .map(|n| n.path.as_str())
+            .collect();
+        roots.sort();
+        assert_eq!(roots, vec![r"N:\", r"P:\"]);
+    }
+
+    #[test]
+    fn unc_outside_watched_folders_roots_at_the_share() {
+        // UNC はサーバーではなく**共有**まででルートにする(\\nas だけでは開けない)
+        let conn = setup(&[], &[r"\\nas\share\動画\a.mp4"]);
+        let tree = folder_tree(&conn).unwrap();
+        let roots: Vec<&str> = tree
+            .iter()
+            .filter(|n| n.parent.is_none())
+            .map(|n| n.path.as_str())
+            .collect();
+        assert_eq!(roots, vec![r"\\nas\share"]);
+        assert_eq!(find(&tree, r"\\nas\share\動画").parent.as_deref(), Some(r"\\nas\share"));
     }
 
     #[test]
