@@ -680,6 +680,34 @@ body {
   color: #8a8f9c;
 }
 
+/* ---- 視聴履歴の期間と集計 (v1.36) ---- */
+/* 一覧の上に 1 行。期間を変えるたびに右の数字が変わるので、同じ行に並べる */
+.view-period {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px 6px;
+  font-size: 12px;
+}
+
+.view-period select,
+.view-period input {
+  background: #22252d;
+  border: 1px solid #343945;
+  color: #d8dbe2;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+/* 数字は右端に寄せる(期間の入力が増えても位置が動かない) */
+.view-stats {
+  margin-left: auto;
+  color: #8a8f9c;
+  white-space: nowrap;
+}
+
 /* ---- タイトル・メモの編集 (v1.34) ---- */
 /* 欄から離れた時点で自動保存するので、保存ボタンは置かない */
 .info-edit {

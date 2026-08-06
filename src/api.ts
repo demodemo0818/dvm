@@ -4,8 +4,9 @@ import type {
   AppInfo, BackupInfo, DedupePlan, DedupeResult, ExcludedPath, ExtensionCount, FolderNode,
   LibraryEntry, LibraryState, LibraryStats, MediaInfo, OpEntry,
   OpResult, PlanItem, Series, SmartFolder, SubfolderView, Tag, TagCount, TagGroup, VideoLabels,
-  VideoInfo, VideoQuery, VideoRow, ViewEntry, WatchedFolder,
+  VideoInfo, VideoQuery, VideoRow, ViewEntry, ViewStats, WatchedFolder,
 } from './types';
+import type { ViewRange } from './lib/viewHistory';
 
 /**
  * Tauri コマンド呼び出しの共通ラッパ。
@@ -223,9 +224,12 @@ export const api = {
     call<OpEntry[]>('list_operations', { limit, offset }),
   undoOperation: (opId: number) => call<string>('undo_operation', { opId }),
 
-  // --- 視聴履歴(v1.18)---
-  listViewHistory: (limit: number, offset: number) =>
-    call<ViewEntry[]>('list_view_history', { limit, offset }),
+  // --- 視聴履歴(v1.18。期間指定と集計は v1.36)---
+  /** range の after / before は 'YYYY-MM-DD'(両端を含む)。空文字は指定なし */
+  listViewHistory: (range: ViewRange, limit: number, offset: number) =>
+    call<ViewEntry[]>('list_view_history', { range, limit, offset }),
+  /** 一覧と同じ期間で数えた集計。画面の数字と並ぶ行が食い違わないよう条件は Rust 側で共有 */
+  viewStats: (range: ViewRange) => call<ViewStats>('view_stats', { range }),
 
   // --- ライブラリの切り替え(v1.27)---
   listLibraries: () => call<LibraryEntry[]>('list_libraries'),

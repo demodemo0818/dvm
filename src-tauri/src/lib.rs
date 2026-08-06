@@ -310,6 +310,7 @@ pub fn run() {
             commands::fileops::apply_trash,
             commands::history::list_operations,
             commands::history::list_view_history,
+            commands::history::view_stats,
             commands::history::undo_operation,
             commands::playback::prepare_video,
             commands::playback::cancel_prepare,

@@ -325,6 +325,21 @@ export interface ViewEntry {
   isMissing: boolean;
 }
 
+/**
+ * 視聴履歴の期間の集計(v1.36。Rust の core/history::ViewStats と対)。
+ * watchedMs は**到達位置の合計**であって実視聴時間ではない
+ */
+export interface ViewStats {
+  /** 視聴回数(= 行数) */
+  count: number;
+  /** 観た動画の本数(同じ動画を何度観ても 1) */
+  videoCount: number;
+  /** 到達位置の合計(ミリ秒)。watchedMs が不明な行は含まない */
+  watchedMs: number;
+  /** watchedMs が不明な行数。合計に入っていないことを画面で断るために持つ */
+  unknownCount: number;
+}
+
 /** 尺フィルタのプリセット */
 export type DurationBucket = 'lt5' | '5to20' | '20to60' | 'gt60';
 

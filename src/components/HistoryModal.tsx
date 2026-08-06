@@ -2,9 +2,12 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
 import { thumbSrc } from '../lib/thumbs';
-import { displayName, groupByDate, progressLabel, timeOf } from '../lib/viewHistory';
+import {
+  displayName, groupByDate, PERIOD_LABELS, periodRange, progressLabel, statsLabel, timeOf,
+} from '../lib/viewHistory';
+import type { ViewPeriod, ViewRange } from '../lib/viewHistory';
 import { useLibrary } from '../store';
-import type { OpEntry, ViewEntry } from '../types';
+import type { OpEntry, ViewEntry, ViewStats } from '../types';
 
 const PAGE = 100;
 
@@ -136,17 +139,27 @@ function ViewTab({ onClose }: { onClose: () => void }) {
   const [entries, setEntries] = useState<ViewEntry[]>([]);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(false);
-  // 「今日 / 昨日」の基準。純関数に現在時刻を持ち込まないよう、ここで 1 回だけ求める
+  const [stats, setStats] = useState<ViewStats | null>(null);
+  const [period, setPeriod] = useState<ViewPeriod>('all');
+  /** 「期間を指定」で使う入力値。プリセットに戻しても消さない(往復しやすいように) */
+  const [custom, setCustom] = useState<ViewRange>({ after: '', before: '' });
+  // 「今日 / 昨日」と期間プリセットの基準。純関数に現在時刻を持ち込まないよう 1 回だけ求める
   const [today] = useState(() => {
     const d = new Date();
     const p = (n: number) => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
   });
 
-  const load = useCallback(async (off: number) => {
+  const range = period === 'custom' ? custom : periodRange(period, today);
+
+  /*
+   * 期間が変わったら先頭から読み直す。**依存に range をそのまま置かない** ——
+   * 毎レンダーで別オブジェクトになって無限に取り直す。中身の文字列を見る
+   */
+  const load = useCallback(async (off: number, r: ViewRange) => {
     setLoading(true);
     try {
-      const rows = await api.listViewHistory(PAGE, off);
+      const rows = await api.listViewHistory(r, PAGE, off);
       setEntries((cur) => (off === 0 ? rows : [...cur, ...rows]));
       setOffset(off + rows.length);
     } catch {
@@ -157,8 +170,13 @@ function ViewTab({ onClose }: { onClose: () => void }) {
   }, []);
 
   useEffect(() => {
-    void load(0);
-  }, [load]);
+    const r = { after: range.after, before: range.before };
+    void load(0, r);
+    // 集計は一覧と同じ期間で別便に引く(行を全部読まずに数えるため)
+    let alive = true;
+    api.viewStats(r).then((s) => { if (alive) setStats(s); }).catch(() => {});
+    return () => { alive = false; };
+  }, [load, range.after, range.before]);
 
   /** 履歴からその動画を再生する。外部プレイヤー設定時は一覧と同じく外部起動 */
   const play = async (entry: ViewEntry) => {
@@ -188,8 +206,44 @@ function ViewTab({ onClose }: { onClose: () => void }) {
       <div className="settings-note">
         観るたびに 1 行ずつ記録します。同じ動画を何度も観ればその回数ぶん並びます
       </div>
+
+      {/*
+        期間の指定と、その期間の集計(v1.36)。期間を絞る動機は「どれだけ観たか」なので、
+        数字が無いと半分しか答えられない。集計は一覧と同じ条件を Rust 側で共有している
+      */}
+      <div className="view-period">
+        <select
+          value={period}
+          onChange={(e) => setPeriod(e.target.value as ViewPeriod)}
+          title="集計と一覧の期間"
+        >
+          {(Object.keys(PERIOD_LABELS) as ViewPeriod[]).map((k) => (
+            <option key={k} value={k}>{PERIOD_LABELS[k]}</option>
+          ))}
+        </select>
+        {period === 'custom' && (
+          <>
+            <input
+              type="date"
+              value={custom.after}
+              onChange={(e) => setCustom((c) => ({ ...c, after: e.target.value }))}
+            />
+            <span className="adv-tilde">〜</span>
+            <input
+              type="date"
+              value={custom.before}
+              onChange={(e) => setCustom((c) => ({ ...c, before: e.target.value }))}
+            />
+          </>
+        )}
+        <span className="view-stats">{stats ? statsLabel(stats) : '集計中…'}</span>
+      </div>
+
       <div className="history-list">
-        {entries.length === 0 && !loading && <div className="stats-empty">まだ記録がありません</div>}
+        {/* 期間を絞っているときは右上の集計が同じことを言うので、ここでは繰り返さない */}
+        {entries.length === 0 && !loading && period === 'all' && !range.after && !range.before && (
+          <div className="stats-empty">まだ記録がありません</div>
+        )}
         {groups.map((g) => (
           <div key={g.date}>
             <div className="side-section">{g.label}</div>
@@ -224,7 +278,7 @@ function ViewTab({ onClose }: { onClose: () => void }) {
       </div>
       {entries.length > 0 && entries.length % PAGE === 0 && (
         <div className="modal-actions">
-          <button onClick={() => load(offset)} disabled={loading}>
+          <button onClick={() => load(offset, range)} disabled={loading}>
             さらに読み込む
           </button>
         </div>

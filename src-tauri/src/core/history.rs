@@ -9,7 +9,7 @@
 use crate::db;
 use anyhow::Result;
 use rusqlite::{params, Connection};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// 取り消しに対応している action(逆操作に必要な情報を payload に持っているもの)
@@ -108,26 +108,106 @@ pub struct ViewEntry {
     pub is_missing: bool,
 }
 
-/// 新しい順に視聴履歴を返す(v1.18)。ページングは operations_log と同じ作法。
+/// 視聴履歴を見る期間(v1.36。YYYY-MM-DD。**両端を含む**。None = 制限なし)。
+///
+/// **絞る対象が `videos` ではなく `view_history` なので `VideoQuery` とは別物**。
+/// 一覧側は「最後に観たのがこの期間」しか答えられないが、こちらは全回を持っているので
+/// 「4 月に観て、昨日も観た」動画が 4 月の指定でも出る(DESIGN.md 参照)
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ViewRange {
+    pub after: Option<String>,
+    pub before: Option<String>,
+}
+
+impl ViewRange {
+    /// WHERE 句とバインド値。一覧と集計が**同じ条件**を通るように 1 か所に持つ
+    /// (片方だけ直すと「◯ 本」と実際に並ぶ行数が食い違う)
+    fn where_clause(&self) -> (String, Vec<String>) {
+        let mut conds: Vec<String> = Vec::new();
+        let mut params: Vec<String> = Vec::new();
+        // viewed_at は 'YYYY-MM-DD HH:MM:SS'(localtime) なので date() で日付だけ取り出す
+        if let Some(d) = self.after.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
+            params.push(d.to_string());
+            conds.push(format!("date(h.viewed_at) >= ?{}", params.len()));
+        }
+        if let Some(d) = self.before.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
+            params.push(d.to_string());
+            conds.push(format!("date(h.viewed_at) <= ?{}", params.len()));
+        }
+        let sql = if conds.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conds.join(" AND "))
+        };
+        (sql, params)
+    }
+}
+
+/// 期間の集計(v1.36)。「いつ何を観たか」を振り返るのが期間指定の動機なので、
+/// 絞った結果の数字を一緒に出さないと半分しか答えられない
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ViewStats {
+    /// 視聴回数(= 行数)。同じ動画を 3 回観れば 3
+    pub count: i64,
+    /// 観た動画の本数(同じ動画を何度観ても 1)
+    pub video_count: i64,
+    /// 到達位置の合計(ミリ秒)。**watched_ms が NULL の行は含まない**
+    pub watched_ms: i64,
+    /// watched_ms が不明な行数。合計に入っていないことを画面で断るために返す
+    /// (「間違った数字を出すくらいなら記録が無いほうがよい」の系)
+    pub unknown_count: i64,
+}
+
+/// 期間の集計を返す(v1.36)。行を引かずに SQL の集計だけで済ませる
+pub fn view_stats(conn: &Connection, range: &ViewRange) -> Result<ViewStats> {
+    let (where_sql, params) = range.where_clause();
+    // JOIN しない —— 表示用の列が要らず、CASCADE で孤児も出ないため
+    let sql = format!(
+        "SELECT COUNT(*), COUNT(DISTINCT h.video_id),
+                COALESCE(SUM(h.watched_ms), 0), SUM(h.watched_ms IS NULL)
+         FROM view_history h {where_sql}"
+    );
+    let stats = conn.query_row(&sql, rusqlite::params_from_iter(params), |r| {
+        Ok(ViewStats {
+            count: r.get(0)?,
+            video_count: r.get(1)?,
+            watched_ms: r.get(2)?,
+            // 0 行のとき SUM は NULL を返す
+            unknown_count: r.get::<_, Option<i64>>(3)?.unwrap_or(0),
+        })
+    })?;
+    Ok(stats)
+}
+
+/// 新しい順に視聴履歴を返す(v1.18。期間指定は v1.36)。ページングは operations_log と同じ作法。
 ///
 /// **日付ごとのまとめはここでやらない**。区切りの入れ方は表示の都合なので
 /// フロントの純関数(`lib/viewHistory.ts`)に任せ、ここは並んだ行を返すだけにする
 pub fn list_view_history(
     conn: &Connection,
     thumbs_dir: Option<&std::path::Path>,
+    range: &ViewRange,
     limit: i64,
     offset: i64,
 ) -> Result<Vec<ViewEntry>> {
     let limit = limit.clamp(1, 500);
-    // 動画が消えれば履歴も CASCADE で消えるので、JOIN が空振りすることはない
-    let mut stmt = conn.prepare(
+    let offset = offset.max(0);
+    let (where_sql, binds) = range.where_clause();
+    // 動画が消えれば履歴も CASCADE で消えるので、JOIN が空振りすることはない。
+    // limit / offset は i64 なので直接埋める(バインドするのは文字列だけ。core/query.rs と同じ方針)
+    let sql = format!(
         "SELECT h.id, h.video_id, h.viewed_at, h.watched_ms,
                 v.filename, v.title, v.duration_ms, v.thumb_state, v.is_missing
          FROM view_history h JOIN videos v ON v.id = h.video_id
-         ORDER BY h.viewed_at DESC, h.id DESC LIMIT ?1 OFFSET ?2",
-    )?;
+         {where_sql}
+         ORDER BY h.viewed_at DESC, h.id DESC LIMIT {limit} OFFSET {offset}"
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
     let rows = stmt
-        .query_map(params![limit, offset.max(0)], |r| {
+        .query_map(rusqlite::params_from_iter(binds), |r| {
             let video_id: i64 = r.get(1)?;
             let thumb_state: i64 = r.get(7)?;
             Ok(ViewEntry {
@@ -429,7 +509,7 @@ mod tests {
         let last = videos::mark_opened(&conn, 1).unwrap();
         videos::finish_view(&conn, last, 743_000).unwrap();
 
-        let rows = list_view_history(&conn, None, 50, 0).unwrap();
+        let rows = list_view_history(&conn, None, &ViewRange::default(), 50, 0).unwrap();
         assert_eq!(rows.len(), 3, "1 番を 2 回観た記録が畳まれてはいけない");
         // viewed_at は秒精度で同着になりうるので、同着なら id の降順で新しい順を保つ
         assert_eq!(rows[0].id, last);
@@ -445,6 +525,82 @@ mod tests {
         let conn = setup();
         videos::mark_opened(&conn, 1).unwrap();
         assert!(list_ops(&conn, 50, 0).unwrap().is_empty());
+    }
+
+    // --- v1.36: 期間フィルタと集計 ---
+
+    /// 日付をばらけさせた視聴履歴。**`mark_opened` は now を入れてしまうので直接 INSERT する**
+    fn setup_views() -> Connection {
+        let conn = setup();
+        conn.execute_batch(
+            r"INSERT INTO view_history (id, video_id, viewed_at, watched_ms) VALUES
+                (1, 1, '2026-07-01 10:00:00', 60000),
+                (2, 2, '2026-07-15 22:30:00', 120000),
+                (3, 1, '2026-07-15 23:00:00', NULL),
+                (4, 1, '2026-08-01 09:00:00', 30000);",
+        )
+        .unwrap();
+        conn
+    }
+
+    fn range(after: &str, before: &str) -> ViewRange {
+        let opt = |s: &str| if s.is_empty() { None } else { Some(s.to_string()) };
+        ViewRange { after: opt(after), before: opt(before) }
+    }
+
+    #[test]
+    fn view_range_is_inclusive_on_both_ends() {
+        let conn = setup_views();
+        let ids = |r: &ViewRange| -> Vec<i64> {
+            list_view_history(&conn, None, r, 50, 0).unwrap().into_iter().map(|e| e.id).collect()
+        };
+        // 両端の日を含む。並びは新しい順のまま
+        assert_eq!(ids(&range("2026-07-01", "2026-07-15")), vec![3, 2, 1]);
+        assert_eq!(ids(&range("2026-07-15", "")), vec![4, 3, 2]);
+        assert_eq!(ids(&range("", "2026-07-01")), vec![1]);
+        // 時刻ではなく日付で比べる(22:30 の行が「7/15 まで」で落ちない)
+        assert_eq!(ids(&range("2026-07-15", "2026-07-15")), vec![3, 2]);
+    }
+
+    #[test]
+    fn blank_range_is_not_a_filter() {
+        let conn = setup_views();
+        assert_eq!(range("", "").where_clause().0, "", "空文字は条件にしない");
+        assert_eq!(list_view_history(&conn, None, &range("   ", ""), 50, 0).unwrap().len(), 4);
+    }
+
+    #[test]
+    fn view_stats_counts_views_and_videos_separately() {
+        let conn = setup_views();
+        let all = view_stats(&conn, &ViewRange::default()).unwrap();
+        assert_eq!(all.count, 4, "視聴回数は行数");
+        assert_eq!(all.video_count, 2, "動画の本数は重複を畳む");
+        assert_eq!(all.watched_ms, 210_000, "60+120+30 秒。NULL は足さない");
+        assert_eq!(all.unknown_count, 1, "watched_ms が不明な行を別に数える");
+    }
+
+    /// 一覧と集計が**同じ条件**を通ること。片方だけ直すと画面の数字と行数が食い違う
+    #[test]
+    fn view_stats_uses_the_same_range_as_the_list() {
+        let conn = setup_views();
+        let r = range("2026-07-15", "2026-07-15");
+        let rows = list_view_history(&conn, None, &r, 500, 0).unwrap();
+        let stats = view_stats(&conn, &r).unwrap();
+        assert_eq!(stats.count, rows.len() as i64);
+        assert_eq!(stats.video_count, 2);
+        assert_eq!(stats.watched_ms, 120_000);
+        assert_eq!(stats.unknown_count, 1);
+    }
+
+    /// 1 件も無い期間で 0 が返ること(SUM が NULL になる経路)
+    #[test]
+    fn view_stats_on_an_empty_range_is_all_zero() {
+        let conn = setup_views();
+        let stats = view_stats(&conn, &range("2020-01-01", "2020-12-31")).unwrap();
+        assert_eq!(stats.count, 0);
+        assert_eq!(stats.video_count, 0);
+        assert_eq!(stats.watched_ms, 0);
+        assert_eq!(stats.unknown_count, 0);
     }
 
     #[test]

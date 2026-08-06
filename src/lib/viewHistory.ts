@@ -1,4 +1,4 @@
-import type { ViewEntry } from '../types';
+import type { ViewEntry, ViewStats } from '../types';
 import { fmtTime } from './format';
 
 /**
@@ -86,4 +86,69 @@ export function progressLabel(entry: ViewEntry): string {
 /** グリッドと同じ表示名の決め方(タイトルがあれば優先) */
 export function displayName(entry: ViewEntry): string {
   return entry.title?.trim() || entry.filename;
+}
+
+/**
+ * 視聴履歴の期間プリセット(v1.36)。
+ *
+ * **「今週」は入れていない** —— 週の始まりが月曜か日曜かで結果が変わり、
+ * どちらを選んでも半分の人には合わない。詳細検索の相対日数(v1.35)と同じ
+ * 「過去 N 日」に揃えれば、誰が読んでも同じ意味になる
+ */
+export type ViewPeriod = 'all' | 'today' | 'last7' | 'thisMonth' | 'custom';
+
+export const PERIOD_LABELS: Record<ViewPeriod, string> = {
+  all: 'すべて',
+  today: '今日',
+  last7: '過去 7 日',
+  thisMonth: '今月',
+  custom: '期間を指定',
+};
+
+/** Rust に渡す期間。空文字は「指定なし」(core/history.rs の ViewRange と対) */
+export interface ViewRange {
+  after: string;
+  before: string;
+}
+
+/** 'YYYY-MM-DD' に N 日足す(負でもよい)。UTC で計算して夏時間のずれを避ける */
+function addDays(date: string, days: number): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!m) return date;
+  const t = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) + days * 86_400_000;
+  return new Date(t).toISOString().slice(0, 10);
+}
+
+/**
+ * プリセット → 期間。`today`('YYYY-MM-DD')は呼び出し側から渡す ——
+ * 純関数に現在時刻を持ち込まないため(`dateLabel` と同じ作法)。
+ * `custom` は呼び出し側が持っている入力値をそのまま使うので、ここでは何も決めない
+ */
+export function periodRange(period: ViewPeriod, today: string): ViewRange {
+  switch (period) {
+    case 'today':
+      return { after: today, before: today };
+    // 「過去 7 日」は今日を含めて 7 日ぶん(6 日前 〜 今日)
+    case 'last7':
+      return { after: addDays(today, -6), before: today };
+    case 'thisMonth':
+      return { after: `${today.slice(0, 7)}-01`, before: today };
+    default:
+      return { after: '', before: '' };
+  }
+}
+
+/**
+ * 期間の集計の 1 行。合計時間は**到達位置の合計**であって実視聴時間ではない
+ * (シークで飛ばすと実態より大きく出る)。不明な行があればその件数も断る
+ */
+export function statsLabel(s: ViewStats): string {
+  if (s.count === 0) return 'この期間の記録はありません';
+  const hours = s.watchedMs / 3_600_000;
+  // 1 時間未満は分で出す(「0.2 時間」より「12 分」のほうが読める)
+  const time = hours >= 1
+    ? `${hours.toFixed(1)} 時間`
+    : `${Math.round(s.watchedMs / 60_000)} 分`;
+  const base = `${s.count.toLocaleString()} 回 / ${s.videoCount.toLocaleString()} 本 ・ 合計 ${time}`;
+  return s.unknownCount > 0 ? `${base}(うち ${s.unknownCount} 回は位置不明)` : base;
 }
