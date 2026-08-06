@@ -3,6 +3,7 @@ import {
   ChartColumn,
   Check,
   Funnel,
+  Keyboard,
   LayoutGrid,
   List,
   PanelLeft,
@@ -25,6 +26,7 @@ import type { SortKey } from '../types';
 import { AdvancedSearch } from './AdvancedSearch';
 import { HistoryModal } from './HistoryModal';
 import { SettingsModal } from './SettingsModal';
+import { ShortcutsModal } from './ShortcutsModal';
 import { StatsModal } from './StatsModal';
 import { ToolbarOverflow } from './ToolbarOverflow';
 
@@ -35,7 +37,7 @@ export function Toolbar() {
   const {
     text, setText, sort, setSort, scanning, seriesId,
     showAiPanel, toggleAiPanel, advanced, duplicatesOnly,
-    setShowStats, bumpVersion, pushToast,
+    setShowStats, setShowShortcuts, bumpVersion, pushToast,
     viewMode, setViewMode, cardWidth, setCardWidth,
     inspectorPinned, setInspectorPinned, sidebarCollapsed, setSidebarCollapsed,
   } = useLibrary();
@@ -325,6 +327,19 @@ export function Toolbar() {
             onClick={act(() => setShowSettings(true))}
           />
         );
+
+      case 'shortcuts':
+        return (
+          <ToolButton
+            key={key}
+            place={place}
+            icon={Keyboard}
+            label={label}
+            // キーで開けることを、キーを知らない人に教える唯一の場所
+            title="キー操作の一覧 (?)"
+            onClick={act(() => setShowShortcuts(true))}
+          />
+        );
     }
   };
 
@@ -354,6 +369,9 @@ export function Toolbar() {
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
       {showHistory && <HistoryModal onClose={() => setShowHistory(false)} />}
       <StatsModal />
+      {/* 他のモーダルより後ろに書く —— .modal-overlay はどれも z-index 100 なので、
+          設定を開いたまま出したときに DOM 順で前に来る必要がある */}
+      <ShortcutsModal />
     </div>
   );
 }

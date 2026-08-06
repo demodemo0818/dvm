@@ -1036,6 +1036,103 @@ body {
   color: #fff;
 }
 
+/* ---- キー操作の一覧 (v1.39) ---- */
+
+/* 中身は lib/shortcuts.ts の 6 グループ・約 45 項目。
+   高さは中身なり(max-height でだけ止める)—— 設定モーダルと違って
+   カテゴリで中身が入れ替わらないので、大きさを固定する理由が無い */
+.shortcuts-modal {
+  /* 2 列にしたとき、説明が「mpv で再生しているときだけ」あたりで折り返さない幅 */
+  width: 880px;
+  max-height: 82vh;
+}
+
+/* グループ単位の 2 段組み。1 列に積むと 45 行になってスクロールばかりになる。
+   グループごとに高さが違うので align-items: start で上を揃える */
+.shortcuts-body {
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 22px;
+  align-items: start;
+}
+
+.shortcuts-group {
+  padding: 6px 0 10px;
+}
+
+.shortcuts-group-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #e2e5ec;
+}
+
+.shortcuts-when {
+  font-size: 11px;
+  color: #8a8f9c;
+  padding-bottom: 4px;
+}
+
+/* キーと説明の 2 列。キー側の幅を固定して、説明の左端を縦に揃える */
+.shortcuts-row {
+  display: grid;
+  grid-template-columns: 132px 1fr;
+  gap: 8px;
+  align-items: baseline;
+  padding: 3px 0;
+}
+
+.shortcuts-keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+}
+
+.shortcuts-modal kbd {
+  display: inline-block;
+  min-width: 18px;
+  padding: 1px 5px;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  color: #dfe3ea;
+  background: #262a33;
+  border: 1px solid #434a58;
+  /* 下辺を濃くしてキーの厚みを出す */
+  border-bottom-width: 2px;
+  border-radius: 4px;
+}
+
+.shortcuts-plus {
+  font-size: 10px;
+  color: #6f7583;
+  padding: 0 2px;
+}
+
+.shortcuts-label {
+  font-size: 12px;
+  color: #c8cdd8;
+}
+
+/* 補足は説明の続きに小さく回す(行を増やさない) */
+.shortcuts-note {
+  font-size: 11px;
+  color: #8a8f9c;
+}
+
+.shortcuts-note::before {
+  content: ' — ';
+}
+
+/* 窓が狭いと 2 段組みが潰れるので 1 列に戻す */
+@media (max-width: 820px) {
+  .shortcuts-body {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ---- 設定モーダル (v1.38 で 2 ペイン化) ---- */
 /* スクロールするのは右ペイン(.settings-body)だけ。ここには overflow を置かない。
    **大きさはカテゴリで変えない** —— 中身に合わせて伸縮させると、切り替えるたびに

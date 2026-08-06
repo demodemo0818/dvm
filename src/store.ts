@@ -196,6 +196,11 @@ interface LibraryState {
   showAiPanel: boolean;
   /** 統計ダッシュボードの表示状態 */
   showStats: boolean;
+  /**
+   * キー操作一覧の表示状態(v1.39)。**設定には保存しない** ——
+   * 開いたまま次の起動に持ち越しても意味が無い(統計ダッシュボードと同じ扱い)
+   */
+  showShortcuts: boolean;
   /** 画面右下の通知(API 失敗を無反応にしないため) */
   toasts: Toast[];
   pushToast: (message: string, kind?: Toast['kind']) => void;
@@ -249,6 +254,7 @@ interface LibraryState {
   setContextMenuOpen: (open: boolean) => void;
   toggleAiPanel: () => void;
   setShowStats: (showStats: boolean) => void;
+  setShowShortcuts: (showShortcuts: boolean) => void;
   /**
    * フィルタ一式をまとめて置き換える(AI アシスタントの apply_filter・
    * スマートフォルダの復元・統計からのジャンプで共用)。
@@ -307,6 +313,7 @@ export const useLibrary = create<LibraryState>((set) => ({
   contextMenuDepth: 0,
   showAiPanel: false,
   showStats: false,
+  showShortcuts: false,
   toasts: [],
   pushToast: (message, kind = 'error') =>
     set((s) => {
@@ -350,6 +357,7 @@ export const useLibrary = create<LibraryState>((set) => ({
     }),
   toggleAiPanel: () => set((s) => ({ showAiPanel: !s.showAiPanel })),
   setShowStats: (showStats) => set({ showStats }),
+  setShowShortcuts: (showShortcuts) => set({ showShortcuts }),
   applyFilter: (f) =>
     set((s) => ({
       ...EMPTY_FILTER,

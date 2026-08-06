@@ -29,7 +29,8 @@ export type ToolbarItemKey =
   | 'history'
   | 'inspectorPin'
   | 'aiPanel'
-  | 'settings';
+  | 'settings'
+  | 'shortcuts';
 
 export interface ToolbarItemDef {
   key: ToolbarItemKey;
@@ -82,6 +83,8 @@ export const TOOLBAR_ITEMS: Record<ToolbarItemKey, ToolbarItemDef> = {
   inspectorPin: { key: 'inspectorPin', label: '詳細ペイン', width: ICON_W, priority: 10 },
   aiPanel: { key: 'aiPanel', label: 'AI アシスタント', width: ICON_W, priority: 9 },
   settings: { key: 'settings', label: '設定', width: ICON_W, priority: 6 },
+  // v1.39。一度覚えれば ? で開けるので、バーの取り合いでは早めに畳んでよい
+  shortcuts: { key: 'shortcuts', label: 'キー操作', width: ICON_W, priority: 4 },
 };
 
 /**
@@ -102,6 +105,8 @@ export const TOOLBAR_ORDER: ToolbarItemKey[] = [
   'inspectorPin',
   'aiPanel',
   'settings',
+  // ヘルプは慣習どおり右端(v1.39)
+  'shortcuts',
 ];
 
 /** サムネイルの大きさはグリッド表示のときしか意味がないので、リストでは項目ごと消す */

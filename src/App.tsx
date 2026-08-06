@@ -6,6 +6,7 @@ import './App.css';
 import { api } from './api';
 import { parseColumns } from './lib/listColumns';
 import { parseModalSize, SETTINGS_SIZE_KEY } from './lib/settings';
+import { isTypingTarget } from './lib/shortcuts';
 import { parseSubStyle, serializeSubStyle, SUB_STYLE_KEY } from './lib/subtitleStyle';
 import type { LibraryState } from './types';
 import { AiPanel } from './components/AiPanel';
@@ -60,6 +61,43 @@ export default function App() {
       // 右クリックメニュー中の Esc はメニューを閉じるだけ(選択は残す)
       if (s.contextMenuOpen) return;
       s.clearSelection();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  /**
+   * `?` でキー操作の一覧を開く / 閉じる(v1.39)。
+   *
+   * **修飾キー付きのショートカットとして足している** —— 素の 1 文字キーは空きが少なく、
+   * `A` / `R` / `U` で既に修飾キーの手当てが要った経緯がある(DESIGN.md「字幕の見た目」節)。
+   * `?` は JIS でも US でも Shift+/ で、`e.key` は生成された文字なので配列に依存しない。
+   * `/` はどの系統でも未使用で、既存の switch には case が無いので default に落ちる。
+   *
+   * **再生中は開かない** —— 再生中は `html.mpv-active` が `.app` ごと消すので、
+   * 出すには `.mpv-overlay` の内側にもマウントする必要がある(DESIGN.md 参照)
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // IME の変換中に打った ? は文字入力。ショートカットとして拾わない
+      if (e.key !== '?' || e.isComposing) return;
+      if (isTypingTarget(e)) return;
+      const s = useLibrary.getState();
+      if (s.playingVideo) return;
+      // 右クリックメニュー中のキーはメニュー側が処理する
+      if (s.contextMenuOpen) return;
+      /*
+       * 他のモーダルが開いている間は拾わない。重ねて出すと、Escape が
+       * (どちらも document で受けるので)両方に届いて 2 枚同時に閉じる。
+       * 開いているモーダルを数える state は無いので DOM を 1 回読む ——
+       * 下の contextmenu ハンドラで closest() を使っているのと同じ扱い。
+       *
+       * **自分が開いているときは通す** —— この一覧も `.modal-overlay` を持つので、
+       * 素通しにすると ? で閉じられなくなる(開けるが閉じられない)
+       */
+      if (!s.showShortcuts && document.querySelector('.modal-overlay')) return;
+      e.preventDefault();
+      s.setShowShortcuts(!s.showShortcuts);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
