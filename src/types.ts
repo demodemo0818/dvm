@@ -406,11 +406,18 @@ export interface SmartFolder {
   position: number;
 }
 
-/** 統計の 1 項目(棒グラフ 1 本ぶん) */
+/** 統計の 1 項目(棒グラフ 1 本ぶん)。Rust の core/stats::Bucket と対 */
 export interface StatBucket {
   key: string;
   label: string;
   count: number;
+  /**
+   * この束の合計サイズ(バイト)と合計再生時間(ミリ秒)(v1.37)。
+   * 棒グラフの軸切り替え(件数 / 容量 / 時間)がこの 3 つを出し分ける。
+   * **動画を数えていない内訳(byViewMonth)では 0**
+   */
+  bytes: number;
+  durationMs: number;
 }
 
 export interface LibraryStats {
@@ -423,12 +430,25 @@ export interface LibraryStats {
   unwatchedCount: number;
   untaggedCount: number;
   duplicateCount: number;
-  /** index = 星の数(0〜5) */
-  ratingCounts: number[];
+  /** レーティングの内訳。key = 星の数。**常に 6 本**(0 件の星も含む) */
+  byRating: StatBucket[];
   byCodec: StatBucket[];
   byResolution: StatBucket[];
   byFolder: StatBucket[];
   byMonth: StatBucket[];
+  // --- v1.37 ---
+  /** key は尺プリセット('lt5' / '5to20' / '20to60' / 'gt60' / 'unknown') */
+  byDuration: StatBucket[];
+  /** key はドット無し・小文字の拡張子(上位 12) */
+  byExtension: StatBucket[];
+  /** key は 'landscape' / 'portrait' / 'unknown' */
+  byOrientation: StatBucket[];
+  /** key は絞り込みの範囲そのもの('0' / '1' / '2-4' / '5-9' / '10-') */
+  byViewCount: StatBucket[];
+  /** ファイル更新日の年別(古い順。key = 'YYYY'、不明は '')。追加月とは別物 */
+  byFileYear: StatBucket[];
+  /** 月ごとの視聴回数(古い順、直近 24 か月)。view_history 由来なので v1.18 以降だけ */
+  byViewMonth: StatBucket[];
 }
 
 export interface Series {

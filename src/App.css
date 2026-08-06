@@ -2330,9 +2330,10 @@ html.mpv-active .app {
   box-shadow: 0 2px 8px rgb(0 0 0 / 45%);
 }
 
-/* ---- 統計ダッシュボード (v1.7) ---- */
+/* ---- 統計ダッシュボード (v1.7、内訳の拡充は v1.37) ---- */
 .stats-modal {
-  width: 640px;
+  /* グラフを 2 列に並べる幅(v1.37)。窓が狭ければ .modal の max-width: 90vw が効く */
+  width: 880px;
   max-height: 82vh;
   overflow-y: auto;
 }
@@ -2375,10 +2376,64 @@ button.stats-tile:hover {
   color: #8a8f9c;
 }
 
+/* 内訳の軸(件数 / 容量 / 時間)を選ぶ帯 (v1.37) */
+.stats-metrics {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stats-metric-label {
+  font-size: 11px;
+  color: #8a8f9c;
+  margin-right: 2px;
+}
+
+.stats-metric {
+  padding: 3px 12px;
+  background: #22252d;
+  border: 1px solid #343945;
+  border-radius: 5px;
+  color: #c3c8d2;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.stats-metric:hover {
+  border-color: #2f66d0;
+}
+
+.stats-metric.active {
+  background: #2f66d0;
+  border-color: #2f66d0;
+  color: #fff;
+}
+
+/*
+ * グラフは 2 列。パス・月のように横に長いものだけ .wide で 1 行を使う (v1.37)。
+ *
+ * **grid ではなく段組み(columns)にしてある** —— grid は行ごとに高さが揃うので、
+ * 棒が 17 本ある「ファイルの更新年」の隣に 5 本の「再生回数」が来ると大きな空白になる。
+ * 段組みなら高さのバランスが自動で取れる(`column-span: all` が .wide の代わり)
+ */
+.stats-grid {
+  column-count: 2;
+  column-gap: 22px;
+}
+
 .stats-section {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
+  /* 段組みでは gap が効かないので下マージンで間隔を作る。グラフの列またぎは禁止 */
+  break-inside: avoid;
+  margin-bottom: 14px;
+}
+
+.stats-section.wide {
+  column-span: all;
 }
 
 .stats-heading {
@@ -2423,6 +2478,16 @@ button.stats-tile:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+ * パスだけは末尾(フォルダ名)を見せたいので、あふれたら先頭を省略する。
+ *
+ * **rtl を全ラベルに掛けてはいけない**(v1.37 で踏んだ) —— 数字で始まる日本語ラベル
+ * (「5 分未満」「10 回以上」「2024 年」)は bidi で数字が別の run になり、
+ * 「分未満 5」「年 2024」と並び替わって表示される
+ */
+.stats-bar-label.tail {
   direction: rtl;
   text-align: left;
 }
@@ -2442,7 +2507,8 @@ button.stats-tile:hover {
 }
 
 .stats-bar-count {
-  width: 56px;
+  /* 「1,234」だけでなく「12.3 GB」「1,234 時間」も入る幅(v1.37) */
+  width: 72px;
   flex-shrink: 0;
   text-align: right;
   color: #9aa0ad;

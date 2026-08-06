@@ -436,7 +436,9 @@ impl VideoQuery {
 /// それを空に置換すると拡張子だけが残る("a.b.mp4" → "mp4")。
 /// ドットが無いと前置部分が空文字になり、SQLite の replace は空文字を探すと
 /// 元の文字列をそのまま返すため、名前が丸ごと拡張子として出てしまう。instr でガードする
-fn ext_expr() -> &'static str {
+///
+/// **統計(`core/stats.rs` の拡張子別)も同じ式を使う**。書き写すと片方だけ直す事故になる
+pub(crate) fn ext_expr() -> &'static str {
     "CASE WHEN instr(filename, '.') = 0 THEN ''
           ELSE lower(replace(filename, rtrim(filename, replace(filename, '.', '')), ''))
      END"
