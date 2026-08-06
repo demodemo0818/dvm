@@ -10,7 +10,7 @@ import {
 } from './contextMenu';
 import type { GridBlankState, MenuEntry, MenuItem } from './contextMenu';
 import { CURATED_SORTS, sortLabel } from './listColumns';
-import type { FilterState } from './query';
+import { EMPTY_FILTER, type FilterState } from './query';
 import { TAG_PALETTE } from './tagColors';
 
 /** メニューの判定が見るフィールドだけ持つ最小の行を作る */
@@ -72,11 +72,7 @@ const nodeRow = (patch: Partial<FolderNode> = {}): FolderNode => ({
   watchedFolderId: null, online: true, ...patch,
 });
 
-const filters = (patch: Partial<FilterState> = {}): FilterState => ({
-  text: '', sort: 'added_desc', folderId: null, dirPath: null, tagIds: [], seriesId: null,
-  missingOnly: false, minRating: 0, durationBucket: null, duplicatesOnly: false,
-  advanced: EMPTY_ADVANCED, randomSeed: 1, ...patch,
-});
+const filters = (patch: Partial<FilterState> = {}): FilterState => ({ ...EMPTY_FILTER, ...patch });
 
 const blank = (patch: Partial<GridBlankState> = {}): GridBlankState => ({
   total: 10, selectionCount: 0, viewMode: 'grid', parentPath: null, filters: filters(), ...patch,
@@ -532,8 +528,8 @@ describe('buildGridBlankMenu', () => {
       ['シリーズ', { seriesId: 1 }],
       ['監視フォルダ', { folderId: 1 }],
       ['フォルダー直下', { dirPath: 'D:\\動画' }],
-      ['レーティング', { minRating: 3 }],
-      ['長さ', { durationBucket: 'lt5' }],
+      ['レーティング', { advanced: { ...EMPTY_ADVANCED, minRating: 3 } }],
+      ['長さ', { advanced: { ...EMPTY_ADVANCED, maxDurationMs: 300_000 } }],
       ['見つからない', { missingOnly: true }],
       ['重複', { duplicatesOnly: true }],
       ['詳細検索', { advanced: { ...EMPTY_ADVANCED, untagged: true } }],

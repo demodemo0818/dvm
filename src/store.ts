@@ -1,12 +1,12 @@
 import { create } from 'zustand';
 import { DEFAULT_COLUMNS } from './lib/listColumns';
 import type { ColumnKey } from './lib/listColumns';
+import { EMPTY_FILTER } from './lib/query';
+import type { FilterState } from './lib/query';
 import { DEFAULT_SUB_STYLE } from './lib/subtitleStyle';
 import type { SubStyle } from './lib/subtitleStyle';
 import { EMPTY_ADVANCED } from './types';
-import type {
-  AdvancedFilter, DurationBucket, PlayQueue, SortKey, Toast, VideoRow, ViewMode,
-} from './types';
+import type { AdvancedFilter, PlayQueue, SortKey, Toast, VideoRow, ViewMode } from './types';
 
 let toastSeq = 0;
 
@@ -38,6 +38,14 @@ const CLEARED = { selection: [] as VideoRow[], anchorIndex: null, focusIndex: nu
 /** 並び替えたときに捨てるもの。通し番号が変わって意味を失う anchor / focus だけ */
 const REORDERED = { anchorIndex: null, focusIndex: null };
 
+/**
+ * `applyFilter` に渡せるもの。詳細検索(`advanced`)だけ**部分指定を許す** ——
+ * 統計モーダルの「未視聴」タイルのように、1 項目だけ立てて飛ぶ呼び出しがあるため。
+ * 残りは既定値に戻る
+ */
+export type FilterPatch =
+  Partial<Omit<FilterState, 'advanced'>> & { advanced?: Partial<AdvancedFilter> };
+
 interface LibraryState {
   text: string;
   sort: SortKey;
@@ -49,15 +57,13 @@ interface LibraryState {
   tagIds: number[];
   /** 選択中のシリーズフィルタ */
   seriesId: number | null;
+  /** dirPath をサブフォルダ込みで見る(絞り込み帯のトグル。v1.35) */
+  dirPathRecursive: boolean;
   /** true のとき「見つからないファイル」だけを表示 */
   missingOnly: boolean;
-  /** このレーティング以上に絞る(0 = 絞らない) */
-  minRating: number;
-  /** 尺フィルタのプリセット(null = 絞らない) */
-  durationBucket: DurationBucket | null;
   /** true のとき内容が同一の動画だけを表示する(重複整理) */
   duplicatesOnly: boolean;
-  /** ツールバーに出していない詳細検索の条件 */
+  /** 詳細検索ポップオーバーの中身ぜんぶ(v1.35。★・長さもここに入った) */
   advanced: AdvancedFilter;
   /** sort='random' のシャッフル種。ページングしても順序を保つために固定値を持つ */
   randomSeed: number;
@@ -197,8 +203,8 @@ interface LibraryState {
   toggleSeriesFilter: (seriesId: number) => void;
   toggleMissingOnly: () => void;
   toggleDuplicatesOnly: () => void;
-  setMinRating: (minRating: number) => void;
-  setDurationBucket: (durationBucket: DurationBucket | null) => void;
+  /** サブフォルダも含めるかを切り替える(フォルダで絞っているときだけ意味を持つ) */
+  toggleDirPathRecursive: () => void;
   setAdvanced: (patch: Partial<AdvancedFilter>) => void;
   clearAdvanced: () => void;
   bumpVersion: () => void;
@@ -236,21 +242,13 @@ interface LibraryState {
   setShowStats: (showStats: boolean) => void;
   /**
    * フィルタ一式をまとめて置き換える(AI アシスタントの apply_filter・
-   * スマートフォルダの復元で共用)。省略項目は既定値に戻る
+   * スマートフォルダの復元・統計からのジャンプで共用)。
+   * **省略項目は EMPTY_FILTER の値に戻る**。
+   *
+   * 引数を FilterState の Partial にしてあるので、条件が増えてもこの型は増えない。
+   * 呼ぶ側は `toFilterState(query)` の結果をそのまま渡せばよい
    */
-  applyFilter: (filter: {
-    text?: string;
-    tagIds?: number[];
-    seriesId?: number | null;
-    minRating?: number;
-    durationBucket?: DurationBucket | null;
-    missingOnly?: boolean;
-    duplicatesOnly?: boolean;
-    sort?: SortKey;
-    advanced?: Partial<AdvancedFilter>;
-    folderId?: number | null;
-    dirPath?: string | null;
-  }) => void;
+  applyFilter: (filter: FilterPatch) => void;
   /** index は一覧内の通し番号。省略すると範囲選択の起点を持たない選択になる */
   selectOnly: (video: VideoRow, index?: number | null) => void;
   toggleSelect: (video: VideoRow, index?: number | null) => void;
@@ -263,17 +261,9 @@ interface LibraryState {
 }
 
 export const useLibrary = create<LibraryState>((set) => ({
-  text: '',
-  sort: 'added_desc',
-  folderId: null,
-  dirPath: null,
-  tagIds: [],
-  seriesId: null,
-  missingOnly: false,
-  minRating: 0,
-  durationBucket: null,
-  duplicatesOnly: false,
-  advanced: EMPTY_ADVANCED,
+  // 絞り込みの初期値は 1 か所(lib/query.ts)から取る。条件が増えてもここは増えない
+  ...EMPTY_FILTER,
+  // 種だけは起動ごとに引き直す(EMPTY_FILTER の 1 は「種を持たない」を表す固定値)
   randomSeed: newSeed(),
   version: 0,
   thumbVersion: 0,
@@ -350,17 +340,14 @@ export const useLibrary = create<LibraryState>((set) => ({
   setShowStats: (showStats) => set({ showStats }),
   applyFilter: (f) =>
     set((s) => ({
-      text: f.text ?? '',
-      tagIds: f.tagIds ?? [],
-      seriesId: f.seriesId ?? null,
-      minRating: f.minRating ?? 0,
-      durationBucket: f.durationBucket ?? null,
-      missingOnly: f.missingOnly ?? false,
-      duplicatesOnly: f.duplicatesOnly ?? false,
+      ...EMPTY_FILTER,
+      ...f,
       advanced: { ...EMPTY_ADVANCED, ...f.advanced },
+      // 並び順だけは既定に戻さない。指定が無ければ今の並びを引き継ぐ
+      // (シリーズを選んだらシリーズ順、外したら追加日順に戻すのは従来どおり)
       sort: f.sort ?? (f.seriesId != null ? 'series_asc' : s.sort === 'series_asc' ? 'added_desc' : s.sort),
-      folderId: f.folderId ?? null,
-      dirPath: f.dirPath ?? null,
+      // 種も同じ。指定が無ければ今の種のまま(ランダム並びが勝手に組み変わらないように)
+      randomSeed: f.randomSeed ?? s.randomSeed,
       ...CLEARED,
     })),
   setText: (text) => set({ text, ...CLEARED }),
@@ -403,8 +390,8 @@ export const useLibrary = create<LibraryState>((set) => ({
         ...CLEARED,
       };
     }),
-  setMinRating: (minRating) => set({ minRating, ...CLEARED }),
-  setDurationBucket: (durationBucket) => set({ durationBucket, ...CLEARED }),
+  toggleDirPathRecursive: () =>
+    set((s) => ({ dirPathRecursive: !s.dirPathRecursive, ...CLEARED })),
   setAdvanced: (patch) =>
     set((s) => ({ advanced: { ...s.advanced, ...patch }, ...CLEARED })),
   clearAdvanced: () => set({ advanced: EMPTY_ADVANCED, ...CLEARED }),

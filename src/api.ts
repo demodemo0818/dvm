@@ -1,8 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useLibrary } from './store';
 import type {
-  AppInfo, BackupInfo, DedupePlan, DedupeResult, ExcludedPath, FolderNode, LibraryEntry,
-  LibraryState, LibraryStats, MediaInfo, OpEntry,
+  AppInfo, BackupInfo, DedupePlan, DedupeResult, ExcludedPath, ExtensionCount, FolderNode,
+  LibraryEntry, LibraryState, LibraryStats, MediaInfo, OpEntry,
   OpResult, PlanItem, Series, SmartFolder, SubfolderView, Tag, TagCount, TagGroup, VideoLabels,
   VideoInfo, VideoQuery, VideoRow, ViewEntry, WatchedFolder,
 } from './types';
@@ -45,6 +45,11 @@ export const api = {
   /** 監視除外を解除する。該当ファイルは次のスキャンで取り込まれる */
   removeExcludedPath: (id: number) => call<void>('remove_excluded_path', { id }),
   countVideos: (query: VideoQuery) => call<number>('count_videos', { query }),
+  /**
+   * 詳細検索の拡張子チップの候補(v1.35)。ライブラリに**実際にある**ものだけを件数付きで返す。
+   * 全件走査なので**詳細検索を開いたときだけ**呼ぶこと
+   */
+  listExtensions: () => call<ExtensionCount[]>('list_extensions'),
   queryVideos: (query: VideoQuery, limit: number, offset: number) =>
     call<VideoRow[]>('query_videos', { query, limit, offset }),
   /**
@@ -106,11 +111,6 @@ export const api = {
     call<TagCount[]>('tag_counts_for_videos', { videoIds }),
   setRating: (videoIds: number[], rating: number, actor?: 'user' | 'ai') =>
     call<void>('set_rating', { videoIds, rating, actor }),
-  removeVideos: (videoIds: number[], actor?: 'user' | 'ai') =>
-    call<void>('remove_videos', { videoIds, actor }),
-  listSeries: () => call<Series[]>('list_series'),
-  addToSeries: (videoIds: number[], name: string, actor?: 'user' | 'ai') =>
-    call<number>('add_to_series', { videoIds, name, actor }),
   /** 詳細パネルの編集フォーム用にタイトル・メモを引く(v1.34)。id が無ければ null */
   getVideoInfo: (id: number) => call<VideoInfo | null>('get_video_info', { id }),
   /**
@@ -122,6 +122,11 @@ export const api = {
     info: { title?: string; comment?: string },
     actor?: 'user' | 'ai',
   ) => call<void>('set_video_info', { id, ...info, actor }),
+  removeVideos: (videoIds: number[], actor?: 'user' | 'ai') =>
+    call<void>('remove_videos', { videoIds, actor }),
+  listSeries: () => call<Series[]>('list_series'),
+  addToSeries: (videoIds: number[], name: string, actor?: 'user' | 'ai') =>
+    call<number>('add_to_series', { videoIds, name, actor }),
   removeFromSeries: (videoIds: number[], seriesId: number, actor?: 'user' | 'ai') =>
     call<void>('remove_from_series', { videoIds, seriesId, actor }),
   /** 同名のシリーズがあると失敗する(series に UNIQUE が無いので Rust 側で弾いている) */

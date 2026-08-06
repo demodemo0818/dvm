@@ -17,11 +17,11 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { api } from '../api';
 import { sortLabel, sortOptions } from '../lib/listColumns';
-import { advancedCount, buildQuery, DURATION_LABELS } from '../lib/query';
+import { advancedCount, buildQuery } from '../lib/query';
 import { splitToolbar, TOOLBAR_ITEMS, toolbarKeys } from '../lib/toolbarItems';
 import type { ToolbarItemKey } from '../lib/toolbarItems';
 import { CARD_WIDTH_MAX, CARD_WIDTH_MIN, useLibrary } from '../store';
-import type { DurationBucket, SortKey } from '../types';
+import type { SortKey } from '../types';
 import { AdvancedSearch } from './AdvancedSearch';
 import { HistoryModal } from './HistoryModal';
 import { SettingsModal } from './SettingsModal';
@@ -34,7 +34,6 @@ type Place = 'bar' | 'menu';
 export function Toolbar() {
   const {
     text, setText, sort, setSort, scanning, seriesId,
-    minRating, setMinRating, durationBucket, setDurationBucket,
     showAiPanel, toggleAiPanel, advanced, duplicatesOnly,
     setShowStats, bumpVersion, pushToast,
     viewMode, setViewMode, cardWidth, setCardWidth,
@@ -208,45 +207,6 @@ export function Toolbar() {
           </ToolSelect>
         );
 
-      case 'rating':
-        return (
-          <ToolSelect
-            key={key}
-            place={place}
-            label={label}
-            title="レーティングで絞り込み"
-            className="rating-select"
-            value={minRating}
-            onChange={(v) => setMinRating(Number(v))}
-          >
-            <option value={0}>★ 指定なし</option>
-            <option value={1}>★1 以上</option>
-            <option value={2}>★2 以上</option>
-            <option value={3}>★3 以上</option>
-            <option value={4}>★4 以上</option>
-            <option value={5}>★5</option>
-          </ToolSelect>
-        );
-
-      case 'duration':
-        return (
-          <ToolSelect
-            key={key}
-            place={place}
-            label={label}
-            title="長さで絞り込み"
-            className="duration-select"
-            value={durationBucket ?? ''}
-            onChange={(v) => setDurationBucket((v || null) as DurationBucket | null)}
-          >
-            <option value="">長さ指定なし</option>
-            {/* 文言は絞り込み帯のチップと共有する(query.ts の DURATION_LABELS) */}
-            {(Object.keys(DURATION_LABELS) as DurationBucket[]).map((k) => (
-              <option key={k} value={k}>{DURATION_LABELS[k]}</option>
-            ))}
-          </ToolSelect>
-        );
-
       case 'saveQuery':
         return (
           <ToolButton
@@ -370,18 +330,18 @@ export function Toolbar() {
 
   const { bar, menu } = splitToolbar(toolbarKeys(viewMode), avail);
   /*
-   * 畳んだ中に効いている絞り込みがあれば ≫ 自体を光らせる。
-   * これが無いと「一覧の件数が少ない理由が分からない」事故が起きる
+   * かつてここには「畳んだ中に効いている絞り込みがあれば ≫ を光らせる」判定があった。
+   * v1.28 の絞り込み帯が★も長さも常にチップで出すようになったので、
+   * 「件数が少ない理由が分からない」事故はそちらで防がれている。
+   * 条件を足すたびにこの式にも足す必要があり(足し忘れても静かに動く)、
+   * 帯と二重に持つ意味が無くなったので消した
    */
-  const hiddenFilter =
-    (menu.includes('rating') && minRating > 0)
-    || (menu.includes('duration') && durationBucket !== null);
 
   return (
     <div className="toolbar" ref={barRef}>
       {bar.map((key) => renderItem(key, 'bar'))}
       {menu.length > 0 && (
-        <ToolbarOverflow open={menuOpen} onOpenChange={setMenuOpen} active={hiddenFilter}>
+        <ToolbarOverflow open={menuOpen} onOpenChange={setMenuOpen}>
           {menu.map((key) => renderItem(key, 'menu'))}
         </ToolbarOverflow>
       )}

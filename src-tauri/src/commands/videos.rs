@@ -1,5 +1,5 @@
 use crate::core::labels::{self, VideoLabels};
-use crate::core::query::{self, VideoQuery, VideoRow};
+use crate::core::query::{self, ExtensionCount, VideoQuery, VideoRow};
 use crate::core::{frames, library, metadata, settings, videos};
 use crate::AppState;
 use rusqlite::params;
@@ -21,6 +21,13 @@ pub fn query_videos(
     let conn = state.db_read.lock().unwrap();
     query::query_rows(&conn, Some(&state.thumbs_dir), &query, limit, offset)
         .map_err(|e| e.to_string())
+}
+
+/// 詳細検索の拡張子チップの候補(v1.35)。全件走査なので**開いたときだけ**呼ぶこと
+#[tauri::command]
+pub fn list_extensions(state: State<AppState>) -> Result<Vec<ExtensionCount>, String> {
+    let conn = state.db_read.lock().unwrap();
+    query::list_extensions(&conn).map_err(|e| e.to_string())
 }
 
 /// 表示中のページぶんのタグ・シリーズをまとめて引く(v1.23)。
@@ -46,13 +53,6 @@ pub fn set_rating(
     videos::set_rating(&conn, &actor, &video_ids, rating).map_err(|e| e.to_string())
 }
 
-/// ライブラリから登録を削除する(ファイル自体は消さない)。サムネイルキャッシュも掃除する
-#[tauri::command]
-pub fn remove_videos(
-    state: State<AppState>,
-    video_ids: Vec<i64>,
-    actor: Option<String>,
-) -> Result<(), String> {
 /// 詳細パネルの編集フォームに出すタイトル・メモを引く(v1.34)。
 /// メモは長文になりうるので一覧クエリには載せず、1 件選んだときだけここで引く
 #[tauri::command]
@@ -76,6 +76,13 @@ pub fn set_video_info(
         .map_err(|e| e.to_string())
 }
 
+/// ライブラリから登録を削除する(ファイル自体は消さない)。サムネイルキャッシュも掃除する
+#[tauri::command]
+pub fn remove_videos(
+    state: State<AppState>,
+    video_ids: Vec<i64>,
+    actor: Option<String>,
+) -> Result<(), String> {
     let actor = super::validate_actor(actor)?;
     {
         let conn = state.db.lock().unwrap();

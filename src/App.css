@@ -1740,16 +1740,16 @@ html.mpv-active .app {
   opacity: 1;
 }
 
-/* ---- 詳細検索ポップオーバー (v1.7) ---- */
+/* ---- 詳細検索ポップオーバー (v1.7、v1.35 で 2 カラム化) ---- */
 /*
  * ツールバーの overflow に切られるので、画面基準で描く(列選択ポップオーバーと同じ扱い)。
- * top / left は AdvancedSearch.tsx がボタンの座標から算出して渡す。
- * 幅を変えるときは同ファイルの POPOVER_W も直すこと(右端の折り返しに使っている)
+ * top / left / width / max-height は AdvancedSearch.tsx が窓の大きさから算出して渡す
+ * (窓を狭めると 1 カラムに落ち、縦は画面に収まる高さで内部スクロールする)。
+ * **絞り込みの入口はここ 1 つ**なので、条件が増えても画面外へ出さないことが要件
  */
 .adv-popover {
   position: fixed;
   z-index: 40;
-  width: 340px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1758,6 +1758,66 @@ html.mpv-active .app {
   border: 1px solid #343945;
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+/* 2 列。溢れたぶんはここが縦にスクロールする(見出しと操作ボタンは常に見える) */
+.adv-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.adv-popover.one-col .adv-cols {
+  grid-template-columns: 1fr;
+}
+
+.adv-col-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 群の見出し。条件が 20 個あると見出し無しでは目で追えない */
+.adv-group {
+  margin-top: 2px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid #2a2e38;
+  color: #8a8f9c;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.adv-col-box > .adv-group:first-child {
+  margin-top: 0;
+}
+
+/* 数値 2 欄。桁数は多くないので固定幅にして「〜」の位置を揃える */
+.adv-num {
+  width: 56px;
+}
+
+.adv-tilde,
+.adv-unit {
+  color: #8a8f9c;
+  flex: none;
+}
+
+.adv-unit-select {
+  flex: none;
+}
+
+/* 拡張子チップの件数。数字は控えめにして拡張子そのものを読ませる */
+.adv-chip-n {
+  opacity: 0.6;
+  font-size: 10px;
+}
+
+.adv-hint {
+  color: #6f7480;
+  font-size: 11px;
 }
 
 .adv-title {
@@ -1789,12 +1849,16 @@ html.mpv-active .app {
 }
 
 .adv-label {
+  flex: none;
   min-width: 56px;
   color: #8a8f9c;
 }
 
+/* 1 行に 2 つ以上並ぶことがある(解像度の上下・日付の範囲)ので縮められるようにする */
 .adv-row select,
 .adv-row input {
+  min-width: 0;
+  flex: 1 1 auto;
   background: #22252d;
   border: 1px solid #343945;
   color: #d8dbe2;
@@ -4167,6 +4231,34 @@ input[type='range']:focus-visible {
 
 .dedupe-remove {
   color: #8a8f9c;
+}
+
+/*
+ * 絞り込み帯の「サブフォルダも含める」(v1.35)。フォルダで絞っているときだけ出る。
+ * 押した状態が続くトグルなので、押しっぱなしが分かるよう .on で塗る
+ */
+.fb-toggle {
+  flex: none;
+  background: none;
+  border: 1px solid #343945;
+  border-radius: 4px;
+  padding: 2px 8px;
+  color: #aab0bd;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.fb-toggle:hover {
+  background: #262a33;
+  border-color: #4a5163;
+}
+
+.fb-toggle.on {
+  background: #2f66d0;
+  border-color: #2f66d0;
+  color: #fff;
 }
 
 /* 絞り込み帯の「重複を解消」。重複を見ているときだけ出る作業ボタン */

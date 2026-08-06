@@ -17,15 +17,10 @@ const EDGE = 8;
  * そのときに閉じる責任は呼び出し側にある
  */
 export function ToolbarOverflow({
-  open, onOpenChange, active, children,
+  open, onOpenChange, children,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /**
-   * 畳んだ中に効いている絞り込みがあるか。あればボタン自体を光らせる。
-   * これが無いと「一覧の件数が少ない理由が分からない」事故が起きる
-   */
-  active: boolean;
   children: ReactNode;
 }) {
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -70,7 +65,7 @@ export function ToolbarOverflow({
     <>
       <button
         ref={btnRef}
-        className={`tb-icon${active ? ' active' : ''}`}
+        className="tb-icon"
         title="入りきらない操作"
         onClick={() => onOpenChange(!open)}
       >

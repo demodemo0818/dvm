@@ -10,7 +10,7 @@ import { excludeTargets, type ExcludeTargets } from '../lib/excludeOnDelete';
 import { GRID_GAP, GRID_PAD, gridMetrics } from '../lib/grid';
 import { gridTemplate, needsLabels, totalWidth } from '../lib/listColumns';
 import { parentDir } from '../lib/paths';
-import { buildQuery } from '../lib/query';
+import { buildQuery, type FilterState } from '../lib/query';
 import { useLibrary } from '../store';
 import type { PlanItem, SortKey, VideoQuery, VideoRow, ViewMode } from '../types';
 import { ContextMenu } from './ContextMenu';
@@ -41,7 +41,7 @@ type MenuTarget =
 
 export function VideoGrid() {
   const {
-    text, sort, folderId, dirPath, tagIds, seriesId, missingOnly, minRating, durationBucket,
+    text, sort, folderId, dirPath, dirPathRecursive, tagIds, seriesId, missingOnly,
     duplicatesOnly, advanced, randomSeed, version,
     viewMode, cardWidth, listColumns, listZebra, selection, anchorIndex, focusIndex,
     clearSelection, setSelection, setFocusIndex, selectOnly, playFromList, toggleDirPath,
@@ -49,11 +49,11 @@ export function VideoGrid() {
   } = useLibrary();
 
   /** 絞り込み一式。buildQuery と余白メニューが同じものを見る */
-  const filters = useMemo(() => ({
-    text, sort, folderId, dirPath, tagIds, seriesId, missingOnly, minRating, durationBucket,
+  const filters = useMemo<FilterState>(() => ({
+    text, sort, folderId, dirPath, dirPathRecursive, tagIds, seriesId, missingOnly,
     duplicatesOnly, advanced, randomSeed,
   }), [
-    text, sort, folderId, dirPath, tagIds, seriesId, missingOnly, minRating, durationBucket,
+    text, sort, folderId, dirPath, dirPathRecursive, tagIds, seriesId, missingOnly,
     duplicatesOnly, advanced, randomSeed,
   ]);
   const query = useMemo<VideoQuery>(() => buildQuery(filters), [filters]);

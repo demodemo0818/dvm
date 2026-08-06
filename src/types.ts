@@ -195,28 +195,117 @@ export interface VideoQuery {
   duplicatesOnly?: boolean;
   /** sort = 'random' のときのシャッフル種 */
   randomSeed?: number;
+
+  // --- v1.35 で追加(Rust の core/query.rs と手動同期) ---
+  /** dirPath をサブフォルダ込みで解釈する */
+  dirPathRecursive?: boolean;
+  /** ファイルサイズの範囲(バイト)。size は NOT NULL なので未取得の除外が起きない */
+  minSizeBytes?: number;
+  maxSizeBytes?: number;
+  /** 拡張子で絞る(ドット無し・小文字。複数指定は OR) */
+  extensions?: string[];
+  /** 解像度の上限(ピクセル)。**その値未満**(minHeight の「以上」と隙間なく分ける) */
+  maxHeight?: number;
+  /** 画面の向き。正方形は landscape 側 */
+  orientation?: Orientation;
+  /** ★を付けていないものだけ。minRating の 0 は「無条件」なので別物 */
+  unrated?: boolean;
+  /** 途中まで観て終わっていないものだけ(アプリ内再生でのみ記録される) */
+  resumedOnly?: boolean;
+  /** 再生回数の範囲 */
+  minViewCount?: number;
+  maxViewCount?: number;
+  /** ファイル更新日の範囲(YYYY-MM-DD。両端を含む) */
+  modifiedAfter?: string;
+  modifiedBefore?: string;
+  /** 「過去 N 日」の相対指定。保存しても腐らないのが絶対日付との違い */
+  addedWithinDays?: number;
+  modifiedWithinDays?: number;
+  /** text の検索対象にメモ(comment)も含める */
+  searchComment?: boolean;
 }
 
-/** 詳細検索のうち、ツールバー本体に出していない条件だけをまとめたもの */
+/** 画面の向き。'' = 指定なし */
+export type Orientation = '' | 'portrait' | 'landscape';
+
+/**
+ * **詳細検索ポップオーバーに出ている条件そのもの**(v1.35)。
+ *
+ * v1.34 までは「ツールバー本体に出していない条件」という意味だったが、
+ * v1.35 で★と長さもツールバーから外して絞り込みの入口を漏斗 1 つにしたので、
+ * いまは「詳細検索の中身ぜんぶ」と一致する。`advancedCount()` がそのままバッジの数字になる。
+ *
+ * ここに入らない絞り込みは**別の入口を持つもの**だけ:
+ * テキスト(検索欄)・タグ・シリーズ・フォルダ(サイドバー)・
+ * 見つからない / 重複(サイドバーの全体行)・サブフォルダも含める(絞り込み帯)
+ *
+ * 数値は 2 系統ある。**プリセットのセレクトは 0 = 指定なし、自由入力は null = 指定なし**。
+ * 自由入力側で 0 に意味がある(再生回数 0 = 未視聴)ため区別が要る
+ */
 export interface AdvancedFilter {
   searchPath: boolean;
+  searchComment: boolean;
+  /** 0 = 指定なし。1〜5 で「★N 以上」 */
+  minRating: number;
+  unrated: boolean;
+  minDurationMs: number | null;
+  maxDurationMs: number | null;
+  minSizeBytes: number | null;
+  maxSizeBytes: number | null;
+  extensions: string[];
+  /** 0 = 指定なし */
+  minHeight: number;
+  /** 0 = 指定なし。指定した値**未満** */
+  maxHeight: number;
+  orientation: Orientation;
+  videoCodecs: string[];
   untagged: boolean;
   unwatched: boolean;
-  minHeight: number;
-  videoCodecs: string[];
+  resumedOnly: boolean;
+  minViewCount: number | null;
+  maxViewCount: number | null;
   addedAfter: string;
   addedBefore: string;
+  /** 0 = 指定なし */
+  addedWithinDays: number;
+  modifiedAfter: string;
+  modifiedBefore: string;
+  /** 0 = 指定なし */
+  modifiedWithinDays: number;
 }
 
 export const EMPTY_ADVANCED: AdvancedFilter = {
   searchPath: false,
+  searchComment: false,
+  minRating: 0,
+  unrated: false,
+  minDurationMs: null,
+  maxDurationMs: null,
+  minSizeBytes: null,
+  maxSizeBytes: null,
+  extensions: [],
+  minHeight: 0,
+  maxHeight: 0,
+  orientation: '',
+  videoCodecs: [],
   untagged: false,
   unwatched: false,
-  minHeight: 0,
-  videoCodecs: [],
+  resumedOnly: false,
+  minViewCount: null,
+  maxViewCount: null,
   addedAfter: '',
   addedBefore: '',
+  addedWithinDays: 0,
+  modifiedAfter: '',
+  modifiedBefore: '',
+  modifiedWithinDays: 0,
 };
+
+/** 詳細検索の拡張子チップ 1 つぶん(Rust の core/query::ExtensionCount と対) */
+export interface ExtensionCount {
+  ext: string;
+  count: number;
+}
 
 /**
  * 視聴履歴の 1 行(v1.18)。1 視聴 = 1 行なので、同じ動画が何度も出る。

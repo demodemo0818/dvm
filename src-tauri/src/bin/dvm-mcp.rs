@@ -8,6 +8,10 @@
 //! (タグ・シリーズ・レーティング編集、ごみ箱送りなど)が有効になる。
 //! アプリ(DVM)が起動していなくても動作する。
 
+// ツール定義は 1 本の巨大な json! リテラル。v1.35 で search_videos の条件が
+// 30 個近くになり既定の 128 では展開しきれなくなった(コンパイラの提案どおり引き上げ)
+#![recursion_limit = "256"]
+
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -131,27 +135,42 @@ fn read_tool_definitions() -> Value {
     json!([
         {
             "name": "search_videos",
-            "description": "動画ライブラリを検索する。テキスト(ファイル名・タイトルの部分一致。空白区切りで AND)、タグ名、シリーズ名、missing 状態、未視聴、タグなし、解像度、コーデック、追加日で絞り込める。結果は JSON 配列で返る。",
+            "description": "動画ライブラリを検索する。テキスト(ファイル名・タイトル・メモの部分一致。空白区切りで AND)、タグ名、シリーズ名、フォルダ、missing 状態、視聴状態、レーティング、尺、サイズ、拡張子、解像度、向き、コーデック、追加日・更新日で絞り込める。結果は JSON 配列で返る。",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "text": { "type": "string", "description": "ファイル名・タイトルの部分一致検索。空白区切りで複数語すべてを含むものに絞る" },
                     "search_path": { "type": "boolean", "description": "true で text の検索対象にフルパスも含める" },
-                    "dir_path": { "type": "string", "description": "このフォルダ直下にある動画だけに絞る(サブフォルダは含まない)。絶対パスで指定する" },
+                    "search_comment": { "type": "boolean", "description": "true で text の検索対象にメモ(comment)も含める" },
+                    "dir_path": { "type": "string", "description": "このフォルダにある動画だけに絞る。絶対パスで指定する。既定はそのフォルダ直下だけ(サブフォルダを含めるなら dir_path_recursive)" },
+                    "dir_path_recursive": { "type": "boolean", "description": "true で dir_path をサブフォルダ込みで解釈する" },
                     "tags": { "type": "array", "items": { "type": "string" }, "description": "タグ名(完全一致)で絞る。同じグループのタグ同士は OR、グループをまたぐと AND になる(例: [\"ファンタジー\", \"SF\", \"アニメ\"] = (ファンタジー または SF) かつ アニメ)。グループは list_tags で確認できる" },
                     "series": { "type": "string", "description": "シリーズ名(完全一致)。指定時は登録順で返る" },
                     "missing": { "type": "boolean", "description": "true でファイルが見つからない動画のみ" },
                     "untagged": { "type": "boolean", "description": "true でタグが 1 つも付いていない動画のみ" },
                     "unwatched": { "type": "boolean", "description": "true で一度も再生していない動画のみ" },
                     "duplicates_only": { "type": "boolean", "description": "true で内容が同一(サイズ+部分ハッシュが一致)の動画だけを返す。sort=dup と併せると同じものが隣り合う" },
+                    "resumed_only": { "type": "boolean", "description": "true で途中まで観て終わっていない動画のみ(アプリ内再生でのみ記録される)" },
+                    "min_view_count": { "type": "integer", "description": "再生回数の下限" },
+                    "max_view_count": { "type": "integer", "description": "再生回数の上限。0 を指定すると未視聴のみ" },
                     "min_rating": { "type": "integer", "minimum": 1, "maximum": 5, "description": "このレーティング以上の動画に絞る" },
+                    "unrated": { "type": "boolean", "description": "true でレーティングを付けていない動画のみ。min_rating の 0 は「無条件」の意味なので、これとは別物" },
                     "min_duration_sec": { "type": "integer", "description": "尺の下限(秒)" },
                     "max_duration_sec": { "type": "integer", "description": "尺の上限(秒)" },
+                    "min_size_bytes": { "type": "integer", "description": "ファイルサイズの下限(バイト)" },
+                    "max_size_bytes": { "type": "integer", "description": "ファイルサイズの上限(バイト)" },
+                    "extensions": { "type": "array", "items": { "type": "string" }, "description": "拡張子で絞る(例: [\"mp4\", \"mkv\"])。大文字・先頭のドットは無視される" },
                     "min_width": { "type": "integer", "description": "横解像度の下限(ピクセル)" },
                     "min_height": { "type": "integer", "description": "縦解像度の下限(ピクセル)。1080 で FHD 以上" },
+                    "max_height": { "type": "integer", "description": "縦解像度の上限(ピクセル)。**その値未満**なので、720 で「720p 未満」になる" },
+                    "orientation": { "type": "string", "enum": ["portrait", "landscape"], "description": "画面の向き。portrait = 縦長、landscape = 横長(正方形を含む)" },
                     "video_codecs": { "type": "array", "items": { "type": "string" }, "description": "映像コーデックで絞る(例: [\"h264\", \"hevc\"])" },
                     "added_after": { "type": "string", "description": "ライブラリ追加日の下限(YYYY-MM-DD。その日を含む)" },
                     "added_before": { "type": "string", "description": "ライブラリ追加日の上限(YYYY-MM-DD。その日を含む)" },
+                    "added_within_days": { "type": "integer", "description": "過去 N 日以内に追加されたものだけ(相対指定。7 で直近 1 週間)" },
+                    "modified_after": { "type": "string", "description": "ファイル更新日の下限(YYYY-MM-DD。その日を含む)" },
+                    "modified_before": { "type": "string", "description": "ファイル更新日の上限(YYYY-MM-DD。その日を含む)" },
+                    "modified_within_days": { "type": "integer", "description": "過去 N 日以内に更新されたものだけ(相対指定)" },
                     "sort": { "type": "string", "enum": ["added_desc", "added_asc", "name_asc", "name_desc", "size_desc", "duration_desc", "rating_desc", "viewed_desc", "dup"], "description": "並び順(既定: added_desc)" },
                     "limit": { "type": "integer", "description": "最大件数(既定 50、最大 1000)" }
                 }
@@ -333,17 +352,35 @@ fn call_tool(
                 min_duration_ms: args["min_duration_sec"].as_i64().map(|s| s * 1000),
                 max_duration_ms: args["max_duration_sec"].as_i64().map(|s| s * 1000),
                 search_path: args["search_path"].as_bool(),
+                search_comment: args["search_comment"].as_bool(),
                 dir_path: args["dir_path"].as_str().map(String::from),
+                dir_path_recursive: args["dir_path_recursive"].as_bool(),
                 untagged: args["untagged"].as_bool(),
                 unwatched: args["unwatched"].as_bool(),
                 duplicates_only: args["duplicates_only"].as_bool(),
                 min_width: args["min_width"].as_i64(),
                 min_height: args["min_height"].as_i64(),
+                max_height: args["max_height"].as_i64(),
+                orientation: args["orientation"].as_str().map(String::from),
                 video_codecs: args["video_codecs"].as_array().map(|a| {
                     a.iter().filter_map(|v| v.as_str().map(String::from)).collect()
                 }),
                 added_after: args["added_after"].as_str().map(String::from),
                 added_before: args["added_before"].as_str().map(String::from),
+                // --- v1.35 ---
+                min_size_bytes: args["min_size_bytes"].as_i64(),
+                max_size_bytes: args["max_size_bytes"].as_i64(),
+                extensions: args["extensions"].as_array().map(|a| {
+                    a.iter().filter_map(|v| v.as_str().map(String::from)).collect()
+                }),
+                unrated: args["unrated"].as_bool(),
+                resumed_only: args["resumed_only"].as_bool(),
+                min_view_count: args["min_view_count"].as_i64(),
+                max_view_count: args["max_view_count"].as_i64(),
+                modified_after: args["modified_after"].as_str().map(String::from),
+                modified_before: args["modified_before"].as_str().map(String::from),
+                added_within_days: args["added_within_days"].as_i64(),
+                modified_within_days: args["modified_within_days"].as_i64(),
                 ..Default::default()
             };
             if let Some(names) = args["tags"].as_array() {

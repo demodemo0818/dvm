@@ -145,7 +145,7 @@ export function StatsModal() {
                 onPick={(b) => {
                   const star = Number(b.key);
                   // 未評価には「以上」の概念がないので、そこだけは絞り込まない
-                  if (star > 0) jump({ minRating: star });
+                  if (star > 0) jump({ advanced: { minRating: star } });
                 }}
               />
             </div>

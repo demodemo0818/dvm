@@ -8,7 +8,7 @@ import {
   buildLibraryMenu, buildSeriesMenu, buildSmartFolderMenu, buildWatchedFolderMenu,
 } from '../lib/contextMenu';
 import { baseName } from '../lib/paths';
-import { buildQuery } from '../lib/query';
+import { buildQuery, toFilterState } from '../lib/query';
 import { useLibrary } from '../store';
 import type {
   FolderNode, LibraryEntry, PlanItem, Series, SidebarTab, SmartFolder, Tag, TagGroup, VideoQuery,
@@ -33,15 +33,13 @@ type MenuTarget =
   // v1.27。これだけ右クリックではなくボタンの左クリックで開く
   | { kind: 'library' };
 
-/** いま画面に効いている絞り込みを VideoQuery にする(スマートフォルダの上書き用) */
+/**
+ * いま画面に効いている絞り込みを VideoQuery にする(スマートフォルダの上書き用)。
+ * store は FilterState を丸ごと含んでいるのでそのまま渡す ——
+ * 項目を書き写すと、条件が増えたときにここだけ古いまま残る
+ */
 function currentQuery(): VideoQuery {
-  const s = useLibrary.getState();
-  return buildQuery({
-    text: s.text, sort: s.sort, folderId: s.folderId, dirPath: s.dirPath, tagIds: s.tagIds,
-    seriesId: s.seriesId, missingOnly: s.missingOnly, minRating: s.minRating,
-    durationBucket: s.durationBucket, duplicatesOnly: s.duplicatesOnly, advanced: s.advanced,
-    randomSeed: s.randomSeed,
-  });
+  return buildQuery(useLibrary.getState());
 }
 
 export function Sidebar() {
@@ -108,7 +106,13 @@ export function Sidebar() {
     api.setSetting('sidebar_tab', next);
   };
 
-  /** 保存した検索条件を復元する。壊れた JSON は握り潰さずトーストで知らせる */
+  /**
+   * 保存した検索条件を復元する。壊れた JSON は握り潰さずトーストで知らせる。
+   *
+   * **項目をここで並べないこと**。以前は手で書き写していたため尺の範囲が抜けており、
+   * 保存して開き直すと長さの条件だけ静かに消えていた。
+   * 変換は `toFilterState`(= `buildQuery` の逆)に一本化してある
+   */
   const openSmartFolder = (sf: SmartFolder) => {
     let q: VideoQuery;
     try {
@@ -117,26 +121,7 @@ export function Sidebar() {
       pushToast(`「${sf.name}」の検索条件を読めませんでした`);
       return;
     }
-    applyFilter({
-      text: q.text,
-      folderId: q.folderId,
-      dirPath: q.dirPath,
-      tagIds: q.tagIds,
-      seriesId: q.seriesId,
-      minRating: q.minRating,
-      missingOnly: q.missing,
-      duplicatesOnly: q.duplicatesOnly,
-      sort: q.sort,
-      advanced: {
-        searchPath: q.searchPath ?? false,
-        untagged: q.untagged ?? false,
-        unwatched: q.unwatched ?? false,
-        minHeight: q.minHeight ?? 0,
-        videoCodecs: q.videoCodecs ?? [],
-        addedAfter: q.addedAfter ?? '',
-        addedBefore: q.addedBefore ?? '',
-      },
-    });
+    applyFilter(toFilterState(q));
   };
 
   /**

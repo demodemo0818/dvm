@@ -55,6 +55,40 @@ pub struct VideoQuery {
     /// Windows のパスは大文字小文字を区別せず、'/' と '\' の揺れも吸収する。
     /// folder_id(監視フォルダ配下すべて)とは別物で、併用もできる
     pub dir_path: Option<String>,
+
+    // --- v1.35 で追加した条件(すべて未指定なら従来と同じ SQL になること) ---
+    /// `dir_path` をサブフォルダ込みで解釈する。単体では意味を持たない
+    pub dir_path_recursive: Option<bool>,
+    /// ファイルサイズの範囲(バイト)。`size` は NOT NULL なので「未取得を除く」問題が無い
+    pub min_size_bytes: Option<i64>,
+    pub max_size_bytes: Option<i64>,
+    /// 拡張子で絞る(ドット無し・小文字で比較。複数指定は OR)。
+    /// **`container` 列は使わない** —— ffprobe の `format_name` は mp4 が "mov,mp4,m4a" で入るため
+    pub extensions: Option<Vec<String>>,
+    /// 解像度の上限(ピクセル)。**「未満」**(`min_height` の「以上」と隙間なく分けるため)
+    pub max_height: Option<i64>,
+    /// 画面の向き。"portrait" = 縦長(height > width) / "landscape" = 横長(width >= height)。
+    /// 正方形は landscape 側に入れる。未取得(NULL)はどちらにも入らない
+    pub orientation: Option<String>,
+    /// ★が付いていないものだけ(rating = 0)。
+    /// `min_rating` は 0 を「無条件」の意味に使っているので、こちらが別に要る
+    pub unrated: Option<bool>,
+    /// 途中まで観たものだけ(resume_ms > 0)。
+    /// 再生位置は 90% 超で 0 に丸めているので「観終わっていないもの」を正しく表す。
+    /// **アプリ内再生でしか更新されない**(外部プレイヤー起動では付かない)
+    pub resumed_only: Option<bool>,
+    /// 再生回数の範囲。`unwatched`(= 0 回)は互換のため別に残してある
+    pub min_view_count: Option<i64>,
+    pub max_view_count: Option<i64>,
+    /// ファイル更新日の範囲(YYYY-MM-DD。両端を含む)
+    pub modified_after: Option<String>,
+    pub modified_before: Option<String>,
+    /// 「過去 N 日」の相対指定。**保存しても腐らない**のが絶対日付との違い
+    /// (スマートフォルダは VideoQuery の JSON をそのまま持つため)
+    pub added_within_days: Option<i64>,
+    pub modified_within_days: Option<i64>,
+    /// text の検索対象にメモ(comment)も含める。`search_path` と同じ形
+    pub search_comment: Option<bool>,
 }
 
 /// 一覧表示用の 1 行(UI・MCP 共通)
@@ -119,6 +153,9 @@ impl VideoQuery {
                 if self.search_path == Some(true) {
                     ors.push(format!("path LIKE ?{n} ESCAPE '\\'"));
                 }
+                if self.search_comment == Some(true) {
+                    ors.push(format!("COALESCE(comment,'') LIKE ?{n} ESCAPE '\\'"));
+                }
                 conds.push(format!("({})", ors.join(" OR ")));
             }
         }
@@ -137,11 +174,18 @@ impl VideoQuery {
             let n = prefix.chars().count();
             params.push(prefix);
             let k = params.len();
-            // 前半 = そのフォルダで始まる / 後半 = 残りに区切りが無い(= 直下のファイル)
-            conds.push(format!(
-                "(lower(replace(substr(path, 1, {n}), '/', '\\')) = ?{k}
-                  AND instr(replace(substr(path, {n} + 1), '/', '\\'), '\\') = 0)"
-            ));
+            // 前半 = そのフォルダで始まる / 後半 = 残りに区切りが無い(= 直下のファイル)。
+            // 配下すべて(v1.35)は後半を落とすだけ —— 前半の「そのフォルダで始まる」は同じ
+            let starts_with =
+                format!("lower(replace(substr(path, 1, {n}), '/', '\\')) = ?{k}");
+            conds.push(if self.dir_path_recursive == Some(true) {
+                format!("({starts_with})")
+            } else {
+                format!(
+                    "({starts_with}
+                      AND instr(replace(substr(path, {n} + 1), '/', '\\'), '\\') = 0)"
+                )
+            });
         }
         if let Some(tag_ids) = &self.tag_ids.as_ref().filter(|ids| !ids.is_empty()) {
             // **同じグループのタグ同士は OR、グループをまたぐと AND**(v1.19)。
@@ -220,6 +264,78 @@ impl VideoQuery {
             params.push(d.to_string());
             conds.push(format!("date(added_at) <= ?{}", params.len()));
         }
+
+        // --- v1.35 で足した条件 ---
+        if let Some(b) = self.min_size_bytes {
+            conds.push(format!("size >= {}", b.max(0)));
+        }
+        if let Some(b) = self.max_size_bytes {
+            conds.push(format!("size <= {}", b.max(0)));
+        }
+        if let Some(exts) = &self.extensions {
+            // 拡張子はファイル名から取る(ext_expr は並べ替えと共用)。
+            // 呼び出し側が ".mp4" と書いても "mp4" と書いても同じ結果にする
+            let mut placeholders: Vec<String> = Vec::new();
+            for e in exts.iter() {
+                let e = e.trim().trim_start_matches('.').to_lowercase();
+                if e.is_empty() {
+                    continue;
+                }
+                params.push(e);
+                placeholders.push(format!("?{}", params.len()));
+            }
+            if !placeholders.is_empty() {
+                conds.push(format!("{} IN ({})", ext_expr(), placeholders.join(", ")));
+            }
+        }
+        if let Some(h) = self.max_height {
+            // 「以上」の min_height と隙間なく分けたいので **未満**。
+            // height が NULL の行は比較結果が NULL になり、自然に外れる
+            conds.push(format!("height < {}", h.max(0)));
+        }
+        match self.orientation.as_deref().map(str::trim) {
+            // 正方形は landscape 側。「縦長のものだけ」を探すのが目的なので、
+            // どちらでもないものを縦に混ぜない
+            Some("portrait") => conds.push("height > width".into()),
+            Some("landscape") => conds.push("width >= height".into()),
+            _ => {}
+        }
+        if self.unrated == Some(true) {
+            conds.push("rating = 0".into());
+        }
+        if self.resumed_only == Some(true) {
+            conds.push("resume_ms > 0".into());
+        }
+        if let Some(n) = self.min_view_count {
+            conds.push(format!("view_count >= {}", n.max(0)));
+        }
+        if let Some(n) = self.max_view_count {
+            conds.push(format!("view_count <= {}", n.max(0)));
+        }
+        if let Some(d) = self.modified_after.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
+            params.push(d.to_string());
+            conds.push(format!("date(file_modified_at) >= ?{}", params.len()));
+        }
+        if let Some(d) = self.modified_before.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
+            params.push(d.to_string());
+            conds.push(format!("date(file_modified_at) <= ?{}", params.len()));
+        }
+        // 相対指定。**'localtime' を必ず付ける** —— added_at / file_modified_at は
+        // datetime(...,'localtime') で入っているので、UTC の date('now') と比べると
+        // 時差のぶんだけ境界がずれる
+        if let Some(n) = self.added_within_days {
+            conds.push(format!(
+                "date(added_at) >= date('now','localtime','-{} day')",
+                n.max(0)
+            ));
+        }
+        if let Some(n) = self.modified_within_days {
+            conds.push(format!(
+                "date(file_modified_at) >= date('now','localtime','-{} day')",
+                n.max(0)
+            ));
+        }
+
         if self.duplicates_only == Some(true) {
             // 同じ size + partial_hash を持つ仲間が 2 件以上いるものだけ。
             // partial_hash 未算出(NULL)は「不明」であって重複ではないので除く
@@ -324,6 +440,37 @@ fn ext_expr() -> &'static str {
     "CASE WHEN instr(filename, '.') = 0 THEN ''
           ELSE lower(replace(filename, rtrim(filename, replace(filename, '.', '')), ''))
      END"
+}
+
+/// 詳細検索の拡張子チップ 1 つぶん(v1.35)
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionCount {
+    /// ドット無し・小文字("mp4")
+    pub ext: String,
+    pub count: i64,
+}
+
+/// ライブラリに**実際にある**拡張子と件数(v1.35)。
+///
+/// コーデックのように固定リストをベタ書きしないのは、拡張子が
+/// ライブラリごとにまったく違うから(`ts` / `m2ts` / `wmv` が居るかは人による)。
+/// 持っていない拡張子のチップを並べても選ばせるだけ無駄で、逆に少数派は取りこぼす。
+///
+/// 全件走査だが**詳細検索を開いたときにしか呼ばない**(2.5 万件で数十 ms)。
+/// 拡張子のない動画は除く —— 「拡張子なしで絞る」の使い道が無いため
+pub fn list_extensions(conn: &Connection) -> Result<Vec<ExtensionCount>> {
+    let sql = format!(
+        "SELECT {e} AS ext, COUNT(*) AS n FROM videos
+         WHERE {e} <> '' GROUP BY ext ORDER BY n DESC, ext ASC",
+        e = ext_expr()
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt
+        .query_map([], |r| Ok(ExtensionCount { ext: r.get(0)?, count: r.get(1)? }))?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(rows)
 }
 
 pub fn count(conn: &Connection, query: &VideoQuery) -> Result<i64> {
@@ -825,5 +972,279 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(ids(&conn, &q), vec![10]);
+    }
+
+    // --- v1.35 で足した条件 ---
+
+    #[test]
+    fn dir_path_recursive_includes_descendants() {
+        let conn = setup_dirs();
+        let q = VideoQuery {
+            dir_path: Some(r"C:\動画\アニメ".into()),
+            dir_path_recursive: Some(true),
+            ..Default::default()
+        };
+        let mut got = ids(&conn, &q);
+        got.sort();
+        // 直下の b.mp4 に加えて孫の 2024\c.mp4 も入る(直下モードでは 11 だけ)
+        assert_eq!(got, vec![11, 12]);
+    }
+
+    /// 配下モードでもワイルドカードを模様として扱わないこと(直下モードと同じ保証)
+    #[test]
+    fn dir_path_recursive_does_not_treat_wildcards_as_patterns() {
+        let conn = setup_dirs();
+        let q = VideoQuery {
+            dir_path: Some(r"C:\動画\100%_test".into()),
+            dir_path_recursive: Some(true),
+            ..Default::default()
+        };
+        assert_eq!(ids(&conn, &q), vec![15]);
+    }
+
+    /// v1.35 の条件を全部試すためのデータ。
+    /// サイズ・拡張子・向き・視聴状態・更新日をばらけさせてある
+    fn setup_v135() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::apply_schema(&conn).unwrap();
+        conn.execute_batch(
+            r#"
+            INSERT INTO videos (id, path, filename, comment, size, duration_ms, width, height,
+                                rating, view_count, resume_ms, file_modified_at, added_at)
+            VALUES
+              -- 横長 1080p / 2GB / mp4 / ★3 / 5 回 / 途中まで
+              (1, 'C:\v\a.mp4', 'a.mp4', 'カレーの覚書', 2147483648, 60000, 1920, 1080, 3, 5, 12000,
+               '2026-07-01 10:00:00', '2026-07-01 10:00:00'),
+              -- 縦長 / 50MB / mkv / ★なし / 未視聴
+              (2, 'C:\v\b.mkv', 'b.mkv', NULL, 52428800, 60000, 720, 1280, 0, 0, 0,
+               '2026-01-01 10:00:00', '2026-01-01 10:00:00'),
+              -- 正方形 / 500MB / MP4(大文字)/ ★なし / 2 回
+              (3, 'C:\v\c.MP4', 'c.MP4', NULL, 524288000, 60000, 1000, 1000, 0, 2, 0,
+               '2026-06-01 10:00:00', '2026-06-01 10:00:00'),
+              -- 解像度・更新日が未取得 / 1KB / 拡張子なし / ★5
+              (4, 'C:\v\noext', 'noext', 'メモだけある', 1024, NULL, NULL, NULL, 5, 0, 0,
+               NULL, '2026-05-01 10:00:00');
+            "#,
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn size_range() {
+        let conn = setup_v135();
+        let big = VideoQuery { min_size_bytes: Some(1024 * 1024 * 1024), ..Default::default() };
+        assert_eq!(ids(&conn, &big), vec![1], "1GB 以上は a.mp4 だけ");
+
+        let small = VideoQuery { max_size_bytes: Some(100 * 1024 * 1024), ..Default::default() };
+        let mut got = ids(&conn, &small);
+        got.sort();
+        assert_eq!(got, vec![2, 4]);
+
+        // size は NOT NULL なので、範囲を指定しても「未取得で消える」行が無い
+        let all = VideoQuery { min_size_bytes: Some(0), ..Default::default() };
+        assert_eq!(ids(&conn, &all).len(), 4);
+    }
+
+    #[test]
+    fn extension_filter_is_case_insensitive_and_dot_tolerant() {
+        let conn = setup_v135();
+        // 大文字の .MP4 も拾う。先頭のドットを付けても付けなくても同じ
+        let q = VideoQuery { extensions: Some(vec![".MP4".into()]), ..Default::default() };
+        let mut got = ids(&conn, &q);
+        got.sort();
+        assert_eq!(got, vec![1, 3]);
+
+        // 複数指定は OR
+        let multi = VideoQuery {
+            extensions: Some(vec!["mp4".into(), "mkv".into()]),
+            ..Default::default()
+        };
+        assert_eq!(ids(&conn, &multi).len(), 3);
+
+        // 空文字だけを渡したときに条件ごと消える(全件になる)こと
+        let blank = VideoQuery { extensions: Some(vec![" ".into()]), ..Default::default() };
+        assert_eq!(ids(&conn, &blank).len(), 4);
+    }
+
+    #[test]
+    fn resolution_upper_bound_and_orientation() {
+        let conn = setup_v135();
+        // max_height は「未満」。1080 を指定すると 1080p 自身は外れる
+        let low = VideoQuery { max_height: Some(1080), ..Default::default() };
+        assert_eq!(ids(&conn, &low), vec![3], "1000 だけ。未取得の 4 は入らない");
+
+        // min と max を重ねると帯になる
+        let band = VideoQuery {
+            min_height: Some(1000),
+            max_height: Some(1280),
+            ..Default::default()
+        };
+        let mut got = ids(&conn, &band);
+        got.sort();
+        assert_eq!(got, vec![1, 3]);
+
+        let portrait = VideoQuery { orientation: Some("portrait".into()), ..Default::default() };
+        assert_eq!(ids(&conn, &portrait), vec![2]);
+
+        // 正方形は landscape 側に入れる。未取得(4)はどちらにも入らない
+        let landscape = VideoQuery { orientation: Some("landscape".into()), ..Default::default() };
+        let mut got = ids(&conn, &landscape);
+        got.sort();
+        assert_eq!(got, vec![1, 3]);
+
+        // 知らない値は条件にしない(全件のまま)
+        let unknown = VideoQuery { orientation: Some("diagonal".into()), ..Default::default() };
+        assert_eq!(unknown.where_clause().0, "");
+    }
+
+    #[test]
+    fn unrated_is_not_the_same_as_min_rating_zero() {
+        let conn = setup_v135();
+        // min_rating の 0 は「無条件」なので、これでは絞れない
+        let zero = VideoQuery { min_rating: Some(0), ..Default::default() };
+        assert_eq!(ids(&conn, &zero).len(), 4);
+
+        let unrated = VideoQuery { unrated: Some(true), ..Default::default() };
+        let mut got = ids(&conn, &unrated);
+        got.sort();
+        assert_eq!(got, vec![2, 3]);
+    }
+
+    #[test]
+    fn resumed_and_view_count() {
+        let conn = setup_v135();
+        let resumed = VideoQuery { resumed_only: Some(true), ..Default::default() };
+        assert_eq!(ids(&conn, &resumed), vec![1]);
+
+        let watched = VideoQuery { min_view_count: Some(2), ..Default::default() };
+        let mut got = ids(&conn, &watched);
+        got.sort();
+        assert_eq!(got, vec![1, 3]);
+
+        // 0 回以下 = 未視聴。既存の unwatched と同じ集合になること
+        let none = VideoQuery { max_view_count: Some(0), ..Default::default() };
+        let mut a = ids(&conn, &none);
+        a.sort();
+        let mut b = ids(&conn, &VideoQuery { unwatched: Some(true), ..Default::default() });
+        b.sort();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn modified_date_range_excludes_unknown() {
+        let conn = setup_v135();
+        let q = VideoQuery {
+            modified_after: Some("2026-06-01".into()),
+            modified_before: Some("2026-07-01".into()),
+            ..Default::default()
+        };
+        let mut got = ids(&conn, &q);
+        got.sort();
+        assert_eq!(got, vec![1, 3], "両端を含み、更新日が未取得の 4 は入らない");
+    }
+
+    /// 相対指定は 'now' を使うので、件数ではなく**境界の向き**で確かめる。
+    /// localtime を付け忘れると時差のぶんだけ境界がずれる
+    #[test]
+    fn within_days_is_relative_to_now() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::apply_schema(&conn).unwrap();
+        conn.execute_batch(
+            r#"
+            INSERT INTO videos (id, path, filename, size, added_at, file_modified_at) VALUES
+              (1, 'C:\v\today.mp4', 'today.mp4', 1,
+               datetime('now','localtime'), datetime('now','localtime')),
+              (2, 'C:\v\old.mp4', 'old.mp4', 1,
+               datetime('now','localtime','-30 day'), datetime('now','localtime','-30 day'));
+            "#,
+        )
+        .unwrap();
+
+        let recent = VideoQuery { added_within_days: Some(7), ..Default::default() };
+        assert_eq!(ids(&conn, &recent), vec![1]);
+
+        let wide = VideoQuery { added_within_days: Some(60), ..Default::default() };
+        assert_eq!(ids(&conn, &wide).len(), 2);
+
+        let mod_recent = VideoQuery { modified_within_days: Some(7), ..Default::default() };
+        assert_eq!(ids(&conn, &mod_recent), vec![1]);
+    }
+
+    #[test]
+    fn search_comment_extends_the_text_target() {
+        let conn = setup_v135();
+        // 既定ではメモは検索対象外
+        let off = VideoQuery { text: Some("カレー".into()), ..Default::default() };
+        assert!(ids(&conn, &off).is_empty());
+
+        let on = VideoQuery {
+            text: Some("カレー".into()),
+            search_comment: Some(true),
+            ..Default::default()
+        };
+        assert_eq!(ids(&conn, &on), vec![1]);
+
+        // ファイル名とメモは OR。両方を含む語が無くても片方に当たれば出る
+        let both = VideoQuery {
+            text: Some("メモ".into()),
+            search_comment: Some(true),
+            ..Default::default()
+        };
+        assert_eq!(ids(&conn, &both), vec![4]);
+    }
+
+    #[test]
+    fn extension_list_counts_what_the_library_actually_has() {
+        let conn = setup_v135();
+        let got = list_extensions(&conn).unwrap();
+        let pairs: Vec<(String, i64)> =
+            got.into_iter().map(|e| (e.ext, e.count)).collect();
+        // 多い順 → 同数なら名前順。拡張子なし(id=4)は出さない
+        assert_eq!(pairs, vec![("mp4".to_string(), 2), ("mkv".to_string(), 1)]);
+    }
+
+    /// **未指定なら従来とまったく同じ SQL** の担保(v1.7 からの約束)。
+    /// 新しい条件を Option 以外で足すとここが落ちる
+    #[test]
+    fn new_conditions_are_inert_when_unset() {
+        let conn = setup_v135();
+        let q = VideoQuery::default();
+        assert_eq!(q.where_clause().0, "");
+        assert_eq!(count(&conn, &q).unwrap(), 4);
+    }
+
+    /// 新条件を全部同時に立てても SQL が壊れないこと(バインド番号のずれの検出)
+    #[test]
+    fn all_new_conditions_combine() {
+        let conn = setup_v135();
+        let q = VideoQuery {
+            text: Some("a".into()),
+            search_comment: Some(true),
+            search_path: Some(true),
+            dir_path: Some(r"C:\v".into()),
+            dir_path_recursive: Some(true),
+            min_size_bytes: Some(1),
+            max_size_bytes: Some(i64::MAX),
+            extensions: Some(vec!["mp4".into()]),
+            min_height: Some(100),
+            max_height: Some(4320),
+            orientation: Some("landscape".into()),
+            min_view_count: Some(0),
+            max_view_count: Some(100),
+            resumed_only: Some(true),
+            modified_after: Some("2020-01-01".into()),
+            modified_before: Some("2030-01-01".into()),
+            added_within_days: Some(36500),
+            modified_within_days: Some(36500),
+            video_codecs: Some(vec!["h264".into()]),
+            ..Default::default()
+        };
+        // 実行できること自体が主目的。h264 は入れていないので 0 件でよい
+        assert!(query_rows(&conn, None, &q, 100, 0).is_ok());
+
+        // コーデックを外せば a.mp4 が残る(バインドが正しく対応している証拠)
+        let q = VideoQuery { video_codecs: None, ..q };
+        assert_eq!(ids(&conn, &q), vec![1]);
     }
 }

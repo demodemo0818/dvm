@@ -1,25 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { EMPTY_ADVANCED, type Series, type Tag, type WatchedFolder } from '../types';
+import {
+  EMPTY_ADVANCED, type AdvancedFilter, type Series, type Tag, type WatchedFolder,
+} from '../types';
 import {
   describeFilter, hasActiveFilter, NO_MASTERS,
   type ClearAction, type FilterMasters,
 } from './filterChips';
-import type { FilterState } from './query';
+import { advancedCount, EMPTY_FILTER, type FilterState } from './query';
 
-const base: FilterState = {
-  text: '',
-  sort: 'added_desc',
-  folderId: null,
-  dirPath: null,
-  tagIds: [],
-  seriesId: null,
-  missingOnly: false,
-  minRating: 0,
-  durationBucket: null,
-  duplicatesOnly: false,
-  advanced: EMPTY_ADVANCED,
-  randomSeed: 42,
-};
+// 条件が増えても土台は 1 か所(lib/query.ts)から取る
+const base: FilterState = EMPTY_FILTER;
 
 const tag = (id: number, name: string, groupId: number | null, groupName: string | null): Tag =>
   ({ id, name, color: null, groupId, groupName, videoCount: 0 });
@@ -110,44 +100,78 @@ describe('タグ以外の条件', () => {
   const label = (f: Partial<FilterState>) =>
     describeFilter({ ...base, ...f }, masters).map((t) => t.chips.map((c) => c.label).join('/'));
 
+  /** 詳細検索の 1 項目だけを立てる */
+  const adv = (patch: Partial<AdvancedFilter>) =>
+    label({ advanced: { ...EMPTY_ADVANCED, ...patch } });
+
   it.each([
     ['テキスト', { text: 'アニメ' }, '「アニメ」を含む'],
     ['フォルダー', { folderId: 5 }, 'フォルダー: アニメ'],
     ['フォルダー直下', { dirPath: 'D:\\動画\\2026\\' }, '2026 の直下'],
     ['シリーズ', { seriesId: 7 }, 'シリーズ: 名作劇場'],
-    ['レーティング', { minRating: 3 }, '★3 以上'],
-    ['長さ', { durationBucket: 'lt5' as const }, '5 分未満'],
     ['見つからない', { missingOnly: true }, '見つからないファイル'],
     ['重複', { duplicatesOnly: true }, '重複のみ'],
   ])('%s', (_name, patch, expected) => {
     expect(label(patch)).toEqual([expected]);
   });
 
+  // 配下モードは文言を変える。ここが変わらないと「件数が急に増えた理由」が読めない
+  it('サブフォルダも含めるときは「配下すべて」と出る', () => {
+    expect(label({ dirPath: 'D:\\動画\\2026', dirPathRecursive: true }))
+      .toEqual(['2026 の配下すべて']);
+    // フォルダで絞っていなければトグルは何も出さない
+    expect(label({ dirPathRecursive: true })).toEqual([]);
+  });
+
   it.each([
     ['パスも検索', { searchPath: true }, 'パスも検索'],
+    ['メモも検索', { searchComment: true }, 'メモも検索'],
+    ['レーティング', { minRating: 3 }, '★3 以上'],
+    ['★なし', { unrated: true }, '★なし'],
+    ['長さ(プリセット)', { maxDurationMs: 300_000 }, '5 分未満'],
+    // プリセットに無い範囲でもチップになる(自由入力・MCP・保存した条件で起きる)
+    ['長さ(カスタム)', { minDurationMs: 120_000, maxDurationMs: 480_000 }, '2〜8 分'],
+    ['サイズ(GB)', { minSizeBytes: 2 * 1024 ** 3 }, '2 GB 以上'],
+    ['サイズ(MB)', { maxSizeBytes: 500 * 1024 ** 2 }, '500 MB 未満'],
+    ['サイズ(範囲)', { minSizeBytes: 100 * 1024 ** 2, maxSizeBytes: 500 * 1024 ** 2 }, '100〜500 MB'],
     ['タグなし', { untagged: true }, 'タグなし'],
     ['未視聴', { unwatched: true }, '未視聴'],
-    ['解像度', { minHeight: 1080 }, '1080p 以上'],
+    ['途中まで観た', { resumedOnly: true }, '途中まで観た'],
+    ['再生回数(下限)', { minViewCount: 3 }, '3 回以上'],
+    ['再生回数(0 回)', { maxViewCount: 0 }, '未視聴'],
+    ['解像度(下限)', { minHeight: 1080 }, '1080p 以上'],
+    ['解像度(上限)', { maxHeight: 720 }, '720p 未満'],
+    ['向き', { orientation: 'portrait' as const }, '縦長'],
     ['追加日(以降)', { addedAfter: '2026-01-01' }, '2026-01-01 以降に追加'],
     ['追加日(以前)', { addedBefore: '2026-06-30' }, '2026-06-30 以前に追加'],
+    ['追加日(範囲)', { addedAfter: '2026-01-01', addedBefore: '2026-06-30' }, '2026-01-01〜2026-06-30 に追加'],
+    ['追加(相対)', { addedWithinDays: 7 }, '過去 7 日に追加'],
+    ['更新(相対)', { modifiedWithinDays: 30 }, '過去 30 日に更新'],
+    ['更新日(範囲)', { modifiedAfter: '2025-01-01', modifiedBefore: '2025-12-31' }, '2025-01-01〜2025-12-31 に更新'],
   ])('詳細検索: %s', (_name, patch, expected) => {
-    expect(label({ advanced: { ...EMPTY_ADVANCED, ...patch } })).toEqual([expected]);
+    expect(adv(patch)).toEqual([expected]);
   });
 
   it('プリセットに無い解像度でもラベルになる', () => {
-    expect(label({ advanced: { ...EMPTY_ADVANCED, minHeight: 900 } })).toEqual(['900p 以上']);
+    expect(adv({ minHeight: 900 })).toEqual(['900p 以上']);
+    expect(adv({ maxHeight: 900 })).toEqual(['900p 未満']);
   });
 
-  // コーデックの複数指定も OR。タグと同じ「箱」で見せる
-  it('コーデック複数は 1 つの箱(= または)', () => {
+  // コーデック・拡張子の複数指定も OR。タグと同じ「箱」で見せる
+  it.each([
+    ['コーデック', 'videoCodecs', ['h264', 'hevc']],
+    ['拡張子', 'extensions', ['mp4', 'mkv']],
+  ] as const)('%s の複数指定は 1 つの箱(= または)', (caption, key, values) => {
     const terms = describeFilter(
-      { ...base, advanced: { ...EMPTY_ADVANCED, videoCodecs: ['h264', 'hevc'] } },
+      { ...base, advanced: { ...EMPTY_ADVANCED, [key]: values } },
       masters,
     );
     expect(terms).toHaveLength(1);
-    expect(terms[0].caption).toBe('コーデック');
-    expect(terms[0].chips.map((c) => c.label)).toEqual(['h264', 'hevc']);
-    expect(terms[0].clearAll).toEqual({ type: 'advanced', key: 'videoCodecs' });
+    expect(terms[0].caption).toBe(caption);
+    expect(terms[0].chips.map((c) => c.label)).toEqual(values);
+    expect(terms[0].clearAll).toEqual({ type: 'advanced', key });
+    // 1 つずつ外す × は listItem
+    expect(terms[0].chips[0].clear).toEqual({ type: 'listItem', key, value: values[0] });
   });
 
   it('消えたフォルダ・シリーズは unresolved', () => {
@@ -165,20 +189,36 @@ describe('× の割り当て', () => {
       text: 'アニメ',
       folderId: 5,
       dirPath: 'D:\\動画',
+      dirPathRecursive: true,
       tagIds: [10, 11, 30],
       seriesId: 7,
-      minRating: 3,
-      durationBucket: 'lt5',
       missingOnly: true,
       duplicatesOnly: true,
       advanced: {
         searchPath: true,
+        searchComment: true,
+        minRating: 3,
+        unrated: true,
+        minDurationMs: 60_000,
+        maxDurationMs: 300_000,
+        minSizeBytes: 1024 ** 2,
+        maxSizeBytes: 1024 ** 3,
+        extensions: ['mp4', 'mkv'],
+        minHeight: 720,
+        maxHeight: 2160,
+        orientation: 'landscape',
+        videoCodecs: ['h264', 'hevc'],
         untagged: true,
         unwatched: true,
-        minHeight: 1080,
-        videoCodecs: ['h264', 'hevc'],
+        resumedOnly: true,
+        minViewCount: 1,
+        maxViewCount: 9,
         addedAfter: '2026-01-01',
         addedBefore: '2026-06-30',
+        addedWithinDays: 7,
+        modifiedAfter: '2025-01-01',
+        modifiedBefore: '2025-12-31',
+        modifiedWithinDays: 30,
       },
     };
     const terms = describeFilter(all, masters);
@@ -188,9 +228,17 @@ describe('× の割り当て', () => {
       for (const c of t.chips) types.add(c.clear.type);
     }
     expect([...types].sort()).toEqual([
-      'advanced', 'codec', 'dirPath', 'duplicates', 'duration', 'folder',
-      'minRating', 'missing', 'searchPath', 'series', 'tag', 'tagAxis', 'text',
+      'advanced', 'advancedRange', 'dirPath', 'duplicates', 'folder',
+      'listItem', 'missing', 'series', 'tag', 'tagAxis', 'text',
     ]);
     expect(hasActiveFilter(all)).toBe(true);
+
+    // 詳細検索の条件が 1 つも取りこぼされていないこと。
+    // advancedCount は「軸ごとに 1 件」なので、帯の箱のうち詳細検索由来の数と一致する
+    const fromAdvanced = terms.filter(
+      (t) => !t.key.startsWith('tags:')
+        && !['text', 'folder', 'dirPath', 'series', 'missing', 'duplicates'].includes(t.key),
+    );
+    expect(fromAdvanced).toHaveLength(advancedCount(all.advanced));
   });
 });

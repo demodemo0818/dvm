@@ -31,7 +31,7 @@ export function FilterBar({
 }) {
   const {
     setText, setAdvanced, toggleTagFilter, setTagFilter, setFolderId, toggleDirPath,
-    toggleSeriesFilter, setMinRating, setDurationBucket, toggleMissingOnly,
+    toggleSeriesFilter, toggleMissingOnly, toggleDirPathRecursive,
     toggleDuplicatesOnly, applyFilter, version, bumpVersion, pushToast,
   } = useLibrary();
   const [showDedupe, setShowDedupe] = useState(false);
@@ -78,11 +78,14 @@ export function FilterBar({
     return () => ro.disconnect();
   }, [shape]);
 
-  /** チップの × を押したときの振り分け。ClearAction の種類はここで出し切る */
+  /**
+   * チップの × を押したときの振り分け。ClearAction の種類はここで出し切る。
+   * **詳細検索の項目が増えてもこの switch は増えない** —— 既定値は EMPTY_ADVANCED から引き、
+   * 範囲と複数選択はキーを持ち回る形にしてある
+   */
   const clear = (action: ClearAction) => {
     switch (action.type) {
       case 'text': setText(''); break;
-      case 'searchPath': setAdvanced({ searchPath: false }); break;
       case 'tag': toggleTagFilter(action.tagId); break;
       case 'tagAxis':
         setTagFilter(filters.tagIds.filter((id) => !action.tagIds.includes(id)));
@@ -92,18 +95,20 @@ export function FilterBar({
       case 'series':
         if (filters.seriesId !== null) toggleSeriesFilter(filters.seriesId);
         break;
-      case 'minRating': setMinRating(0); break;
-      case 'duration': setDurationBucket(null); break;
       case 'missing': toggleMissingOnly(); break;
       case 'duplicates': toggleDuplicatesOnly(); break;
-      case 'codec':
-        setAdvanced({
-          videoCodecs: filters.advanced.videoCodecs.filter((c) => c !== action.codec),
-        });
-        break;
-      // 既定値は EMPTY_ADVANCED から引く。詳細検索に項目が増えてもここは増えない
       case 'advanced':
         setAdvanced({ [action.key]: EMPTY_ADVANCED[action.key] } as Partial<AdvancedFilter>);
+        break;
+      case 'advancedRange':
+        setAdvanced(Object.fromEntries(
+          action.keys.map((k) => [k, EMPTY_ADVANCED[k]]),
+        ) as Partial<AdvancedFilter>);
+        break;
+      case 'listItem':
+        setAdvanced({
+          [action.key]: filters.advanced[action.key].filter((v) => v !== action.value),
+        } as Partial<AdvancedFilter>);
         break;
     }
   };
@@ -159,6 +164,25 @@ export function FilterBar({
           ? <>{terms.length > 0 ? '' : '全 '}<b>{total.toLocaleString()}</b> 件</>
           : '集計中…'}
       </span>
+      {/*
+        フォルダで絞っているときだけ出すトグル(v1.35)。ここに置くのは
+        「いま出ている一覧の範囲を変える」操作で、対象が目の前にあると分かるから
+        (ツールバーに置くと畳み込みの幅計算に条件付きの項目が混ざる)。
+        潜っても効き続けるので「この下ぜんぶを見ながら歩く」ができる
+      */}
+      {filters.dirPath !== null && (
+        <button
+          className={`fb-toggle${filters.dirPathRecursive ? ' on' : ''}`}
+          title={
+            filters.dirPathRecursive
+              ? 'サブフォルダを含めるのをやめる(このフォルダ直下だけにする)'
+              : 'サブフォルダの中の動画も一覧に含める'
+          }
+          onClick={toggleDirPathRecursive}
+        >
+          サブフォルダも含める
+        </button>
+      )}
       {/*
         重複を見ているときだけ出す作業ボタン(v1.33)。ツールバーではなくここに置くのは、
         「いま画面に出ている重複」が対象だと分かる場所だから。

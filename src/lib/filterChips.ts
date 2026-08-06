@@ -10,7 +10,10 @@
 
 import type { AdvancedFilter, Series, Tag, WatchedFolder } from '../types';
 import { baseName } from './paths';
-import { DURATION_LABELS, RESOLUTION_OPTIONS, type FilterState } from './query';
+import {
+  durationLabel, ORIENTATION_OPTIONS, RESOLUTION_MAX_OPTIONS, RESOLUTION_OPTIONS,
+  sizeLabel, viewCountLabel, WITHIN_DAYS_OPTIONS, type FilterState,
+} from './query';
 
 /**
  * ラベルを引くのに要るマスタ。まだ取れていなければ空配列でよい
@@ -27,18 +30,19 @@ export const NO_MASTERS: FilterMasters = { tags: [], folders: [], series: [] };
 /** × を押したとき何を外すか。store の関数への振り分けは FilterBar 側の仕事 */
 export type ClearAction =
   | { type: 'text' }
-  | { type: 'searchPath' }
   | { type: 'tag'; tagId: number }
   | { type: 'tagAxis'; tagIds: number[] }
   | { type: 'folder' }
   | { type: 'dirPath' }
   | { type: 'series' }
-  | { type: 'minRating' }
-  | { type: 'duration' }
   | { type: 'missing' }
   | { type: 'duplicates' }
-  | { type: 'codec'; codec: string }
-  | { type: 'advanced'; key: keyof AdvancedFilter };
+  /** 詳細検索の 1 項目。値は EMPTY_ADVANCED から引くので、条件が増えてもここは増えない */
+  | { type: 'advanced'; key: keyof AdvancedFilter }
+  /** 詳細検索の**範囲**(上下 2 つで 1 つの条件)。片方だけ残らないようまとめて消す */
+  | { type: 'advancedRange'; keys: (keyof AdvancedFilter)[] }
+  /** 複数選択(コーデック・拡張子)の 1 つだけを外す */
+  | { type: 'listItem'; key: 'videoCodecs' | 'extensions'; value: string };
 
 export interface FilterChip {
   key: string;
@@ -156,11 +160,49 @@ export function describeFilter(f: FilterState, m: FilterMasters): FilterTerm[] {
   const terms: FilterTerm[] = [];
   const a = f.advanced;
 
+  /** 複数選択(コーデック・拡張子)を 1 つの箱にする。中は OR */
+  const orBox = (
+    key: 'videoCodecs' | 'extensions',
+    caption: string,
+    values: string[],
+  ): FilterTerm => ({
+    key,
+    caption,
+    chips: values.map((v) => ({
+      key: `${key}:${v}`,
+      label: v,
+      color: null,
+      unresolved: false,
+      clear: { type: 'listItem', key, value: v },
+    })),
+    clearAll: values.length > 1 ? { type: 'advanced', key } : null,
+  });
+
+  /** 日付の範囲を 1 つのチップにまとめる(上下で 2 つ出すと帯が伸びるだけ) */
+  const dateRange = (
+    key: string,
+    after: string,
+    before: string,
+    suffix: string,
+    keys: (keyof AdvancedFilter)[],
+  ): FilterTerm | null => {
+    if (after === '' && before === '') return null;
+    const label = after !== '' && before !== ''
+      ? `${after}〜${before} に${suffix}`
+      : after !== ''
+        ? `${after} 以降に${suffix}`
+        : `${before} 以前に${suffix}`;
+    return single(key, label, { type: 'advancedRange', keys });
+  };
+
   if (f.text.trim() !== '') {
     terms.push(single('text', `「${f.text.trim()}」を含む`, { type: 'text' }));
   }
   if (a.searchPath) {
-    terms.push(single('searchPath', 'パスも検索', { type: 'searchPath' }));
+    terms.push(single('searchPath', 'パスも検索', { type: 'advanced', key: 'searchPath' }));
+  }
+  if (a.searchComment) {
+    terms.push(single('searchComment', 'メモも検索', { type: 'advanced', key: 'searchComment' }));
   }
   if (f.folderId !== null) {
     const folder = m.folders.find((x) => x.id === f.folderId);
@@ -172,7 +214,10 @@ export function describeFilter(f: FilterState, m: FilterMasters): FilterTerm[] {
     ));
   }
   if (f.dirPath !== null) {
-    terms.push(single('dirPath', `${baseName(f.dirPath)} の直下`, { type: 'dirPath' }));
+    // 直下か配下かで文言を変える。トグルの状態が帯にそのまま出ていないと、
+    // 件数が急に増えた理由が分からなくなる
+    const scope = f.dirPathRecursive ? 'の配下すべて' : 'の直下';
+    terms.push(single('dirPath', `${baseName(f.dirPath)} ${scope}`, { type: 'dirPath' }));
   }
 
   terms.push(...tagTerms(f.tagIds, m.tags));
@@ -181,11 +226,26 @@ export function describeFilter(f: FilterState, m: FilterMasters): FilterTerm[] {
     const series = m.series.find((x) => x.id === f.seriesId);
     terms.push(named('series', series?.name, 'シリーズ: ', { type: 'series' }));
   }
-  if (f.minRating > 0) {
-    terms.push(single('minRating', `★${f.minRating} 以上`, { type: 'minRating' }));
+  if (a.minRating > 0) {
+    terms.push(single('minRating', `★${a.minRating} 以上`, { type: 'advanced', key: 'minRating' }));
   }
-  if (f.durationBucket !== null) {
-    terms.push(single('duration', DURATION_LABELS[f.durationBucket], { type: 'duration' }));
+  if (a.unrated) {
+    terms.push(single('unrated', '★なし', { type: 'advanced', key: 'unrated' }));
+  }
+  if (a.minDurationMs !== null || a.maxDurationMs !== null) {
+    // プリセットに一致すればその名前、外れていれば範囲から組み立てる(lib/query.ts)
+    terms.push(single(
+      'duration',
+      durationLabel(a.minDurationMs, a.maxDurationMs),
+      { type: 'advancedRange', keys: ['minDurationMs', 'maxDurationMs'] },
+    ));
+  }
+  if (a.minSizeBytes !== null || a.maxSizeBytes !== null) {
+    terms.push(single(
+      'size',
+      sizeLabel(a.minSizeBytes, a.maxSizeBytes),
+      { type: 'advancedRange', keys: ['minSizeBytes', 'maxSizeBytes'] },
+    ));
   }
   if (f.missingOnly) {
     terms.push(single('missing', '見つからないファイル', { type: 'missing' }));
@@ -199,6 +259,19 @@ export function describeFilter(f: FilterState, m: FilterMasters): FilterTerm[] {
   if (a.unwatched) {
     terms.push(single('unwatched', '未視聴', { type: 'advanced', key: 'unwatched' }));
   }
+  if (a.resumedOnly) {
+    terms.push(single('resumedOnly', '途中まで観た', { type: 'advanced', key: 'resumedOnly' }));
+  }
+  if (a.minViewCount !== null || a.maxViewCount !== null) {
+    terms.push(single(
+      'viewCount',
+      viewCountLabel(a.minViewCount, a.maxViewCount),
+      { type: 'advancedRange', keys: ['minViewCount', 'maxViewCount'] },
+    ));
+  }
+  if (a.extensions.length > 0) {
+    terms.push(orBox('extensions', '拡張子', a.extensions));
+  }
   if (a.minHeight > 0) {
     const preset = RESOLUTION_OPTIONS.find((o) => o.value === a.minHeight);
     terms.push(single(
@@ -207,36 +280,49 @@ export function describeFilter(f: FilterState, m: FilterMasters): FilterTerm[] {
       { type: 'advanced', key: 'minHeight' },
     ));
   }
+  if (a.maxHeight > 0) {
+    const preset = RESOLUTION_MAX_OPTIONS.find((o) => o.value === a.maxHeight);
+    terms.push(single(
+      'maxHeight',
+      preset ? preset.label : `${a.maxHeight}p 未満`,
+      { type: 'advanced', key: 'maxHeight' },
+    ));
+  }
+  if (a.orientation !== '') {
+    const o = ORIENTATION_OPTIONS.find((x) => x.value === a.orientation);
+    terms.push(single('orientation', o?.label ?? a.orientation, {
+      type: 'advanced', key: 'orientation',
+    }));
+  }
   if (a.videoCodecs.length > 0) {
     // コーデックの複数指定も OR(VideoQuery.videoCodecs)。タグと同じ「箱」で見せることで、
     // OR がタグだけの特別扱いに見えないようにする
-    terms.push({
-      key: 'codecs',
-      caption: 'コーデック',
-      chips: a.videoCodecs.map((c) => ({
-        key: `codec:${c}`,
-        label: c,
-        color: null,
-        unresolved: false,
-        clear: { type: 'codec', codec: c },
-      })),
-      clearAll: a.videoCodecs.length > 1 ? { type: 'advanced', key: 'videoCodecs' } : null,
-    });
+    terms.push(orBox('videoCodecs', 'コーデック', a.videoCodecs));
   }
-  if (a.addedAfter !== '') {
+  if (a.addedWithinDays > 0) {
+    const o = WITHIN_DAYS_OPTIONS.find((x) => x.value === a.addedWithinDays);
     terms.push(single(
-      'addedAfter',
-      `${a.addedAfter} 以降に追加`,
-      { type: 'advanced', key: 'addedAfter' },
+      'addedWithinDays',
+      `${o?.label ?? `過去 ${a.addedWithinDays} 日`}に追加`,
+      { type: 'advanced', key: 'addedWithinDays' },
     ));
   }
-  if (a.addedBefore !== '') {
+  const added = dateRange('added', a.addedAfter, a.addedBefore, '追加', ['addedAfter', 'addedBefore']);
+  if (added) terms.push(added);
+
+  if (a.modifiedWithinDays > 0) {
+    const o = WITHIN_DAYS_OPTIONS.find((x) => x.value === a.modifiedWithinDays);
     terms.push(single(
-      'addedBefore',
-      `${a.addedBefore} 以前に追加`,
-      { type: 'advanced', key: 'addedBefore' },
+      'modifiedWithinDays',
+      `${o?.label ?? `過去 ${a.modifiedWithinDays} 日`}に更新`,
+      { type: 'advanced', key: 'modifiedWithinDays' },
     ));
   }
+  const modified = dateRange(
+    'modified', a.modifiedAfter, a.modifiedBefore, '更新',
+    ['modifiedAfter', 'modifiedBefore'],
+  );
+  if (modified) terms.push(modified);
 
   return terms;
 }
