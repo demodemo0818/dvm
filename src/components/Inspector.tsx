@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ListOrdered } from 'lucide-react';
 import { api } from '../api';
 import { useLibrary } from '../store';
@@ -29,9 +29,39 @@ export function Inspector() {
   const [tagInput, setTagInput] = useState('');
   const [seriesInput, setSeriesInput] = useState('');
   const [rating, setRatingLocal] = useState(0);
+  const [titleDraft, setTitleDraft] = useState('');
+  const [commentDraft, setCommentDraft] = useState('');
+  /** 保存済みの値。draft と比べて「変わったときだけ保存」を判定する(描画には使わない) */
+  const savedInfo = useRef({ title: '', comment: '' });
+  const [infoSaved, setInfoSaved] = useState(false);
+  const flashTimer = useRef<number | undefined>(undefined);
 
   const ids = selection.map((v) => v.id);
   const idsKey = ids.join(',');
+  const singleId = selection.length === 1 ? selection[0].id : null;
+
+  // タイトル・メモは 1 件選択のときだけ編集する。メモは一覧クエリに載せていないので
+  // ここで別途引く(選択が変わったときだけ。version では読み直さない —
+  // 編集中に再取得が走ると入力中の文字が消えるため)
+  useEffect(() => {
+    if (singleId == null) return;
+    let alive = true;
+    api
+      .getVideoInfo(singleId)
+      .then((info) => {
+        // 選択を素早く切り替えたとき、古い応答が新しい選択の欄に入るのを防ぐ
+        if (!alive) return;
+        savedInfo.current = { title: info?.title ?? '', comment: info?.comment ?? '' };
+        setTitleDraft(savedInfo.current.title);
+        setCommentDraft(savedInfo.current.comment);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [singleId]);
+
+  useEffect(() => () => window.clearTimeout(flashTimer.current), []);
 
   useEffect(() => {
     if (ids.length === 0) return;
@@ -147,6 +177,35 @@ export function Inspector() {
     bumpVersion();
   };
 
+  /**
+   * 入力欄から離れたときの保存(v1.34)。値が変わっていなければ何もしない。
+   * Rust 側も trim して空なら NULL にするので、比較する値もここで揃えておく
+   */
+  const saveInfo = async (field: 'title' | 'comment', draft: string) => {
+    if (singleId == null) return;
+    const value = draft.trim();
+    if (value === savedInfo.current[field]) return;
+    try {
+      await api.setVideoInfo(singleId, { [field]: value });
+    } catch {
+      // call() がトーストを出す。savedInfo を進めないので、次に欄を離れたとき再送される
+      return;
+    }
+    savedInfo.current = { ...savedInfo.current, [field]: value };
+    if (field === 'title') {
+      setTitleDraft(value);
+      // 一覧やプレイヤーに出る名前も即差し替える(再取得を待たない)
+      patchSelection({ title: value || null });
+      bumpVersion();
+    } else {
+      setCommentDraft(value);
+      // メモは一覧に出ないので再取得は要らない
+    }
+    setInfoSaved(true);
+    window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setInfoSaved(false), 1500);
+  };
+
   const applyRating = async (value: number) => {
     const next = value === rating ? 0 : value;
     setRatingLocal(next);
@@ -176,6 +235,51 @@ export function Inspector() {
           </div>
           <div className="info-sub">追加日: {single.addedAt}</div>
         </div>
+      )}
+
+      {/*
+        タイトル・メモ(v1.34)。入力欄から離れた時点で自動保存する。
+        複数選択では出さない — 同じタイトルを何件にも一斉に付ける操作に意味が無いため
+      */}
+      {single && (
+        <>
+          <div className="side-section">
+            タイトル・メモ
+            {infoSaved && <span className="side-note">保存しました</span>}
+          </div>
+          <div className="info-edit">
+            <input
+              className="info-title-input"
+              placeholder={single.filename}
+              title="動画に付ける名前。空にするとファイル名に戻ります"
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onBlur={() => saveInfo('title', titleDraft)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur();
+                else if (e.key === 'Escape') {
+                  // 入力欄の Esc は「編集の取り消し」。選択解除(App.tsx)まで届かせない
+                  e.stopPropagation();
+                  setTitleDraft(savedInfo.current.title);
+                }
+              }}
+            />
+            <textarea
+              className="info-comment-input"
+              placeholder="メモ(自由記入)"
+              rows={3}
+              value={commentDraft}
+              onChange={(e) => setCommentDraft(e.target.value)}
+              onBlur={() => saveInfo('comment', commentDraft)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.stopPropagation();
+                  setCommentDraft(savedInfo.current.comment);
+                }
+              }}
+            />
+          </div>
+        </>
       )}
 
       <div className="side-section">レーティング</div>

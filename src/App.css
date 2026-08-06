@@ -680,6 +680,44 @@ body {
   color: #8a8f9c;
 }
 
+/* ---- タイトル・メモの編集 (v1.34) ---- */
+/* 欄から離れた時点で自動保存するので、保存ボタンは置かない */
+.info-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.info-title-input,
+.info-comment-input {
+  width: 100%;
+  background: #22252d;
+  border: 1px solid #343945;
+  color: #e2e5ec;
+  padding: 6px 8px;
+  border-radius: 6px;
+  outline: none;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.info-title-input:focus,
+.info-comment-input:focus {
+  border-color: #2f66d0;
+}
+
+.info-comment-input {
+  resize: vertical;
+  min-height: 56px;
+  line-height: 1.5;
+}
+
+/* 見出しの右に一瞬だけ出す保存の合図 */
+.side-note {
+  margin-left: 6px;
+  color: #5f9ea0;
+}
+
 /* ---- 詳細ペインの折りたたみセクション / メディア情報 (v1.15) ---- */
 /*
  * 見出しは .side-section(レーティング・タグ)と同じトーンに揃える。

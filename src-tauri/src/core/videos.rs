@@ -1,7 +1,7 @@
 use crate::core::offline;
 use crate::db;
 use anyhow::Result;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use std::path::Path;
 
@@ -44,6 +44,38 @@ pub fn set_rating(conn: &Connection, actor: &str, video_ids: &[i64], rating: i64
     Ok(())
 }
 
+/// 詳細パネルの編集フォーム用(v1.34)。メモは長文になりうるので一覧クエリ(`VideoRow`)には
+/// 載せず、1 件選んだときだけここで引く
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoInfo {
+    pub title: Option<String>,
+    pub comment: Option<String>,
+}
+
+pub fn get_video_info(conn: &Connection, video_id: i64) -> Result<Option<VideoInfo>> {
+    let info = conn
+        .query_row(
+            "SELECT title, comment FROM videos WHERE id = ?1",
+            params![video_id],
+            |r| Ok(VideoInfo { title: r.get(0)?, comment: r.get(1)? }),
+        )
+        .optional()?;
+    Ok(info)
+}
+
+/// 入力欄が空(空白だけ)なら NULL として保存する。
+/// 空文字のまま入れると `title ?? filename` のフォールバックが効かず、名前欄が空で表示される
+fn or_null(v: &str) -> Option<&str> {
+    let t = v.trim();
+    if t.is_empty() {
+        None
+    } else {
+        Some(t)
+    }
+}
+
+/// タイトル・メモを更新する。`None` = その項目は触らない、`Some("")` = 未設定に戻す
 pub fn set_video_info(
     conn: &Connection,
     actor: &str,
@@ -56,11 +88,24 @@ pub fn set_video_info(
         params![video_id],
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
+    // 取り消し用に、変更した項目とその変更前の値を控える
+    let mut fields: Vec<&str> = Vec::new();
+    let mut before = serde_json::Map::new();
     if let Some(t) = title {
-        conn.execute("UPDATE videos SET title = ?1 WHERE id = ?2", params![t, video_id])?;
+        conn.execute(
+            "UPDATE videos SET title = ?1 WHERE id = ?2",
+            params![or_null(t), video_id],
+        )?;
+        fields.push("title");
+        before.insert("title".into(), serde_json::json!(old_title));
     }
     if let Some(c) = comment {
-        conn.execute("UPDATE videos SET comment = ?1 WHERE id = ?2", params![c, video_id])?;
+        conn.execute(
+            "UPDATE videos SET comment = ?1 WHERE id = ?2",
+            params![or_null(c), video_id],
+        )?;
+        fields.push("comment");
+        before.insert("comment".into(), serde_json::json!(old_comment));
     }
     db::log_op(
         conn,
@@ -68,11 +113,10 @@ pub fn set_video_info(
         "set_video_info",
         &serde_json::json!({
             "id": video_id,
-            // 変更した項目だけ before に載せる(取り消しで触っていない項目を上書きしないため)
-            "before": {
-                "title": title.map(|_| old_title.clone()),
-                "comment": comment.map(|_| old_comment.clone()),
-            },
+            // 変更した項目名(v1.34)。before の値だけでは「元が未設定だった」と
+            // 「触っていない」がどちらも null になって区別できないので、別に持つ
+            "fields": fields,
+            "before": before,
         })
         .to_string(),
     );
@@ -289,6 +333,48 @@ mod tests {
 
         finish_view(&conn, id, 743_000).unwrap();
         assert_eq!(scalar(&conn, "SELECT watched_ms FROM view_history WHERE id = 1"), 743_000);
+    }
+
+    fn text(conn: &Connection, sql: &str) -> Option<String> {
+        conn.query_row(sql, [], |r| r.get(0)).unwrap()
+    }
+
+    /// 渡さなかった項目は触らない。UI は変えた欄だけ送るので、これが崩れると
+    /// タイトルを直しただけでメモが消える
+    #[test]
+    fn set_video_info_leaves_the_omitted_field_alone() {
+        let conn = setup();
+        set_video_info(&conn, "user", 1, Some("第 1 話"), Some("作画が良い回")).unwrap();
+        set_video_info(&conn, "user", 1, Some("第 1 話 出会い"), None).unwrap();
+
+        assert_eq!(text(&conn, "SELECT title FROM videos WHERE id=1").as_deref(), Some("第 1 話 出会い"));
+        assert_eq!(text(&conn, "SELECT comment FROM videos WHERE id=1").as_deref(), Some("作画が良い回"));
+    }
+
+    /// 欄を空にしたら NULL に戻すこと。空文字のまま入れると
+    /// 一覧の `title ?? filename` が効かず、名前が空欄で表示される
+    #[test]
+    fn clearing_a_field_stores_null_not_an_empty_string() {
+        let conn = setup();
+        set_video_info(&conn, "user", 1, Some("第 1 話"), None).unwrap();
+        set_video_info(&conn, "user", 1, Some("   "), None).unwrap();
+
+        assert_eq!(text(&conn, "SELECT title FROM videos WHERE id=1"), None);
+        assert_eq!(scalar(&conn, "SELECT COUNT(*) FROM videos WHERE id=1 AND title IS NULL"), 1);
+    }
+
+    /// 取り消し用の payload には「変更した項目名」が要る。
+    /// before の値だけでは、元が未設定(null)なのか触っていない(null)のか区別できない
+    #[test]
+    fn the_log_names_the_changed_fields() {
+        let conn = setup();
+        set_video_info(&conn, "user", 1, Some("第 1 話"), None).unwrap();
+
+        let payload = text(&conn, "SELECT payload FROM operations_log ORDER BY id DESC LIMIT 1").unwrap();
+        let p: serde_json::Value = serde_json::from_str(&payload).unwrap();
+        assert_eq!(p["fields"], serde_json::json!(["title"]));
+        assert!(p["before"]["title"].is_null(), "元は未設定だったこと");
+        assert!(p["before"].get("comment").is_none(), "触っていない項目は before に載せない");
     }
 
     /// 動画を消したら履歴も一緒に消える(孤児掃除のワーカーを書かずに済ませている根拠)

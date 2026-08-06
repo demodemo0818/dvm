@@ -220,18 +220,24 @@ pub fn undo_op(conn: &Connection, op_id: i64) -> Result<String> {
         }
         "set_video_info" => {
             let id = p["id"].as_i64().unwrap_or(0);
-            // 変更した項目だけ before に入っている(null は「触っていない」)
-            if !p["before"]["title"].is_null() {
-                conn.execute(
-                    "UPDATE videos SET title = ?1 WHERE id = ?2",
-                    params![p["before"]["title"].as_str(), id],
-                )?;
-            }
-            if !p["before"]["comment"].is_null() {
-                conn.execute(
-                    "UPDATE videos SET comment = ?1 WHERE id = ?2",
-                    params![p["before"]["comment"].as_str(), id],
-                )?;
+            // v1.34 以降は fields に変更した項目名が入る。それ以前の記録には無いので、
+            // 従来どおり「before の値が null でないもの = 変更した項目」とみなす
+            // (元が未設定だった項目は戻せないが、古い記録なので許容する)
+            let changed: Vec<&str> = match p["fields"].as_array() {
+                Some(a) => a.iter().filter_map(|v| v.as_str()).collect(),
+                None => ["title", "comment"]
+                    .into_iter()
+                    .filter(|k| !p["before"][k].is_null())
+                    .collect(),
+            };
+            for key in changed {
+                // 列名は SQL に埋めるのでホワイトリストで受ける
+                let sql = match key {
+                    "title" => "UPDATE videos SET title = ?1 WHERE id = ?2",
+                    "comment" => "UPDATE videos SET comment = ?1 WHERE id = ?2",
+                    _ => continue,
+                };
+                conn.execute(sql, params![p["before"][key].as_str(), id])?;
             }
             "情報を元に戻しました".to_string()
         }
@@ -347,6 +353,55 @@ mod tests {
             )
             .unwrap();
         assert_eq!(pos, 1, "並び順ごと戻すこと");
+    }
+
+    /// 元が未設定だった項目も空へ戻すこと(v1.34)。
+    /// before の値が null かどうかで判定していた頃は、ここでタイトルが残ってしまっていた
+    #[test]
+    fn undo_video_info_clears_a_title_that_was_empty_before() {
+        let conn = setup();
+        videos::set_video_info(&conn, "user", 1, Some("第 1 話"), None).unwrap();
+        let op = last_op(&conn);
+        undo_op(&conn, op).unwrap();
+
+        let title: Option<String> =
+            conn.query_row("SELECT title FROM videos WHERE id=1", [], |r| r.get(0)).unwrap();
+        assert_eq!(title, None, "元が未設定だったのだから未設定に戻すこと");
+    }
+
+    /// 取り消しは変更した項目だけを戻す。一緒に送らなかった項目は触らない
+    #[test]
+    fn undo_video_info_leaves_the_untouched_field_alone() {
+        let conn = setup();
+        videos::set_video_info(&conn, "user", 1, None, Some("あとで見返す")).unwrap();
+        videos::set_video_info(&conn, "user", 1, Some("第 1 話"), None).unwrap();
+        undo_op(&conn, last_op(&conn)).unwrap();
+
+        let (title, comment): (Option<String>, Option<String>) = conn
+            .query_row("SELECT title, comment FROM videos WHERE id=1", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(title, None);
+        assert_eq!(comment.as_deref(), Some("あとで見返す"), "メモは取り消しの対象外");
+    }
+
+    /// v1.34 より前の記録(fields が無い)も、従来どおりの読み方で戻せること
+    #[test]
+    fn undo_video_info_reads_old_records_without_fields() {
+        let conn = setup();
+        conn.execute("UPDATE videos SET title = '新しい題名' WHERE id = 1", []).unwrap();
+        db::log_op(
+            &conn,
+            "ai",
+            "set_video_info",
+            r#"{"id":1,"before":{"title":"元の題名","comment":null}}"#,
+        );
+        undo_op(&conn, last_op(&conn)).unwrap();
+
+        let title: Option<String> =
+            conn.query_row("SELECT title FROM videos WHERE id=1", [], |r| r.get(0)).unwrap();
+        assert_eq!(title.as_deref(), Some("元の題名"));
     }
 
     #[test]

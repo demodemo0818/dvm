@@ -53,6 +53,29 @@ pub fn remove_videos(
     video_ids: Vec<i64>,
     actor: Option<String>,
 ) -> Result<(), String> {
+/// 詳細パネルの編集フォームに出すタイトル・メモを引く(v1.34)。
+/// メモは長文になりうるので一覧クエリには載せず、1 件選んだときだけここで引く
+#[tauri::command]
+pub fn get_video_info(state: State<AppState>, id: i64) -> Result<Option<videos::VideoInfo>, String> {
+    let conn = state.db_read.lock().unwrap();
+    videos::get_video_info(&conn, id).map_err(|e| e.to_string())
+}
+
+/// タイトル・メモを保存する(v1.34)。省略した項目は触らない。空文字を渡すと未設定に戻る
+#[tauri::command]
+pub fn set_video_info(
+    state: State<AppState>,
+    id: i64,
+    title: Option<String>,
+    comment: Option<String>,
+    actor: Option<String>,
+) -> Result<(), String> {
+    let actor = super::validate_actor(actor)?;
+    let conn = state.db.lock().unwrap();
+    videos::set_video_info(&conn, &actor, id, title.as_deref(), comment.as_deref())
+        .map_err(|e| e.to_string())
+}
+
     let actor = super::validate_actor(actor)?;
     {
         let conn = state.db.lock().unwrap();

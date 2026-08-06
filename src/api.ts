@@ -4,7 +4,7 @@ import type {
   AppInfo, BackupInfo, DedupePlan, DedupeResult, ExcludedPath, FolderNode, LibraryEntry,
   LibraryState, LibraryStats, MediaInfo, OpEntry,
   OpResult, PlanItem, Series, SmartFolder, SubfolderView, Tag, TagCount, TagGroup, VideoLabels,
-  VideoQuery, VideoRow, ViewEntry, WatchedFolder,
+  VideoInfo, VideoQuery, VideoRow, ViewEntry, WatchedFolder,
 } from './types';
 
 /**
@@ -111,6 +111,17 @@ export const api = {
   listSeries: () => call<Series[]>('list_series'),
   addToSeries: (videoIds: number[], name: string, actor?: 'user' | 'ai') =>
     call<number>('add_to_series', { videoIds, name, actor }),
+  /** 詳細パネルの編集フォーム用にタイトル・メモを引く(v1.34)。id が無ければ null */
+  getVideoInfo: (id: number) => call<VideoInfo | null>('get_video_info', { id }),
+  /**
+   * タイトル・メモを保存する(v1.34)。**省略した項目は触らない** —
+   * 変えた欄だけ渡すこと。空文字を渡すとその項目は未設定に戻る
+   */
+  setVideoInfo: (
+    id: number,
+    info: { title?: string; comment?: string },
+    actor?: 'user' | 'ai',
+  ) => call<void>('set_video_info', { id, ...info, actor }),
   removeFromSeries: (videoIds: number[], seriesId: number, actor?: 'user' | 'ai') =>
     call<void>('remove_from_series', { videoIds, seriesId, actor }),
   /** 同名のシリーズがあると失敗する(series に UNIQUE が無いので Rust 側で弾いている) */

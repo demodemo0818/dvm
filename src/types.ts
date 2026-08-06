@@ -37,6 +37,15 @@ export interface VideoRow {
   watchedFolderId: number | null;
 }
 
+/**
+ * 詳細パネルで編集するタイトルと自由記入メモ(v1.34)。
+ * メモは長文になりうるので `VideoRow` には入れず、1 件選んだときだけ引く
+ */
+export interface VideoInfo {
+  title: string | null;
+  comment: string | null;
+}
+
 export interface WatchedFolder {
   id: number;
   path: string;
