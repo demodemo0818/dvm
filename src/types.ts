@@ -514,6 +514,9 @@ export interface AppInfo {
   framesDir: string;
   /** MCP サーバーの実行ファイル。同梱されていなければ null */
   mcpPath: string | null;
+  /** 再生用の変換キャッシュ(v1.38)。**ライブラリ横断の合計** */
+  transcodeCount: number;
+  transcodeSize: number;
 }
 
 export interface BackupInfo {

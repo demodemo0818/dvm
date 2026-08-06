@@ -1,567 +1,186 @@
-import { ask, message, open } from '@tauri-apps/plugin-dialog';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
-import { fmtSize } from '../lib/format';
+import {
+  SETTINGS_SIZE_DEFAULT,
+  SETTINGS_SIZE_KEY,
+  SETTINGS_SIZE_MIN,
+  clampModalSize,
+  serializeModalSize,
+} from '../lib/settings';
 import { useLibrary } from '../store';
-import type { AppInfo, BackupInfo, ExcludedPath, LibraryEntry } from '../types';
-import { McpSettings } from './McpSettings';
-import { SubtitleStyleEditor } from './SubtitleStyleEditor';
+import type { AppInfo } from '../types';
+import { AiSection } from './settings/AiSection';
+import { DataSection } from './settings/DataSection';
+import { DisplaySection } from './settings/DisplaySection';
+import { LibrarySection } from './settings/LibrarySection';
+import { PlaybackSection } from './settings/PlaybackSection';
+import { SubtitleSection } from './settings/SubtitleSection';
+import { ThumbnailSection } from './settings/ThumbnailSection';
 
+type Cat = 'display' | 'playback' | 'subtitle' | 'ai' | 'library' | 'thumbnail' | 'data';
+
+/**
+ * 左レールの並び(v1.38)。
+ *
+ * **「設定」と「管理」の 2 グループに割る。** 好みを決める設定と、破壊的に見える
+ * 操作を含む管理メニューがここに同居しているのは v1.14 からの基準どおりだが、
+ * 10 セクションを縦に積むと同じ重さに見えてしまっていた。混在を解消するのではなく、
+ * 混ざっていることを見えるようにするのが狙い。
+ */
+const CATS: { key: Cat; label: string; group: '設定' | '管理' }[] = [
+  { key: 'display', label: '表示', group: '設定' },
+  { key: 'playback', label: '再生', group: '設定' },
+  { key: 'subtitle', label: '字幕', group: '設定' },
+  { key: 'ai', label: 'AI 連携', group: '設定' },
+  { key: 'library', label: 'ライブラリ', group: '管理' },
+  { key: 'thumbnail', label: 'サムネイルとコマ', group: '管理' },
+  { key: 'data', label: 'データとバックアップ', group: '管理' },
+];
+
+/**
+ * 設定モーダル(v1.38 で 2 ペイン化)。
+ *
+ * ここが持つのは外枠だけ —— 選択中のカテゴリ、複数カテゴリが見る `AppInfo`、
+ * そして閉じ方の 3 経路(Escape / オーバーレイのクリック /「閉じる」)。
+ * 設定の中身と、そのカテゴリでしか使わない一覧の取得は各セクションが自分で持つ。
+ *
+ * - 設定は**すべてその場保存**。「保存」ボタンは無い(hooks/useSetting.ts の説明を参照)
+ * - **`get_app_info` はここで 1 回だけ呼ぶ** —— サムネイルフォルダを全走査するので、
+ *   カテゴリごとに呼ばせるとタブを切り替えるたびに走ってしまう
+ * - 逆にバックアップ一覧・ライブラリ一覧・除外一覧は各セクションが取る。選んだ
+ *   カテゴリしか mount しないので、開かないカテゴリぶんの IPC が飛ばなくなる
+ * - 選択中のカテゴリは**永続化しない**。モーダルは開くたび同じ場所から始まるほうが
+ *   予測しやすい(常設のサイドバーと違って `sidebar_tab` のような記憶は要らない)
+ */
 export function SettingsModal({ onClose }: { onClose: () => void }) {
-  /*
-   * 字幕の見た目(v1.24)だけは他の項目と違い、ローカル state に写さず store を直に
-   * バインドして**その場で保存する**(保存は App.tsx がデバウンスして書く)。
-   * 理由は DESIGN.md「設定モーダルの中でここだけ即時保存にした」を参照 ——
-   * 再生画面のパネルと同じコンポーネントを使う以上、片方だけドラフト方式にできない
-   */
-  const subStyle = useLibrary((s) => s.subStyle);
-  const setSubStyle = useLibrary((s) => s.setSubStyle);
-  const resetSubStyle = useLibrary((s) => s.resetSubStyle);
-  const [playerPath, setPlayerPath] = useState('');
+  const [cat, setCat] = useState<Cat>('display');
   const [info, setInfo] = useState<AppInfo | null>(null);
-  const [backups, setBackups] = useState<BackupInfo[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [aiKey, setAiKey] = useState('');
-  const [aiModel, setAiModel] = useState('');
-  /** MCP の設定スニペットに DVM_ALLOW_WRITE を含めるか。表示用だが次回も同じ内容を出せるよう保存する */
-  const [mcpAllowWrite, setMcpAllowWrite] = useState(false);
-  const [previewOnHover, setPreviewOnHover] = useState(true);
-  const [cardTags, setCardTags] = useState(true);
-  const [cardSeries, setCardSeries] = useState(false);
-  const [seekPreview, setSeekPreview] = useState(true);
-  /** HDR パススルー(v1.30、mpv のみ)。見え方が変わるので既定 OFF */
-  const [hdrPassthrough, setHdrPassthrough] = useState(false);
-  const [autoplayNext, setAutoplayNext] = useState(false);
-  const [useEmbeddedCover, setUseEmbeddedCover] = useState(true);
-  /** コマの画像の保存先(v1.26)。空欄なら AppInfo.framesDir(ピクチャ\DVM) */
-  const [frameSaveDir, setFrameSaveDir] = useState('');
-  /**
-   * ライブラリの管理(v1.27)。ここが持つのは**名前の変更と一覧からの削除**だけ。
-   * 切り替えの入口はサイドバーの上部に固定する(同じ操作の入口を 2 か所に置かない)
-   */
-  const [libraries, setLibraries] = useState<LibraryEntry[]>([]);
-  /** 監視フォルダの中で取り込まない場所(v1.33) */
-  const [excluded, setExcluded] = useState<ExcludedPath[]>([]);
 
-  useEffect(() => {
-    api.getSetting('player_path').then((v) => setPlayerPath(v ?? ''));
-    // 既定は ON。明示的に '0' のときだけ OFF
-    api.getSetting('preview_on_hover').then((v) => setPreviewOnHover(v !== '0'));
-    api.getSetting('card_tags').then((v) => setCardTags(v !== '0'));
-    // シリーズ行だけは既定 OFF(付いている動画が限られるので、既定で行を空けたくない)
-    api.getSetting('card_series').then((v) => setCardSeries(v === '1'));
-    api.getSetting('seek_preview').then((v) => setSeekPreview(v !== '0'));
-    api.getSetting('hdr_passthrough').then((v) => setHdrPassthrough(v === '1'));
-    api.getSetting('autoplay_next').then((v) => setAutoplayNext(v === '1'));
-    api.getSetting('use_embedded_cover').then((v) => setUseEmbeddedCover(v !== '0'));
-    api.getSetting('frame_save_dir').then((v) => setFrameSaveDir(v ?? ''));
-    api.getSetting('anthropic_api_key').then((v) => setAiKey(v ?? ''));
-    api.getSetting('anthropic_model').then((v) => setAiModel(v ?? ''));
-    api.getSetting('mcp_allow_write').then((v) => setMcpAllowWrite(v === '1'));
+  const reloadInfo = useCallback(() => {
     api.getAppInfo().then(setInfo).catch(() => {});
-    api.listDbBackups().then(setBackups).catch(() => {});
-    api.listLibraries().then(setLibraries).catch(() => {});
-    api.listExcludedPaths().then(setExcluded).catch(() => {});
   }, []);
 
-  /** 名前を変える。フォルダ名は変えない(開いている最中に動かせないため) */
-  const renameLibrary = async (lib: LibraryEntry) => {
-    const name = window.prompt('新しいライブラリ名', lib.name);
-    if (name === null || name.trim() === '' || name.trim() === lib.name) return;
-    await api.renameLibrary(lib.id, name.trim());
-    setLibraries(await api.listLibraries());
-    // サイドバーのボタンの表示を追従させる
-    useLibrary.getState().bumpVersion();
-  };
+  useEffect(reloadInfo, [reloadInfo]);
 
-  /** 一覧から外す。**ファイルは消さない**ことを文言で必ず言い切る */
-  const forgetLibrary = async (lib: LibraryEntry) => {
-    const yes = await ask(
-      `「${lib.name}」を一覧から外しますか?\n\n`
-        + 'フォルダとファイルは削除されません。\n'
-        + `${lib.root} はそのまま残るので、あとで「既存のライブラリを開く」から戻せます。`,
-      { title: '一覧から外す' },
-    );
-    if (!yes) return;
-    await api.forgetLibrary(lib.id);
-    setLibraries(await api.listLibraries());
-    useLibrary.getState().bumpVersion();
-  };
-
-  const browseFrameDir = async () => {
-    const selected = await open({
-      directory: true,
-      multiple: false,
-      title: 'コマの画像の保存先フォルダ',
-    });
-    if (typeof selected === 'string') setFrameSaveDir(selected);
-  };
-
-  const browsePlayer = async () => {
-    const selected = await open({
-      multiple: false,
-      title: '外部プレイヤーの実行ファイルを選択',
-      filters: [{ name: '実行ファイル', extensions: ['exe'] }],
-    });
-    if (typeof selected === 'string') setPlayerPath(selected);
-  };
-
-  const save = async () => {
-    await api.setSetting('player_path', playerPath.trim());
-    // 再生分岐(アプリ内 or 外部)が即座に切り替わるようストアにも反映
-    useLibrary.getState().setPlayerPath(playerPath.trim());
-    await api.setSetting('preview_on_hover', previewOnHover ? '1' : '0');
-    useLibrary.getState().setPreviewOnHover(previewOnHover);
-    // カードの高さが変わるので、閉じた瞬間にグリッドへ反映させる
-    await api.setSetting('card_tags', cardTags ? '1' : '0');
-    useLibrary.getState().setCardTags(cardTags);
-    await api.setSetting('card_series', cardSeries ? '1' : '0');
-    useLibrary.getState().setCardSeries(cardSeries);
-    await api.setSetting('seek_preview', seekPreview ? '1' : '0');
-    useLibrary.getState().setSeekPreview(seekPreview);
-    // store に入れた瞬間 useMpvPlayer が setProperty で押し込む(再生中でも切り替わる)
-    await api.setSetting('hdr_passthrough', hdrPassthrough ? '1' : '0');
-    useLibrary.getState().setHdrPassthrough(hdrPassthrough);
-    await api.setSetting('autoplay_next', autoplayNext ? '1' : '0');
-    useLibrary.getState().setAutoplayNext(autoplayNext);
-    // 次にサムネイルを作るときから効く(既存のサムネイルは「すべて再生成」で作り直す)
-    await api.setSetting('use_embedded_cover', useEmbeddedCover ? '1' : '0');
-    // 空欄なら既定(ピクチャ\DVM)。実効フォルダの解決は Rust 側がやるので store には載せない
-    await api.setSetting('frame_save_dir', frameSaveDir.trim());
-    await api.setSetting('anthropic_api_key', aiKey.trim());
-    await api.setSetting('anthropic_model', aiModel.trim());
-    await api.setSetting('mcp_allow_write', mcpAllowWrite ? '1' : '0');
-    onClose();
-  };
-
-  const regenerate = async (onlyFailed: boolean) => {
-    const yes = await ask(
-      onlyFailed
-        ? '生成に失敗したサムネイルだけを作り直しますか?'
-        : 'すべてのサムネイルを作り直しますか?件数が多いと時間がかかります。',
-      { title: 'サムネイル再生成' },
-    );
-    if (!yes) return;
-    const count = await api.regenerateThumbnails(onlyFailed);
-    if (count === 0) {
-      await message('対象のサムネイルはありませんでした', { title: 'サムネイル再生成' });
-    }
-    // 進捗は画面下部のステータスバーに表示される
-    onClose();
-  };
-
-  /**
-   * 監視除外フォルダを足す。監視フォルダの中のフォルダを選ぶのが本来の使い方なので、
-   * ここでは監視フォルダかどうかの検査はしない(外を選んでも害は無い)
+  /*
+   * 右下を掴んで大きさを変えられる(v1.38)。既定は 7 カテゴリ中 6 つが収まる 780x720。
+   *
+   * **大きさはカテゴリで変えない。** 中身に合わせて伸縮させると、切り替えるたびに
+   * モーダルごと動いて左レールの項目まで動く。入りきらないカテゴリ(AI 連携)は
+   * 右ペインがスクロールする。
+   *
+   * 値は store から来る(App.tsx が起動時に読む)—— ここで読むと、既定の大きさで
+   * 一瞬描いてから保存した大きさへ跳ねるのが見える。
+   * ドラッグの作法は PaneResizer と同じ setPointerCapture 方式で、
+   * **保存も離したときだけ**(動かすたびに set_setting を書かない)
    */
-  const addExclude = async () => {
-    const selected = await open({
-      directory: true,
-      multiple: false,
-      title: '監視除外フォルダを選ぶ',
+  const size = useLibrary((s) => s.settingsModalSize);
+  const setSize = useLibrary((s) => s.setSettingsModalSize);
+  const drag = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+
+  const applyDrag = (clientX: number, clientY: number) => {
+    const d = drag.current;
+    if (!d) return;
+    /*
+     * オーバーレイが中央寄せなので、幅を dW 広げても右端は dW/2 しか動かない。
+     * ハンドルがカーソルに付いてくるよう 2 倍にする
+     */
+    const next = clampModalSize({
+      w: d.w + (clientX - d.x) * 2,
+      h: d.h + (clientY - d.y) * 2,
     });
-    if (typeof selected !== 'string') return;
-    const alsoRemove = await ask(
-      `${selected} の配下を、次のスキャンから取り込まないようにします。\n\n` +
-        '今ライブラリに入っている配下の動画も外しますか?\n' +
-        '「いいえ」を選ぶと一覧には残ったまま、今後増えなくなります。\n\n' +
-        'どちらを選んでも動画ファイルは削除しません。',
-      { title: '監視除外フォルダに登録' },
-    );
-    setBusy(true);
-    try {
-      const removed = await api.addExcludedPaths([selected], alsoRemove);
-      setExcluded(await api.listExcludedPaths());
-      useLibrary.getState().bumpVersion();
-      if (removed > 0) {
-        await message(`${removed.toLocaleString()} 件をライブラリから外しました(ファイルは残っています)`, {
-          title: '監視除外フォルダに登録',
-        });
-      }
-    } finally {
-      setBusy(false);
-    }
+    // 窓からはみ出させない(CSS の max-width/height と二重だが、保存する値も丸めたい)
+    setSize({
+      w: Math.max(Math.min(next.w, Math.round(window.innerWidth * 0.9)), SETTINGS_SIZE_MIN.w),
+      h: Math.max(Math.min(next.h, Math.round(window.innerHeight * 0.85)), SETTINGS_SIZE_MIN.h),
+    });
   };
 
-  /** 監視除外を解除する。該当ファイルは次のスキャンで取り込まれる */
-  const removeExclude = async (id: number, path: string) => {
-    const yes = await ask(
-      `${path} を監視除外から外しますか?\n\n次のスキャンで該当する動画がライブラリに再登録されます。`,
-      { title: '監視除外を解除' },
-    );
-    if (!yes) return;
-    await api.removeExcludedPath(id);
-    setExcluded(await api.listExcludedPaths());
+  /** 丸められたあとの値を保存したいので、状態は store から読み直す(PaneResizer と同じ) */
+  const commitSize = () => {
+    const s = useLibrary.getState().settingsModalSize;
+    void api.setSetting(SETTINGS_SIZE_KEY, serializeModalSize(s));
   };
 
-  /** ライブラリから外した動画のサムネイルが残っていたら消す */
-  const purgeOrphans = async () => {
-    setBusy(true);
-    try {
-      const r = await api.purgeOrphanThumbnails();
-      await message(
-        r.removed === 0
-          ? '不要なサムネイルはありませんでした'
-          : `${r.removed} 件(${fmtSize(r.freedBytes)})を削除しました`,
-        { title: '孤児サムネイルの掃除' },
-      );
-      setInfo(await api.getAppInfo());
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  /** 復元を予約する。実際の差し替えは次回起動時 */
-  const restore = async (b: BackupInfo) => {
-    const yes = await ask(
-      `「${b.fileName}」(${b.createdAt})から復元しますか?\n\n` +
-        '現在のライブラリ(タグ・レーティング・視聴履歴を含む)はこのバックアップの内容で置き換わります。\n' +
-        '動画ファイル自体には影響しません。\n\n' +
-        '復元はアプリを再起動したときに適用されます。',
-      { title: 'バックアップから復元' },
-    );
-    if (!yes) return;
-    setBusy(true);
-    try {
-      const safety = await api.restoreBackup(b.path);
-      await message(
-        `復元を予約しました。アプリを再起動すると適用されます。\n\n` +
-          `現在のデータは ${safety} として保存しました。`,
-        { title: 'バックアップから復元' },
-      );
-      setBackups(await api.listDbBackups());
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const backupNow = async () => {
-    setBusy(true);
-    try {
-      await api.backupDb();
-      setBackups(await api.listDbBackups());
-      setInfo(await api.getAppInfo());
-    } finally {
-      setBusy(false);
-    }
-  };
+  /*
+   * Escape で閉じる。**window ではなく document に張って stopPropagation する** ——
+   * App.tsx の Escape(選択解除)は window にいるので、ここで止めれば届かない。
+   * IME の変換中は「変換の取り消し」なので拾わない(入力欄が 5 個ある)
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.isComposing) return;
+      e.stopPropagation();
+      onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal settings-modal"
+        style={{ width: size.w, height: size.h }}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-title">設定</div>
 
-        <div className="settings-section">
-          <div className="settings-heading">ライブラリ</div>
-          <div className="settings-note">
-            ライブラリごとに動画・タグ・シリーズ・監視フォルダが分かれます。
-            見た目や API キーなどの設定は切り替えても変わりません。
-            切り替えはサイドバー上部のライブラリ名から行います
-          </div>
-          <ul className="library-list">
-            {libraries.map((lib) => {
-              const isCurrent = lib.id === info?.libraryId;
-              return (
-                <li key={lib.id} className={isCurrent ? 'current' : ''}>
-                  <div className="library-list-main">
-                    <span className="library-list-name">
-                      {lib.name}
-                      {isCurrent && <span className="library-badge">開いています</span>}
-                      {!lib.online && <span className="library-badge warn">未接続</span>}
-                    </span>
-                    <span className="library-list-root" title={lib.root}>{lib.root}</span>
-                  </div>
-                  <div className="library-list-actions">
-                    <button onClick={() => renameLibrary(lib)}>名前を変更...</button>
-                    <button onClick={() => api.openLibraryDir(lib.id)} disabled={!lib.online}>
-                      フォルダを開く
-                    </button>
-                    <button
-                      onClick={() => forgetLibrary(lib)}
-                      disabled={isCurrent}
-                      title={
-                        isCurrent
-                          ? '開いているライブラリは外せません(別のライブラリに切り替えてから)'
-                          : 'フォルダとファイルは削除されません'
-                      }
-                    >
-                      一覧から外す
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-
-        <div className="settings-section">
-          <div className="settings-heading">再生</div>
-          <label className="modal-label">
-            外部プレイヤー(空欄なら Windows の既定のプレイヤーで開く)
-          </label>
-          <div className="modal-row">
-            <input
-              value={playerPath}
-              placeholder="例: C:\\Program Files\\mpv\\mpv.exe"
-              onChange={(e) => setPlayerPath(e.target.value)}
-            />
-            <button onClick={browsePlayer}>参照...</button>
-          </div>
-          <label className="settings-check">
-            <input
-              type="checkbox"
-              checked={previewOnHover}
-              onChange={(e) => setPreviewOnHover(e.target.checked)}
-            />
-            カードにカーソルを合わせるとプレビュー再生する(マウスを左右に動かすとシーンを送れます)
-          </label>
-          <label className="settings-check">
-            <input
-              type="checkbox"
-              checked={cardTags}
-              onChange={(e) => setCardTags(e.target.checked)}
-            />
-            グリッドのカードにタグを表示する(詳細リストは列の選択から追加できます)
-          </label>
-          <label className="settings-check">
-            <input
-              type="checkbox"
-              checked={cardSeries}
-              onChange={(e) => setCardSeries(e.target.checked)}
-            />
-            グリッドのカードにシリーズを表示する
-          </label>
-          <label className="settings-check">
-            <input
-              type="checkbox"
-              checked={seekPreview}
-              onChange={(e) => setSeekPreview(e.target.checked)}
-            />
-            再生中、シークバーにカーソルを合わせるとその位置のコマを表示する(重い動画で本編がカクつく場合はオフ)
-          </label>
-          <label className="settings-check">
-            <input
-              type="checkbox"
-              checked={autoplayNext}
-              onChange={(e) => setAutoplayNext(e.target.checked)}
-            />
-            最後まで再生したら次の動画へ進む(一覧の並び順。⏭ / N キーでも進めます)
-          </label>
-          <label className="settings-check">
-            <input
-              type="checkbox"
-              checked={hdrPassthrough}
-              onChange={(e) => setHdrPassthrough(e.target.checked)}
-            />
-            HDR パススルーを有効にする
-          </label>
-          <div className="settings-note">
-            HDR パススルーは、HDR 対応モニタで Windows の HDR をオンにしているときだけ効きます。
-            オフのときは従来どおり SDR に変換して表示します(アプリ内再生のみ)。
-            切り替えても変わらない場合はアプリを再起動してください
-          </div>
-          <div className="settings-note">
-            プレビューは元の動画ファイルを直接読みます。外付け HDD / NAS のアクセスを抑えたいときは
-            オフにしてください
-          </div>
-        </div>
-
-        <div className="settings-section">
-          <div className="settings-heading">字幕の見た目(アプリ内再生)</div>
-          <div className="settings-note">
-            ここの設定はその場で保存されます(「保存」を押す必要はありません)。
-            再生中はコントロールバーの字幕ボタンから、映像を見ながら同じ設定を調整できます。
-            変換して再生する形式(mp4 に変換されるもの)では字幕そのものが表示されません
-          </div>
-          <SubtitleStyleEditor
-            value={subStyle}
-            onChange={setSubStyle}
-            onReset={resetSubStyle}
-          />
-        </div>
-
-        <div className="settings-section">
-          <div className="settings-heading">データの保存場所</div>
-          {info && (
-            <div className="settings-info">
-              <div className="settings-info-row">
-                <span>ライブラリ「{info.libraryName}」</span>
-                <span className="settings-path" title={info.libraryRoot}>{info.libraryRoot}</span>
+        <div className="settings-panes">
+          <div className="settings-nav">
+            {CATS.map((c, i) => (
+              <div key={c.key}>
+                {/* グループの見出しは、そのグループの先頭でだけ出す */}
+                {(i === 0 || CATS[i - 1].group !== c.group) && (
+                  <div className="settings-nav-group">{c.group}</div>
+                )}
+                <button
+                  className={cat === c.key ? 'settings-nav-item active' : 'settings-nav-item'}
+                  onClick={() => setCat(c.key)}
+                >
+                  {c.label}
+                </button>
               </div>
-              <div className="settings-info-row">
-                <span>データフォルダ(アプリ全体)</span>
-                <span className="settings-path" title={info.dataDir}>{info.dataDir}</span>
-              </div>
-              <div className="settings-info-row">
-                <span>データベース</span>
-                <span>{fmtSize(info.dbSize)}</span>
-              </div>
-              <div className="settings-info-row">
-                <span>サムネイルキャッシュ</span>
-                <span>
-                  {info.thumbCount} 件 / {fmtSize(info.thumbCacheSize)}
-                </span>
-              </div>
-            </div>
-          )}
-          <div className="settings-note">
-            動画・タグ・サムネイル・バックアップはライブラリフォルダの中にあります。
-            設定と再生用の変換キャッシュだけがアプリ全体のデータフォルダに入ります
+            ))}
           </div>
-          <div className="modal-row">
-            <button onClick={() => api.openLibraryDir()}>ライブラリフォルダを開く</button>
-            <button onClick={() => api.openDataDir()}>データフォルダを開く</button>
+
+          <div className="settings-body">
+            {cat === 'display' && <DisplaySection />}
+            {cat === 'playback' && <PlaybackSection />}
+            {cat === 'subtitle' && <SubtitleSection />}
+            {cat === 'ai' && <AiSection info={info} />}
+            {cat === 'library' && <LibrarySection info={info} />}
+            {cat === 'thumbnail' && (
+              <ThumbnailSection info={info} reloadInfo={reloadInfo} onClose={onClose} />
+            )}
+            {cat === 'data' && <DataSection info={info} reloadInfo={reloadInfo} />}
           </div>
         </div>
 
-        <div className="settings-section">
-          <div className="settings-heading">監視除外フォルダ</div>
-          <div className="settings-note">
-            監視フォルダの中でも、ここに入れたフォルダの配下はスキャンで取り込みません。
-            世代ごとのバックアップや作業用の書き出し先など、ライブラリに出したくない場所に使います。
-            動画を削除するときに登録したファイル 1 個だけの行も、ここに並びます。
-            <strong>動画ファイルは削除しません。</strong>
-          </div>
-          {excluded.length > 0 && (
-            <ul className="excluded-list">
-              {excluded.map((e) => (
-                <li key={e.id}>
-                  <span className="excluded-path" title={e.path}>{e.path}</span>
-                  {/* 消し残しがあるときだけ件数を出す(0 を並べても意味が無い) */}
-                  {e.videoCount > 0 && (
-                    <span
-                      className="excluded-count"
-                      title="除外したあとも一覧に残っている登録数。除外したときに外さなかったぶんです"
-                    >
-                      {e.videoCount.toLocaleString()} 件が一覧に残っています
-                    </span>
-                  )}
-                  <button onClick={() => removeExclude(e.id, e.path)}>解除</button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <div className="modal-row">
-            <button onClick={addExclude} disabled={busy}>フォルダを選んで追加...</button>
-          </div>
-          <div className="settings-note">
-            サイドバーのフォルダーツリーを右クリックしても追加できます
-          </div>
-        </div>
-
-        <div className="settings-section">
-          <div className="settings-heading">サムネイル</div>
-          <div className="modal-row">
-            <button onClick={() => regenerate(true)}>失敗した分を再生成</button>
-            <button onClick={() => regenerate(false)}>すべて再生成</button>
-            <button onClick={purgeOrphans} disabled={busy}>
-              孤児サムネイルを掃除
-            </button>
-          </div>
-          <label className="settings-check">
-            <input
-              type="checkbox"
-              checked={useEmbeddedCover}
-              onChange={(e) => setUseEmbeddedCover(e.target.checked)}
-            />
-            動画にカバー画像が埋め込まれていればサムネイルに使う(生成が速く、絵も的確になります)
-          </label>
-          <div className="settings-note">
-            再生中にサムネイルのボタン(T キー)を押すと、その位置を個別にサムネイルにできます。
-            手動で指定したコマはカバー画像より優先されます
-          </div>
-        </div>
-
-        <div className="settings-section">
-          <div className="settings-heading">コマの保存</div>
-          <label className="modal-label">
-            保存先フォルダ(空欄なら {info?.framesDir ?? 'ピクチャ\\DVM'})
-          </label>
-          <div className="modal-row">
-            <input
-              value={frameSaveDir}
-              placeholder={info?.framesDir ?? ''}
-              onChange={(e) => setFrameSaveDir(e.target.value)}
-            />
-            <button onClick={browseFrameDir}>参照...</button>
-          </div>
-          <div className="modal-row">
-            <button onClick={() => api.openFrameDir()}>保存先を開く</button>
-            <button onClick={() => setFrameSaveDir('')} disabled={frameSaveDir === ''}>
-              既定に戻す
-            </button>
-          </div>
-          <div className="settings-note">
-            再生中にカメラのボタン(S キー)を押すと、そのコマを PNG で保存します。
-            元の動画から原寸のまま取り出すので、字幕やコントロールバーは写りません。
-            同じ名前があれば上書きせず連番を付けます
-          </div>
-        </div>
-
-        <div className="settings-section">
-          <div className="settings-heading">AI アシスタント</div>
-          <label className="modal-label">Anthropic API キー(AI アシスタントで使用)</label>
-          <div className="modal-row">
-            <input
-              type="password"
-              value={aiKey}
-              placeholder="sk-ant-..."
-              onChange={(e) => setAiKey(e.target.value)}
-            />
-          </div>
-          <label className="modal-label">モデル(空欄なら claude-opus-5)</label>
-          <div className="modal-row">
-            <input
-              value={aiModel}
-              placeholder="claude-opus-5"
-              onChange={(e) => setAiModel(e.target.value)}
-            />
-          </div>
-          <div className="settings-note">
-            キーは library.db に平文で保存され、DB バックアップにも含まれます。利用量に応じて Anthropic の API 料金が発生します
-          </div>
-        </div>
-
-        <McpSettings
-          exePath={info ? info.mcpPath : undefined}
-          allowWrite={mcpAllowWrite}
-          onAllowWriteChange={setMcpAllowWrite}
-          libraryName={info?.libraryName}
-        />
-
-        <div className="settings-section">
-          <div className="settings-heading">バックアップ</div>
-          <div className="modal-row">
-            <button onClick={backupNow} disabled={busy}>
-              {busy ? 'バックアップ中...' : '今すぐバックアップ'}
-            </button>
-            <button onClick={() => api.openBackupsDir()}>バックアップフォルダを開く</button>
-          </div>
-          {backups.length > 0 && (
-            <div className="settings-backup-list">
-              {backups.map((b) => (
-                <div key={b.fileName} className="settings-info-row">
-                  <span className="settings-path" title={b.path}>{b.fileName}</span>
-                  <span>
-                    {fmtSize(b.size)} ・ {b.createdAt}
-                  </span>
-                  <button className="backup-restore" onClick={() => restore(b)}>
-                    復元
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="settings-note">
-            復元はアプリの再起動時に適用されます(起動中に library.db を差し替えると壊れるため)。
-            復元の直前に現在のデータも pre-restore-... として自動でバックアップします
-          </div>
-        </div>
-
+        {/* 設定はその場で保存済みなので「閉じる」だけ。primary にはしない(押さないと確定しない、と読ませないため) */}
         <div className="modal-actions">
           <button onClick={onClose}>閉じる</button>
-          <button className="primary" onClick={save}>保存</button>
         </div>
+
+        <div
+          className="settings-resize"
+          title="大きさを変更(ダブルクリックで既定に戻す)"
+          onPointerDown={(e) => {
+            e.currentTarget.setPointerCapture(e.pointerId);
+            drag.current = { x: e.clientX, y: e.clientY, w: size.w, h: size.h };
+          }}
+          onPointerMove={(e) => applyDrag(e.clientX, e.clientY)}
+          onPointerUp={(e) => {
+            if (!drag.current) return;
+            applyDrag(e.clientX, e.clientY);
+            drag.current = null;
+            commitSize();
+          }}
+          onDoubleClick={() => {
+            setSize(SETTINGS_SIZE_DEFAULT);
+            commitSize();
+          }}
+        />
       </div>
     </div>
   );

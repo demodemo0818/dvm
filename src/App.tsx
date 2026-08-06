@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import './App.css';
 import { api } from './api';
 import { parseColumns } from './lib/listColumns';
+import { parseModalSize, SETTINGS_SIZE_KEY } from './lib/settings';
 import { parseSubStyle, serializeSubStyle, SUB_STYLE_KEY } from './lib/subtitleStyle';
 import type { LibraryState } from './types';
 import { AiPanel } from './components/AiPanel';
@@ -24,7 +25,8 @@ export default function App() {
     setViewMode, setCardWidth, setAutoplayNext, setSeekPreview, setHdrPassthrough,
     setCardTags, setCardSeries,
     setInspectorPinned, setMediaInfoOpen, setListColumns, setListZebra, setSidebarWidth,
-    setInspectorWidth, setSidebarCollapsed, setAiPanelWidth, setSubStyle, subStyle,
+    setInspectorWidth, setSidebarCollapsed, setAiPanelWidth, setSettingsModalSize,
+    setSubStyle, subStyle,
     inspectorPinned, sidebarWidth, inspectorWidth, sidebarCollapsed, selection,
     showAiPanel, aiPanelWidth,
   } = useLibrary();
@@ -131,6 +133,12 @@ export default function App() {
       const n = Number(v);
       if (Number.isFinite(n) && n > 0) setAiPanelWidth(n);
     });
+    /*
+     * 設定モーダルの大きさ(v1.38)。**モーダル側では読まない** ——
+     * 開いてから読むと既定の大きさで一瞬描いてから跳ねる。
+     * 壊れた値は parseModalSize がすべて既定に落とす
+     */
+    api.getSetting(SETTINGS_SIZE_KEY).then((v) => setSettingsModalSize(parseModalSize(v)));
     // 字幕の見た目(v1.24)。壊れた値は parseSubStyle がすべて既定に落とす
     api.getSetting(SUB_STYLE_KEY)
       .then((v) => setSubStyle(parseSubStyle(v)))
@@ -141,7 +149,8 @@ export default function App() {
     setPlayerPath, setPreviewOnHover, setSeekPreview, setHdrPassthrough,
     setViewMode, setCardWidth, setAutoplayNext,
     setInspectorPinned, setMediaInfoOpen, setListColumns, setListZebra, setSidebarWidth,
-    setInspectorWidth, setSidebarCollapsed, setAiPanelWidth, setCardTags, setCardSeries,
+    setInspectorWidth, setSidebarCollapsed, setAiPanelWidth, setSettingsModalSize,
+    setCardTags, setCardSeries,
     setSubStyle,
   ]);
 

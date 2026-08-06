@@ -417,6 +417,31 @@ pub fn purge_cache_in(root: &Path, limit_bytes: u64, known_ids: &[String], keep:
     }
 }
 
+/// 変換キャッシュの現在量を数える(件数, バイト数)。
+///
+/// **`collect_cache_files` を流用しない** —— あちらは走査ついでに `.tmp.mp4` を消すので、
+/// 設定画面に数字を出すだけの読み取りから呼ぶと副作用が出る。ここは何も消さない
+pub fn cache_size(root: &Path) -> (usize, u64) {
+    let Ok(libs) = std::fs::read_dir(root) else { return (0, 0) };
+    let mut count = 0usize;
+    let mut total = 0u64;
+    for lib in libs.flatten() {
+        let Ok(entries) = std::fs::read_dir(lib.path()) else { continue };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            // 書きかけの .tmp.mp4 は「貯まっているもの」ではないので数えない
+            if !name.ends_with(".mp4") || name.ends_with(".tmp.mp4") {
+                continue;
+            }
+            if let Ok(meta) = entry.metadata() {
+                count += 1;
+                total += meta.len();
+            }
+        }
+    }
+    (count, total)
+}
+
 /// 1 ライブラリぶんのキャッシュを走査する。.tmp.mp4 はその場で消す
 fn collect_cache_files(dir: &Path, out: &mut Vec<(PathBuf, u64, std::time::SystemTime)>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };

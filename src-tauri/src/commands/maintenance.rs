@@ -161,6 +161,10 @@ pub struct AppInfo {
     pub frames_dir: String,
     /// MCP サーバーの実行ファイル。見つからなければ null(設定画面がその旨を出す)
     pub mcp_path: Option<String>,
+    /// 再生用の変換キャッシュ(v1.38)。**ライブラリ横断の合計**。上限だけ出して
+    /// 実測が無いと「今どれだけ貯まっているか」が分からないので一緒に返す
+    pub transcode_count: i64,
+    pub transcode_size: i64,
 }
 
 #[tauri::command]
@@ -192,6 +196,9 @@ pub fn get_app_info(state: State<AppState>) -> Result<AppInfo, String> {
             .unwrap_or_default()
     };
 
+    let (transcode_count, transcode_size) =
+        crate::core::playback::cache_size(&state.data_dir.join("transcode"));
+
     Ok(AppInfo {
         data_dir: state.data_dir.to_string_lossy().to_string(),
         library_id: state.library_id.clone(),
@@ -205,7 +212,20 @@ pub fn get_app_info(state: State<AppState>) -> Result<AppInfo, String> {
         backups_dir: state.backups_dir.to_string_lossy().to_string(),
         frames_dir: state.frames_dir.to_string_lossy().to_string(),
         mcp_path: crate::core::mcp::server_path().map(|p| p.to_string_lossy().to_string()),
+        transcode_count: transcode_count as i64,
+        transcode_size: transcode_size as i64,
     })
+}
+
+/// 変換キャッシュを今すぐ掃除する(v1.38)。
+///
+/// 上限は `purge_cache` が app.db から読み直すので、設定を書き換えたあと押せば
+/// その値で効く。戻り値は返さない —— 呼び出し側が `get_app_info` を取り直せば、
+/// 減ったサイズがそのまま画面に出る
+#[tauri::command]
+pub fn purge_transcode_cache(app: AppHandle) -> Result<(), String> {
+    crate::core::playback::purge_cache(&app, None);
+    Ok(())
 }
 
 /// サムネイル再生成。only_failed=true なら生成失敗分のみ、false なら全件。

@@ -3,6 +3,8 @@ import { DEFAULT_COLUMNS } from './lib/listColumns';
 import type { ColumnKey } from './lib/listColumns';
 import { EMPTY_FILTER } from './lib/query';
 import type { FilterState } from './lib/query';
+import { SETTINGS_SIZE_DEFAULT, clampModalSize } from './lib/settings';
+import type { ModalSize } from './lib/settings';
 import { DEFAULT_SUB_STYLE } from './lib/subtitleStyle';
 import type { SubStyle } from './lib/subtitleStyle';
 import { EMPTY_ADVANCED } from './types';
@@ -121,6 +123,12 @@ interface LibraryState {
   sidebarCollapsed: boolean;
   /** AI パネルの幅 px(ドラッグで伸縮。設定に永続化) */
   aiPanelWidth: number;
+  /**
+   * 設定モーダルの大きさ(v1.38。右下を掴んで伸縮。設定に永続化)。
+   * **起動時に読む**のがポイント —— モーダルが開いてから読むと、既定の大きさで
+   * 一瞬描いてから保存した大きさへ跳ねる。サイドバーや詳細ペインの幅と同じ扱い
+   */
+  settingsModalSize: ModalSize;
   /** 再生が終わったら次の動画へ進むか(設定に永続化) */
   autoplayNext: boolean;
   /**
@@ -224,6 +232,7 @@ interface LibraryState {
   setInspectorWidth: (inspectorWidth: number) => void;
   setSidebarCollapsed: (sidebarCollapsed: boolean) => void;
   setAiPanelWidth: (aiPanelWidth: number) => void;
+  setSettingsModalSize: (size: ModalSize) => void;
   setAutoplayNext: (autoplayNext: boolean) => void;
   setRepeatOne: (repeatOne: boolean) => void;
   setPlayerPath: (playerPath: string) => void;
@@ -281,6 +290,7 @@ export const useLibrary = create<LibraryState>((set) => ({
   inspectorWidth: INSPECTOR_WIDTH.default,
   sidebarCollapsed: false,
   aiPanelWidth: AI_PANEL_WIDTH.default,
+  settingsModalSize: SETTINGS_SIZE_DEFAULT,
   autoplayNext: false,
   repeatOne: false,
   playingVideo: null,
@@ -320,6 +330,8 @@ export const useLibrary = create<LibraryState>((set) => ({
   setInspectorWidth: (w) => set({ inspectorWidth: clamp(w, INSPECTOR_WIDTH) }),
   setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
   setAiPanelWidth: (w) => set({ aiPanelWidth: clamp(w, AI_PANEL_WIDTH) }),
+  // 丸めは clampModalSize が持つ(幅と高さの 2 軸なので clamp を使い回せない)
+  setSettingsModalSize: (size) => set({ settingsModalSize: clampModalSize(size) }),
   setAutoplayNext: (autoplayNext) => set({ autoplayNext }),
   setRepeatOne: (repeatOne) => set({ repeatOne }),
   setPlayerPath: (playerPath) => set({ playerPath }),

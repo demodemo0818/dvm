@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { copyText } from '../lib/clipboard';
-import { CLAUDE_DESKTOP_CONFIG, claudeCodeCommand, mcpServersJson } from '../lib/mcpConfig';
+import { copyText } from '../../lib/clipboard';
+import { CLAUDE_DESKTOP_CONFIG, claudeCodeCommand, mcpServersJson } from '../../lib/mcpConfig';
 
 type Client = 'desktop' | 'code' | 'other';
 

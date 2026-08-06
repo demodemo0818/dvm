@@ -186,6 +186,8 @@ export const api = {
   getMediaInfo: (id: number) => call<MediaInfo>('get_media_info', { id }, true),
   purgeOrphanThumbnails: () =>
     call<{ removed: number; freedBytes: number }>('purge_orphan_thumbnails'),
+  /** 変換キャッシュを上限まで削る(v1.38)。減った量は getAppInfo を取り直して見せる */
+  purgeTranscodeCache: () => call<void>('purge_transcode_cache'),
   /**
    * 重複解消の下見。scope にフォルダを渡すとその配下だけを対象にする。
    * DB を読むだけなので、実行前に何度呼んでもよい

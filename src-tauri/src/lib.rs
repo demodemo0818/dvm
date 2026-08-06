@@ -297,6 +297,7 @@ pub fn run() {
             commands::maintenance::get_app_info,
             commands::maintenance::regenerate_thumbnails,
             commands::maintenance::purge_orphan_thumbnails,
+            commands::maintenance::purge_transcode_cache,
             commands::maintenance::plan_dedupe,
             commands::maintenance::apply_dedupe,
             commands::maintenance::restore_backup,

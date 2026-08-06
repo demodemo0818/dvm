@@ -1036,11 +1036,104 @@ body {
   color: #fff;
 }
 
-/* ---- 設定モーダル ---- */
+/* ---- 設定モーダル (v1.38 で 2 ペイン化) ---- */
+/* スクロールするのは右ペイン(.settings-body)だけ。ここには overflow を置かない。
+   **大きさはカテゴリで変えない** —— 中身に合わせて伸縮させると、切り替えるたびに
+   モーダルごと動いて左レールの項目まで動く。いちばん高い「AI 連携」(MCP の
+   スニペットがある)に合わせると他がスカスカになるので、7 カテゴリ中 6 つが収まる
+   大きさを既定にして、はみ出すぶんは右ペインをスクロールさせる。
+   幅と高さは SettingsModal.tsx がインラインで指定する(右下を掴んで変えられる) */
 .settings-modal {
-  width: 560px;
+  position: relative;
   max-height: 85vh;
+}
+
+/* 掴む場所を示す 2 本の斜線。右下の余白(padding 16px の内側)にちょうど収まる */
+.settings-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  background:
+    linear-gradient(135deg, transparent 44%, #4b5162 44%, #4b5162 56%, transparent 56%),
+    linear-gradient(135deg, transparent 66%, #4b5162 66%, #4b5162 78%, transparent 78%);
+}
+
+.settings-resize:hover {
+  background:
+    linear-gradient(135deg, transparent 44%, #7d8496 44%, #7d8496 56%, transparent 56%),
+    linear-gradient(135deg, transparent 66%, #7d8496 66%, #7d8496 78%, transparent 78%);
+}
+
+/* min-height: 0 が要る —— .modal は縦 flex なので、無いと子が縮まず 85vh を突き抜ける */
+.settings-panes {
+  display: flex;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* 左レール。値は .side-item / .side-section に揃えているが、クラスは共用しない
+   (サイドバーの調整が設定モーダルに漏れないようにする) */
+.settings-nav {
+  flex: none;
+  width: 168px;
   overflow-y: auto;
+  border-right: 1px solid #2a2e37;
+  padding-right: 8px;
+}
+
+.settings-nav-group {
+  font-size: 11px;
+  color: #8a8f9c;
+  padding: 12px 10px 4px;
+}
+
+.settings-nav-group:first-child {
+  padding-top: 0;
+}
+
+/* 子セレクタで書くのは見た目の都合ではなく詳細度の都合 —— 設定モーダルは DOM 上
+   `.toolbar` の内側にあるので、`.toolbar button`(0,1,1)が `.settings-nav-item`
+   (0,1,0)に勝ってしまい、枠と背景が付いてしまう(`.modal-row button` と同じ事情) */
+.settings-nav button.settings-nav-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: #d8dbe2;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.settings-nav button.settings-nav-item:hover {
+  background: #262a33;
+}
+
+.settings-nav button.settings-nav-item.active {
+  background: #2f66d0;
+  color: #fff;
+}
+
+.settings-body {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* 1 カテゴリは 1〜2 セクションなので、先頭の区切り線は浮いて見える */
+.settings-body > .settings-section:first-child {
+  border-top: none;
+  padding-top: 0;
 }
 
 .settings-section {
@@ -1110,6 +1203,22 @@ body {
 .settings-note {
   font-size: 11px;
   color: #8a8f9c;
+}
+
+/* 変換キャッシュの上限(v1.38)。数値欄はパスの入力欄ほど幅が要らない */
+.settings-cache-limit {
+  align-items: center;
+}
+
+.settings-cache-limit input {
+  flex: none;
+  width: 88px;
+}
+
+.settings-unit {
+  font-size: 12px;
+  color: #aab0bd;
+  margin-right: auto;
 }
 
 /* 見落とすと設定ファイルを壊す類の注意(サイドバーの ⚠ と同じ色) */
