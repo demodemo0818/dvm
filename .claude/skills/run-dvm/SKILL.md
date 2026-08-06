@@ -163,7 +163,33 @@ powershell -NoProfile -ExecutionPolicy Bypass -File $ui -Action key    -Keys '{E
 | 視聴履歴 / 操作履歴 | ツールバーの 🕘(オーバーフローに入っていることがある) |
 | プレイヤー | カードを dblclick |
 
-## 8. 後始末
+## 8. 後始末 —— **kill せず `stop.ps1` で閉じる**
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .claude\skills\run-dvm\stop.ps1
+```
+
+**`Stop-Process -Force` で殺してはいけない。** ウィンドウ位置・サイズを覚えている
+`tauri-plugin-window-state` が `.window-state.json` を**書くのは `RunEvent::Exit` だけ**で、
+`Moved` / `Resized` / `CloseRequested` はメモリ上のキャッシュを更新するだけ。
+強制終了すると**最大化しようが動かそうが丸ごと巻き戻る**ので、検証のたびに
+小さい窓で立ち上がることになる(実際にこれで状態が 1 日以上更新されていなかった)。
+
+`stop.ps1` は × ボタンと同じ `WM_CLOSE`(`Process.CloseMainWindow()`)を送って
+終了ハンドラを通らせ、dvm → cargo → vite(1420 を持つ node)の順に畳む。
+**最後に保存された値を必ず表示する**ので、閉じたつもりで保存されていない状態に気付ける。
+
+```
+dvm を閉じました(0.8 秒)
+ウィンドウ状態を保存しました: 1112x681 at -8,-8 maximized=True
+```
+
+- ハングして `WM_CLOSE` が効かないときだけ `-Force`(位置は諦める)
+- 既定 20 秒で閉じなければ自動で強制終了に切り替わる
+- **「定期的に保存する」で直そうとしないこと。** 別スレッドから `save_window_state` を
+  呼ぶとプラグイン内部の mutex とイベントループでロック順序が逆転し、
+  ウィンドウを動かしている最中に**アプリが固まる**(実測で確認。
+  docs/DESIGN.md「ウィンドウ位置とサイズの記憶」節)
 
 アプリはバックグラウンドで動き続ける。用が済んだら止めるかユーザーに確認する。
 `npm run tauri dev` はソース変更を監視して再ビルドするので、
