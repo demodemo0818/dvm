@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../api';
-import { queueIndex, queueStep } from '../../lib/queue';
+import { playingInQueue, queueIndex, queueStep } from '../../lib/queue';
 import { useLibrary } from '../../store';
 
 /**
@@ -13,19 +13,25 @@ import { useLibrary } from '../../store';
  *   グリッドのページキャッシュに依存しないので、再生中にソートを変えても
  *   次は新しい並びで来る。10 万件の絞り込みでもオブジェクト 1 個で済む
  * - **キューモード**(v1.40)。手で並べた `queue.items` の中を進む。
- *   `playQueue === null` かつ `queue.currentId !== null` がその印
+ *   `playQueue === null` かつ**再生中の動画がキューの現在位置と一致する**のがその印。
+ *   `currentId !== null` だけで判定すると、キューから一度再生した後に
+ *   履歴などから単発再生したものまでキューモード扱いになり、
+ *   その動画が終わった瞬間に無関係なキューの続きが流れてしまう
+ *   (`currentId` はプレイヤーを閉じても意図的に残しているため)
  *
  * **キューモードは `autoplayNext` を見ない**(`autoAdvance` を参照)。
  */
 export function usePlayQueue() {
   const playQueue = useLibrary((s) => s.playQueue);
   const queue = useLibrary((s) => s.queue);
+  const playingVideo = useLibrary((s) => s.playingVideo);
   const autoplayNext = useLibrary((s) => s.autoplayNext);
   const playFromList = useLibrary((s) => s.playFromList);
   const pushToast = useLibrary((s) => s.pushToast);
 
-  // playQueue が非 null ならクエリモード。両方 null なら単発再生
-  const inQueue = playQueue === null && queue.currentId !== null;
+  // playQueue が非 null ならクエリモード。どちらでもなければ単発再生
+  const inQueue =
+    playQueue === null && playingVideo !== null && playingVideo.id === queue.currentId;
 
   const hasPrev = inQueue
     ? queueStep(queue, -1) !== null
@@ -70,22 +76,39 @@ export function usePlayQueue() {
     async function step(delta: 1 | -1): Promise<void> {
       const s = useLibrary.getState();
       // キューモード。行はすでに手元にあるので Rust には聞かない
-      if (s.playQueue === null && s.queue.currentId !== null) {
-        const next = queueStep(s.queue, delta);
-        if (next === null) return;
-        if (next.isMissing || next.isOffline) {
-          /*
-           * 見つからない / オフラインは**飛ばして先へ進む**(v1.40)。キューは
-           * 「並べて放っておく」ための道具なので、1 本の欠損で列が止まると目的を果たさない。
-           * 飛ばしたことは黙らず断る
-           */
-          pushToast(`${next.filename} は見つからないため飛ばしました`, 'info');
-          s.playFromQueue(next);
-          // 飛ばした先からさらに進む。端に着けば queueStep が null を返して止まる
-          await step(delta);
-          return;
+      if (
+        s.playQueue === null &&
+        s.playingVideo !== null &&
+        s.playingVideo.id === s.queue.currentId
+      ) {
+        /*
+         * 見つからない / オフラインは**飛ばして先へ進む**(v1.40)。キューは
+         * 「並べて放っておく」ための道具なので、1 本の欠損で列が止まると目的を果たさない。
+         * 飛ばしたことは黙らず断る。
+         *
+         * 探索は**状態を変えずに**仮の QueueState 上で行う。以前は 1 件ずつ
+         * playFromQueue してから再帰していたが、キューの端が missing のときに
+         * 再帰だけ止まって欠損ファイルが再生対象のまま残り、mpv → WebView2 と
+         * 失敗が連鎖していた(オフラインの外付け HDD で現実に踏む)
+         */
+        let probe = s.queue;
+        let next = queueStep(probe, delta);
+        const skipped: string[] = [];
+        while (next !== null && (next.isMissing || next.isOffline)) {
+          skipped.push(next.filename);
+          probe = playingInQueue(probe, next.id);
+          next = queueStep(probe, delta);
         }
-        s.playFromQueue(next);
+        if (skipped.length > 0) {
+          pushToast(
+            skipped.length === 1
+              ? `${skipped[0]} は見つからないため飛ばしました`
+              : `${skipped.length} 件は見つからない / オフラインのため飛ばしました`,
+            'info',
+          );
+        }
+        // 端まで欠損だけだったときは何もしない(今の再生をそのまま続ける)
+        if (next !== null) s.playFromQueue(next);
         return;
       }
 

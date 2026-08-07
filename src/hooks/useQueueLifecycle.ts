@@ -52,6 +52,9 @@ export function useQueueLifecycle(version: number) {
    */
   useEffect(() => {
     const win = getCurrentWindow();
+    // cleanup が Promise 解決より先に走ると解除漏れになる(StrictMode で必ず起きる)。
+    // 放置すると確認ダイアログが 2 枚重なる
+    let disposed = false;
     let unlisten: (() => void) | undefined;
     void win
       .onCloseRequested(async (event) => {
@@ -65,9 +68,13 @@ export function useQueueLifecycle(version: number) {
         await win.destroy();
       })
       .then((u) => {
-        unlisten = u;
+        if (disposed) u();
+        else unlisten = u;
       });
-    return () => unlisten?.();
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, []);
 }
 
