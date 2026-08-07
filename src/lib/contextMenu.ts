@@ -85,7 +85,8 @@ export function ratingSubmenu(selection: VideoRow[]): MenuItem[] {
  * 再生キューのサブメニュー(v1.40)。3 つはそれぞれ別の場面を埋める:
  *
  * - **末尾に追加** が基本形
- * - **次に再生** は再生中に効く(一覧側からしか挟めない)
+ * - **次に再生** は再生中の直後に挟む(一覧側からしか挟めない)。
+ *   キューで再生していないときは末尾に足すのと同じになる(lib/queue.ts の addToQueue)
  * - **キューを置き換えて再生** は、選んだものだけで再生を始める唯一の入口。
  *   ダブルクリックはクエリ方式の連続再生のままなので、これが無いと
  *   「選択した数本だけを流す」ができない
@@ -532,8 +533,16 @@ export function buildSmartFolderMenu(
  * 「削除は即反映、追加は上書き保存が必要」という説明しづらい非対称が生まれる
  * (詳細ペインからファイル操作を外したときと同じ判断)
  */
-export function buildPlaylistMenu(playlist: Playlist, isActive: boolean): MenuEntry[] {
+export function buildPlaylistMenu(
+  playlist: Playlist,
+  isActive: boolean,
+  index: number,
+  total: number,
+  filtering: boolean,
+): MenuEntry[] {
   const empty = playlist.videoCount === 0;
+  // スマートフォルダと同じ理由で、絞り込み中は並べ替えを無効にする
+  const filterHint = filtering ? '絞り込み中は並べ替えられません' : undefined;
   return [
     {
       id: 'pl:load',
@@ -556,6 +565,20 @@ export function buildPlaylistMenu(playlist: Playlist, isActive: boolean): MenuEn
       label: '複製',
       icon: CopyPlus,
       hint: `「${playlist.name} のコピー」を作ります`,
+    },
+    {
+      id: 'pl:moveUp',
+      label: '上へ移動',
+      icon: ArrowUp,
+      disabled: filtering || index <= 0,
+      hint: filterHint ?? whyCantMove(index, total, -1),
+    },
+    {
+      id: 'pl:moveDown',
+      label: '下へ移動',
+      icon: ArrowDown,
+      disabled: filtering || index >= total - 1,
+      hint: filterHint ?? whyCantMove(index, total, 1),
     },
     { separator: true },
     {

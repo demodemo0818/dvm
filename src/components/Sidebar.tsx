@@ -11,7 +11,7 @@ import {
 } from '../lib/contextMenu';
 import { baseName } from '../lib/paths';
 import { buildQuery, toFilterState } from '../lib/query';
-import { loadedQueue, needsSavePrompt } from '../lib/queue';
+import { loadedQueue, needsSavePrompt, sourceRemoved, sourceRenamed } from '../lib/queue';
 import { useShallow } from 'zustand/react/shallow';
 import { pickState, useLibrary } from '../store';
 import type {
@@ -173,6 +173,18 @@ export function Sidebar() {
    */
   const loadPlaylist = async (p: Playlist) => {
     try {
+      /*
+       * 手で編集したキューを黙って捨てない(A-29)。終了時は保存を尋ねるのに
+       * ここだけ無言で消えるのは非対称。判定は終了時と同じ needsSavePrompt
+       */
+      if (needsSavePrompt(useLibrary.getState().queue)) {
+        const yes = await ask(
+          `保存していないキュー(${useLibrary.getState().queue.items.length} 件)を捨てて、\n` +
+            `「${p.name}」を読み込みますか?`,
+          { title: 'キューの置き換え', kind: 'warning' },
+        );
+        if (!yes) return;
+      }
       const rows = await api.getPlaylistVideos(p.id);
       if (rows.length === 0) {
         pushToast(`「${p.name}」は空です`, 'info');
@@ -198,6 +210,9 @@ export function Sidebar() {
     if (!yes) return;
     await api.deletePlaylist(p.id);
     if (playlistId === p.id) togglePlaylistFilter(p.id);
+    // このリストから読み込んだキューの出所を外す(残すと「上書き保存」が必ず失敗する)
+    const s = useLibrary.getState();
+    s.setQueue(sourceRemoved(s.queue, p.id));
     bumpVersion();
   };
 
@@ -276,6 +291,20 @@ export function Sidebar() {
     [next[index], next[j]] = [next[j], next[index]];
     try {
       await api.reorderSmartFolders(next.map((sf) => sf.id));
+      bumpVersion();
+    } catch {
+      // トーストは call() の担当
+    }
+  };
+
+  /** プレイリストの並べ替え。moveSmartFolder と同じ流儀(絞り込む前の index で動かす) */
+  const movePlaylist = async (index: number, dir: -1 | 1) => {
+    const next = [...playlists];
+    const j = index + dir;
+    if (j < 0 || j >= next.length) return;
+    [next[index], next[j]] = [next[j], next[index]];
+    try {
+      await api.reorderPlaylists(next.map((p) => p.id));
       bumpVersion();
     } catch {
       // トーストは call() の担当
@@ -403,6 +432,7 @@ export function Sidebar() {
 
       if (target.kind === 'playlist') {
         const p = target.playlist;
+        const index = playlists.findIndex((x) => x.id === p.id);
         switch (id) {
           case 'pl:load': await loadPlaylist(p); break;
           case 'pl:filter': togglePlaylistFilter(p.id); break;
@@ -410,10 +440,15 @@ export function Sidebar() {
             const name = window.prompt('新しいプレイリスト名', p.name);
             if (name === null || name.trim() === '' || name.trim() === p.name) return;
             await api.renamePlaylist(p.id, name.trim());
+            // このリストから読み込んだキューのタイトルも追随させる
+            const s = useLibrary.getState();
+            s.setQueue(sourceRenamed(s.queue, p.id, name.trim()));
             bumpVersion();
             break;
           }
           case 'pl:duplicate': await api.duplicatePlaylist(p.id).then(() => bumpVersion()); break;
+          case 'pl:moveUp': await movePlaylist(index, -1); break;
+          case 'pl:moveDown': await movePlaylist(index, 1); break;
           case 'pl:delete': await removePlaylist(p); break;
           default:
         }
@@ -598,7 +633,18 @@ export function Sidebar() {
               className={`side-item folder ${playlistId === p.id ? 'active' : ''}`}
               onClick={() => togglePlaylistFilter(p.id)}
               onContextMenu={(e) =>
-                openMenu(e, buildPlaylistMenu(p, playlistId === p.id), { kind: 'playlist', playlist: p })}
+                openMenu(
+                  e,
+                  // 並べ替えの index は絞り込む前の並びで数える(スマートフォルダと同じ)
+                  buildPlaylistMenu(
+                    p,
+                    playlistId === p.id,
+                    playlists.findIndex((x) => x.id === p.id),
+                    playlists.length,
+                    needle !== '',
+                  ),
+                  { kind: 'playlist', playlist: p },
+                )}
               title={`${p.name}(クリックで絞り込み。右クリックからキューに読み込めます)`}
             >
               <ListVideo className="tag-mark" />

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   addToQueue, clearQueue, EMPTY_QUEUE, loadedQueue, moveInQueue, needsSavePrompt,
-  playingInQueue, queueIndex, queueStep, QUEUE_LIMIT, removeFromQueue, savedQueue, syncQueue,
+  playingInQueue, queueIndex, queueStep, QUEUE_LIMIT, removeFromQueue, savedQueue,
+  sourceRemoved, sourceRenamed, syncQueue,
 } from './queue';
 import type { QueueState, VideoRow } from '../types';
 
@@ -123,6 +124,25 @@ describe('moveInQueue', () => {
     expect(moveInQueue(q, 1, 1)).toBe(q);
     expect(moveInQueue(q, 5, 0)).toBe(q);
   });
+
+  it('再生中を外した状態で並べ替えても「次へ」の行き先が保たれる', () => {
+    // 1,2,3,4 の 3 を再生中に外す → [1,2,4]、次は 4
+    const q = removeFromQueue(playingInQueue(queueOf(1, 2, 3, 4), 3), 3);
+    expect(q.orphanIndex).toBe(2);
+    // 隙間より手前の 1 を末尾へ → [2,4,1]。次は変わらず 4
+    const moved = moveInQueue(q, 0, 2);
+    expect(ids(moved)).toEqual([2, 4, 1]);
+    expect(queueStep(moved, 1)?.id).toBe(4);
+  });
+
+  it('隙間より手前に挿し込まれたら、覚えている位置は押し下げられる', () => {
+    const q = removeFromQueue(playingInQueue(queueOf(1, 2, 3, 4), 3), 3);
+    // 隙間の直後に居た 4 を先頭へ → [4,1,2]。隙間は「2 の後ろ」に付いて動く
+    const moved = moveInQueue(q, 2, 0);
+    expect(ids(moved)).toEqual([4, 1, 2]);
+    expect(queueStep(moved, 1)).toBeNull();
+    expect(queueStep(moved, -1)?.id).toBe(2);
+  });
 });
 
 describe('queueStep', () => {
@@ -156,6 +176,23 @@ describe('syncQueue', () => {
     const renamed = { ...v(1), filename: '新しい名前.mp4' } as VideoRow;
     expect(syncQueue(q, [renamed]).items[0].filename).toBe('新しい名前.mp4');
   });
+
+  it('再生中の行がライブラリから消えたら、居た位置を隙間として覚える', () => {
+    const q = playingInQueue(queueOf(1, 2, 3, 4, 5), 4);
+    const after = syncQueue(q, [v(1), v(2), v(3), v(5)]);
+    expect(ids(after)).toEqual([1, 2, 3, 5]);
+    expect(after.orphanIndex).toBe(3);
+    // 「次へ」が先頭へ飛ばず、消えた位置の次(5)へ進む
+    expect(queueStep(after, 1)?.id).toBe(5);
+    expect(queueStep(after, -1)?.id).toBe(3);
+  });
+
+  it('外れている間の同期でも、手前の行が消えたら覚えている位置が詰まる', () => {
+    const q = removeFromQueue(playingInQueue(queueOf(1, 2, 3), 2), 2);
+    const after = syncQueue(q, [v(3)]);
+    expect(after.orphanIndex).toBe(0);
+    expect(queueStep(after, 1)?.id).toBe(3);
+  });
 });
 
 describe('保存の状態', () => {
@@ -184,5 +221,22 @@ describe('保存の状態', () => {
     expect(cleared.items).toEqual([]);
     expect(cleared.currentId).toBe(1);
     expect(queueStep(cleared, 1)).toBeNull();
+  });
+
+  it('読み込み元が削除されたら出所を外す(中身と dirty は触らない)', () => {
+    const loaded = loadedQueue([v(1)], 7, 'お気に入り');
+    const after = sourceRemoved(loaded, 7);
+    expect(after.sourceId).toBeNull();
+    expect(after.sourceName).toBe('');
+    expect(ids(after)).toEqual([1]);
+    expect(after.dirty).toBe(false);
+    // 別のリストの削除では何もしない
+    expect(sourceRemoved(loaded, 8)).toBe(loaded);
+  });
+
+  it('読み込み元の改名にタイトルが追随する', () => {
+    const loaded = loadedQueue([v(1)], 7, 'お気に入り');
+    expect(sourceRenamed(loaded, 7, '殿堂入り').sourceName).toBe('殿堂入り');
+    expect(sourceRenamed(loaded, 8, '殿堂入り')).toBe(loaded);
   });
 });

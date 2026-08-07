@@ -106,7 +106,16 @@ export function moveInQueue(q: QueueState, from: number, to: number): QueueState
   const items = [...q.items];
   const [moved] = items.splice(from, 1);
   items.splice(clamped, 0, moved);
-  return { ...q, items, dirty: true };
+  return { ...q, items, orphanIndex: movedOrphan(q.orphanIndex, from, clamped), dirty: true };
+}
+
+/** 外した位置(隙間)は隣の要素に付いて動く。手前から抜けば詰まり、手前に挿されれば押される */
+function movedOrphan(orphan: number | null, from: number, to: number): number | null {
+  if (orphan === null) return null;
+  let g = orphan;
+  if (from < g) g -= 1;
+  if (to < g) g += 1;
+  return g;
 }
 
 export function clearQueue(q: QueueState): QueueState {
@@ -126,7 +135,19 @@ export function syncQueue(q: QueueState, rows: VideoRow[]): QueueState {
   const byId = new Map(rows.map((r) => [r.id, r]));
   const items = q.items.map((v) => byId.get(v.id)).filter((v): v is VideoRow => v !== undefined);
   if (items.length === q.items.length && items.every((v, i) => v === q.items[i])) return q;
-  return { ...q, items };
+
+  /*
+   * 隙間(orphanIndex)の追随。再生中の行がこの同期で消えたときは、
+   * 居た位置をそのまま隙間として覚える —— これが無いと位置 400 で再生中の
+   * 動画がライブラリから消えた瞬間、「次へ」がキュー先頭へ飛ぶ
+   */
+  const survivorsBefore = (at: number) => q.items.slice(0, at).filter((v) => byId.has(v.id)).length;
+  const currentAt = q.currentId === null ? -1 : q.items.findIndex((v) => v.id === q.currentId);
+  const currentDropped = q.currentId !== null && currentAt >= 0 && !byId.has(q.currentId);
+  const orphanIndex = currentDropped
+    ? survivorsBefore(currentAt)
+    : q.orphanIndex === null ? null : survivorsBefore(q.orphanIndex);
+  return { ...q, items, orphanIndex };
 }
 
 /** 保存リストを読み込んだ直後の状態。ここが「複写」の実体 */
@@ -137,6 +158,22 @@ export function loadedQueue(items: VideoRow[], sourceId: number, sourceName: str
 /** 保存した直後。中身は変えず、出所と `dirty` だけ付け替える */
 export function savedQueue(q: QueueState, sourceId: number, sourceName: string): QueueState {
   return { ...q, sourceId, sourceName, dirty: false };
+}
+
+/**
+ * 読み込み元プレイリストが削除されたときの追随。出所を外して、
+ * 以後の保存は「名前を付けて保存」に戻す —— 消えたリストへの「上書き保存」は
+ * 「プレイリストが見つかりません」で必ず失敗するため。中身と `dirty` は触らない
+ */
+export function sourceRemoved(q: QueueState, sourceId: number): QueueState {
+  if (q.sourceId !== sourceId) return q;
+  return { ...q, sourceId: null, sourceName: '' };
+}
+
+/** 読み込み元プレイリストの改名に、パネルのタイトル(sourceName)を追随させる */
+export function sourceRenamed(q: QueueState, sourceId: number, name: string): QueueState {
+  if (q.sourceId !== sourceId || q.sourceName === name) return q;
+  return { ...q, sourceName: name };
 }
 
 /**

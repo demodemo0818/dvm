@@ -11,7 +11,7 @@ import { GRID_GAP, GRID_PAD, gridMetrics } from '../lib/grid';
 import { gridTemplate, needsLabels, totalWidth } from '../lib/listColumns';
 import { parentDir } from '../lib/paths';
 import { buildQuery, type FilterState } from '../lib/query';
-import { addToQueue, EMPTY_QUEUE, QUEUE_LIMIT } from '../lib/queue';
+import { addToQueue, EMPTY_QUEUE, needsSavePrompt, QUEUE_LIMIT } from '../lib/queue';
 import type { AddMode } from '../lib/queue';
 import { useShallow } from 'zustand/react/shallow';
 import { pickState, useLibrary } from '../store';
@@ -219,7 +219,7 @@ export function VideoGrid() {
    * 上限に当たったときは部分的に入れず全部断る(何が入ったのか分からなくなるため)
    */
   const addSelectionToQueue = useCallback(
-    (mode: AddMode | 'replace') => {
+    async (mode: AddMode | 'replace') => {
       const s = useLibrary.getState();
       const videos = s.selection;
       if (videos.length === 0) return;
@@ -231,6 +231,17 @@ export function VideoGrid() {
           // 断り方は追加系と同じ(部分的に入れず全部断る)
           pushToast(`キューの上限は ${QUEUE_LIMIT} 件です(${videos.length} 件は入りません)`);
           return;
+        }
+        /*
+         * 手で編集したキューを黙って捨てない(A-29)。終了時は保存を尋ねるのに
+         * ここだけ無言で消えるのは非対称。判定は終了時と同じ needsSavePrompt
+         */
+        if (needsSavePrompt(s.queue)) {
+          const yes = await ask(
+            `保存していないキュー(${s.queue.items.length} 件)を捨てて置き換えますか?`,
+            { title: 'キューの置き換え', kind: 'warning' },
+          );
+          if (!yes) return;
         }
         s.setQueue(next);
         s.setQueueTabOpen(true);
@@ -400,13 +411,13 @@ export function VideoGrid() {
           play(target, index);
           break;
         case 'queue:add':
-          addSelectionToQueue('end');
+          await addSelectionToQueue('end');
           break;
         case 'queue:next':
-          addSelectionToQueue('next');
+          await addSelectionToQueue('next');
           break;
         case 'queue:replace':
-          addSelectionToQueue('replace');
+          await addSelectionToQueue('replace');
           break;
         case 'openDefault':
           await api.openWithDefault(target.id);
@@ -653,7 +664,7 @@ export function VideoGrid() {
         case 'Q':
           if (selection.length === 0) return;
           e.preventDefault();
-          addSelectionToQueue('end');
+          void addSelectionToQueue('end');
           break;
         default:
       }
