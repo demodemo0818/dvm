@@ -1,8 +1,12 @@
 import type { Chapter } from '../../lib/chapters';
 import type { HdrInfo } from '../../lib/hdrInfo';
 
-/** プレイヤーが選べる再生速度(< > キーはこの並びを移動する) */
-export const RATE_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+/**
+ * プレイヤーが選べる再生速度(< > キーはこの並びを移動する)。
+ * 上限 4x / 下限 0.25x は WebView2 エンジンの都合(Chromium は 0.5 未満・4 超で音を切る)。
+ * mpv はもっと広い速度を出せるが、エンジンで挙動が変わると分かりにくいので並びは共通にする
+ */
+export const RATE_OPTIONS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4];
 
 const VOLUME_KEY = 'player_volume';
 const MUTED_KEY = 'player_muted';
