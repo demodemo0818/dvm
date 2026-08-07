@@ -57,8 +57,14 @@ fn migrate(conn: &Connection) -> Result<()> {
         |r| r.get(0),
     )?;
     if fresh {
-        conn.execute_batch(SCHEMA)?;
-        conn.pragma_update(None, "user_version", LATEST_VERSION)?;
+        // SCHEMA と user_version の設定を 1 トランザクションに。分かれていると、
+        // 間で強制終了したとき「テーブルはあるのに user_version=0」の DB が残り、
+        // 次回起動で MIGRATIONS[0] の列追加が duplicate column で必ず失敗して
+        // 二度と開けなくなる(SCHEMA は最初からその列込みで作るため)
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(SCHEMA)?;
+        tx.pragma_update(None, "user_version", LATEST_VERSION)?;
+        tx.commit()?;
         return Ok(());
     }
     // 既存 DB: 新テーブルの追加は IF NOT EXISTS の SCHEMA で拾い、列追加は差分を順次適用する

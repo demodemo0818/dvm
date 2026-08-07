@@ -77,15 +77,21 @@ pub async fn apply_move(
     // ファイル I/O で UI を止めないようワーカーで実行する
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        let conn = state.db.lock().unwrap();
         let app2 = app.clone();
-        fileops::apply_move(&conn, &actor, &items, &action, |done, total, current| {
+        // 実ファイルの移動(ドライブ間なら何分もかかる)は **DB ロックを持たずに**行い、
+        // DB の追従だけ短いロックで書く。ロックを握ったままだと、その間の
+        // レーティングやタグ付け・MCP の書き込みが全部ブロックする
+        let (moved, failed) = fileops::move_files(&items, |done, total, current| {
             let _ = app2.emit(
                 "fileop:progress",
                 FileOpProgress { done, total, current: current.to_string() },
             );
-        })
-        .map_err(|e| e.to_string())
+        });
+        let recorded = {
+            let conn = state.db.lock().unwrap();
+            fileops::record_moves(&conn, &actor, &moved, &action).map_err(|e| e.to_string())?
+        };
+        Ok(fileops::merge_move_results(&items, recorded, failed))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -157,21 +163,24 @@ pub async fn apply_trash(
     // ごみ箱送りは 1 件ずつシェル API を叩くので、件数が多いと待つ。UI を止めない
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        let results = {
+        // パスの取得だけ短いロックで済ませ、ごみ箱送り(シェル API 待ち)はロックの外で
+        let paths = {
             let conn = state.db.lock().unwrap();
-            videos::trash_files(&conn, &actor, &ids).map_err(|e| e.to_string())?
+            videos::paths_of(&conn, &ids).map_err(|e| e.to_string())?
         };
+        let results = videos::trash_paths(paths);
 
         let trashed: Vec<i64> = results.iter().filter(|r| r.trashed).map(|r| r.id).collect();
-        if !trashed.is_empty() {
-            {
-                let conn = state.db.lock().unwrap();
+        {
+            let conn = state.db.lock().unwrap();
+            videos::record_trashed(&conn, &actor, &results).map_err(|e| e.to_string())?;
+            if !trashed.is_empty() {
                 videos::remove_videos(&conn, &actor, &trashed).map_err(|e| e.to_string())?;
             }
-            for id in &trashed {
-                let _ = std::fs::remove_file(state.thumbs_dir.join(format!("{id}.jpg")));
-                crate::core::playback::remove_cache_for(&state.transcode_dir, *id);
-            }
+        }
+        for id in &trashed {
+            let _ = std::fs::remove_file(state.thumbs_dir.join(format!("{id}.jpg")));
+            crate::core::playback::remove_cache_for(&state.transcode_dir, *id);
         }
 
         Ok(results

@@ -143,11 +143,11 @@ pub fn apply_relink(conn: &Connection, actor: &str, items: &[PlanItem]) -> Resul
 
     // path は UNIQUE。移動先が既に別レコードに使われていたら DB エラーになるので
     // 1 件ずつ結果を拾い、失敗しても残りを続ける
-    conn.execute_batch("BEGIN")?;
+    let tx = conn.unchecked_transaction()?;
     let mut results = Vec::new();
     for item in &targets {
         let exists = Path::new(&item.to).exists();
-        let r = conn.execute(
+        let r = tx.execute(
             "UPDATE videos SET path = ?1, filename = ?2, is_missing = ?3 WHERE id = ?4",
             params![
                 item.to,
@@ -173,7 +173,7 @@ pub fn apply_relink(conn: &Connection, actor: &str, items: &[PlanItem]) -> Resul
             }),
         }
     }
-    conn.execute_batch("COMMIT")?;
+    tx.commit()?;
 
     let applied: Vec<&OpResult> = results.iter().filter(|r| r.ok).collect();
     if !applied.is_empty() {
@@ -262,23 +262,24 @@ pub fn plan_rename(conn: &Connection, video_id: i64, new_name: &str) -> Result<P
 /// 計画を実行して実ファイルを動かす。
 /// **1 件ずつコミットする** — 全体を 1 トランザクションにすると途中失敗で
 /// 実ファイルと DB がずれる。失敗は個別に報告して残りは続ける
-pub fn apply_move(
-    conn: &Connection,
-    actor: &str,
+/// ファイルを動かすだけ(**DB には触らない**)。ドライブ間コピーは何分もかかるので、
+/// DB ロックを持たずに呼べるようファイル操作だけを切り出してある。
+/// 戻り値は (動かせた PlanItem, 失敗の OpResult)
+pub fn move_files(
     items: &[PlanItem],
-    action: &str,
     mut on_progress: impl FnMut(usize, usize, &str),
-) -> Result<Vec<OpResult>> {
+) -> (Vec<PlanItem>, Vec<OpResult>) {
     let targets: Vec<&PlanItem> = items.iter().filter(|i| i.is_actionable()).collect();
     let total = targets.len();
-    let mut results = Vec::new();
+    let mut moved = Vec::new();
+    let mut failed = Vec::new();
 
     for (i, item) in targets.iter().enumerate() {
         on_progress(i, total, &item.from);
 
         // 実行の直前にもう一度確かめる(プレビューを見ている間に状況が変わりうる)
         if Path::new(&item.to).exists() {
-            results.push(OpResult {
+            failed.push(OpResult {
                 video_id: item.video_id,
                 from: item.from.clone(),
                 to: item.to.clone(),
@@ -289,7 +290,7 @@ pub fn apply_move(
         }
 
         if let Err(e) = move_file(&item.from, &item.to) {
-            results.push(OpResult {
+            failed.push(OpResult {
                 video_id: item.video_id,
                 from: item.from.clone(),
                 to: item.to.clone(),
@@ -298,10 +299,24 @@ pub fn apply_move(
             });
             continue;
         }
+        moved.push((*item).clone());
+    }
+    on_progress(total, total, "");
+    (moved, failed)
+}
 
-        // 実体が動いたので DB を追従させる。移動先が監視フォルダ配下なら所属も張り替える
-        let folder_id = owning_folder(conn, &item.to);
-        let updated = conn.execute(
+/// 動かせたファイルの DB 追従(1 トランザクション)。移動先が監視フォルダ配下なら所属も張り替える
+pub fn record_moves(
+    conn: &Connection,
+    actor: &str,
+    moved: &[PlanItem],
+    action: &str,
+) -> Result<Vec<OpResult>> {
+    let tx = conn.unchecked_transaction()?;
+    let mut results = Vec::new();
+    for item in moved {
+        let folder_id = owning_folder(&tx, &item.to);
+        let updated = tx.execute(
             "UPDATE videos SET path = ?1, filename = ?2, watched_folder_id = ?3, is_missing = 0
              WHERE id = ?4",
             params![item.to, file_name_of(&item.to), folder_id, item.video_id],
@@ -309,7 +324,7 @@ pub fn apply_move(
         let error = updated.err().map(|e| e.to_string());
         if error.is_none() {
             db::log_op(
-                conn,
+                &tx,
                 actor,
                 action,
                 &serde_json::json!({ "id": item.video_id, "from": item.from, "to": item.to })
@@ -325,8 +340,40 @@ pub fn apply_move(
             error,
         });
     }
-    on_progress(total, total, "");
+    tx.commit()?;
     Ok(results)
+}
+
+/// 失敗と成功を元の items の並びに戻す(結果ダイアログの行順を計画と揃えるため)
+pub fn merge_move_results(
+    items: &[PlanItem],
+    moved: Vec<OpResult>,
+    failed: Vec<OpResult>,
+) -> Vec<OpResult> {
+    let mut by_id: std::collections::HashMap<i64, OpResult> = failed
+        .into_iter()
+        .chain(moved)
+        .map(|r| (r.video_id, r))
+        .collect();
+    items
+        .iter()
+        .filter(|i| i.is_actionable())
+        .filter_map(|i| by_id.remove(&i.video_id))
+        .collect()
+}
+
+/// conn を渡している間ずっとロックを握る呼び方になるので、UI 経路は
+/// move_files → record_moves の 2 分割で呼ぶこと(テストはこちらで良い)
+pub fn apply_move(
+    conn: &Connection,
+    actor: &str,
+    items: &[PlanItem],
+    action: &str,
+    on_progress: impl FnMut(usize, usize, &str),
+) -> Result<Vec<OpResult>> {
+    let (moved, failed) = move_files(items, on_progress);
+    let recorded = record_moves(conn, actor, &moved, action)?;
+    Ok(merge_move_results(items, recorded, failed))
 }
 
 /// 同一ボリュームなら rename、別ボリュームなら copy + remove。

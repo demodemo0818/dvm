@@ -64,23 +64,79 @@ fn unix_secs(t: std::io::Result<std::time::SystemTime>) -> Option<i64> {
         .map(|d| d.as_secs() as i64)
 }
 
+/// 取り込み対象 1 ファイルぶんの、ファイル I/O だけで集まる情報。
+/// **DB ロックを持たずに**先に集めておき、ロック内は DB 書き込みだけにするため
+/// (取り込み中に set_rating や MCP の書き込みを何分もブロックしない。原則 3)
+struct FileFacts {
+    path: std::path::PathBuf,
+    size: u64,
+    mtime: Option<i64>,
+    ctime: Option<i64>,
+    /// 事前計算したハッシュ。外側の None は「収集時点では既存と同サイズで不要だった」。
+    /// ロック内で DB の姿が変わっていて必要になったときだけ、その場で計算し直す
+    hash: Option<Option<String>>,
+}
+
+/// metadata とハッシュを集める(ファイル I/O はここに集約)。
+/// `known_size` は DB 上の同パスのレコードのサイズ(無ければ None)。
+/// 同サイズなら中身は変わっていないとみなしてハッシュを省く(スキャンの大半はこれ)
+fn file_facts(path: &Path, known_size: Option<i64>) -> Result<FileFacts> {
+    let meta = std::fs::metadata(path)?;
+    let size = meta.len();
+    let hash = match known_size {
+        Some(s) if s == size as i64 => None,
+        _ => Some(partial_hash(path, size)),
+    };
+    Ok(FileFacts {
+        path: path.to_path_buf(),
+        size,
+        mtime: unix_secs(meta.modified()),
+        ctime: unix_secs(meta.created()),
+        hash,
+    })
+}
+
 /// 1 ファイルを DB に登録(既存なら状態更新)。メタデータ取得が必要なら id を返す。
-/// roots は移動検出で「旧パスが本当に消えたのか、ドライブ未接続なだけか」を見分けるのに使う
+/// その場でファイル I/O をするので、**DB ロックの外で facts を集められる経路は
+/// file_facts + upsert_file_prepared を使うこと**(scan_folder / register_paths)。
+/// 実運用の呼び出し元は無くなったが、取り込みの回帰テストがこの入口を使っている
+#[cfg_attr(not(test), allow(dead_code))]
 fn upsert_file(
     conn: &Connection,
     roots: &mut offline::RootCache,
     path: &Path,
     folder_id: Option<i64>,
 ) -> Result<Option<i64>> {
-    let meta = std::fs::metadata(path)?;
-    let size = meta.len();
+    let known: Option<i64> = conn
+        .query_row(
+            "SELECT size FROM videos WHERE path = ?1",
+            params![path.to_string_lossy().to_string()],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let facts = file_facts(path, known)?;
+    upsert_file_prepared(conn, roots, &facts, folder_id)
+}
+
+/// upsert の DB 部分。ファイル I/O は facts 収集時に済んでいる前提
+/// (移動検出の「旧パスがまだ実在するか」だけは候補が出たときのみここで見る)
+fn upsert_file_prepared(
+    conn: &Connection,
+    roots: &mut offline::RootCache,
+    facts: &FileFacts,
+    folder_id: Option<i64>,
+) -> Result<Option<i64>> {
+    let path = facts.path.as_path();
+    let size = facts.size;
     let path_str = path.to_string_lossy().to_string();
     let filename = path
         .file_name()
         .map(|f| f.to_string_lossy().to_string())
         .unwrap_or_default();
-    let mtime = unix_secs(meta.modified());
-    let ctime = unix_secs(meta.created());
+    let mtime = facts.mtime;
+    let ctime = facts.ctime;
+    // 収集時に「不要」と判断していても、収集からここまでの間に DB が変わっていれば計算し直す
+    let hash_of = || facts.hash.clone().unwrap_or_else(|| partial_hash(path, size));
 
     // 既存レコード(同一パス)
     let existing: Option<(i64, i64, i64)> = conn
@@ -97,7 +153,7 @@ fn upsert_file(
         // COALESCE なので個別登録(folder_id = None)では既存の所属を消さない
         if old_size != size as i64 {
             // 中身が変わっている → 再プローブ対象
-            let hash = partial_hash(path, size);
+            let hash = hash_of();
             conn.execute(
                 "UPDATE videos SET size=?1, partial_hash=?2, is_missing=0, thumb_state=0,
                  watched_folder_id=COALESCE(?5, watched_folder_id),
@@ -119,7 +175,7 @@ fn upsert_file(
     // is_missing フラグで絞らないのは、フォルダをまたぐ移動でスキャン順が「移動先が先」に
     // なると旧レコードがまだ is_missing=0 のままで、取りこぼして二重登録になるため
     // (タグ・レーティング・視聴履歴が旧レコード側に取り残される)
-    let hash = partial_hash(path, size);
+    let hash = hash_of();
     if let Some(h) = &hash {
         let candidates: Vec<(i64, String, i64)> = {
             let mut stmt = conn.prepare(
@@ -224,39 +280,74 @@ pub fn scan_folder(app: &AppHandle, folder_id: i64) -> Result<Vec<i64>> {
         .filter(|e| e.file_type().is_file() && is_video_file(e.path()))
         .collect();
 
-    let mut pending: Vec<i64> = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
-    {
+    // 1) 短いロックで「所属の索引」と「既存レコードのサイズ」だけ控える
+    let (index, known_sizes) = {
         let conn = state.db.lock().unwrap();
-        // 入れ子の監視フォルダがあり得るので、所属は「このフォルダ」ではなく
-        // パスを含む最も深い監視フォルダに決める
         let index = watched_folder_index(&conn);
-        conn.execute_batch("BEGIN")?;
-        for entry in &files {
-            let path_str = entry.path().to_string_lossy().to_string();
+        let mut stmt = conn.prepare("SELECT path, size FROM videos")?;
+        let sizes: std::collections::HashMap<String, i64> = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?
+            .filter_map(|r| r.ok())
+            .collect();
+        (index, sizes)
+    };
+
+    // 2) ロックを持たずにファイル I/O(metadata・ハッシュ)を済ませる。
+    //    NAS の初回取り込みはここが何分もかかるので、この間に DB を塞がない
+    //    (塞ぐと set_rating や MCP の書き込みが busy_timeout 超えで失敗する)
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut facts_list: Vec<FileFacts> = Vec::with_capacity(files.len());
+    for entry in &files {
+        let path_str = entry.path().to_string_lossy().to_string();
+        let known = known_sizes.get(&path_str).copied();
+        seen.insert(path_str);
+        if let Ok(f) = file_facts(entry.path(), known) {
+            facts_list.push(f);
+        }
+    }
+    drop(known_sizes);
+
+    // 3) 短いロック + 1 トランザクションで DB 書き込みだけをまとめて行う
+    let mut pending: Vec<i64> = Vec::new();
+    let known: Vec<(i64, String)> = {
+        let conn = state.db.lock().unwrap();
+        let tx = conn.unchecked_transaction()?;
+        for facts in &facts_list {
+            let path_str = facts.path.to_string_lossy().to_string();
+            // 入れ子の監視フォルダがあり得るので、所属は「このフォルダ」ではなく
+            // パスを含む最も深い監視フォルダに決める
             let owner = deepest_owner(&index, &path_str).or(Some(folder_id));
-            seen.insert(path_str);
-            if let Ok(Some(id)) = upsert_file(&conn, &mut roots, entry.path(), owner) {
+            if let Ok(Some(id)) = upsert_file_prepared(&tx, &mut roots, facts, owner) {
                 pending.push(id);
             }
         }
-        conn.execute_batch("COMMIT")?;
+        tx.commit()?;
 
-        // このフォルダ由来で今回見つからなかったものを missing に
-        let known: Vec<(i64, String)> = {
-            let mut stmt = conn
-                .prepare("SELECT id, path FROM videos WHERE watched_folder_id=?1 AND is_missing=0")?;
-            let rows = stmt
-                .query_map(params![folder_id], |r| Ok((r.get(0)?, r.get(1)?)))?
-                .filter_map(|r| r.ok())
-                .collect();
-            rows
-        };
-        for (id, path) in known {
-            if !seen.contains(&path) && !Path::new(&path).exists() {
-                conn.execute("UPDATE videos SET is_missing=1 WHERE id=?1", params![id])?;
-            }
+        // このフォルダ由来で今回見つからなかったもの(missing 候補)を控える
+        let mut stmt = conn
+            .prepare("SELECT id, path FROM videos WHERE watched_folder_id=?1 AND is_missing=0")?;
+        let rows = stmt
+            .query_map(params![folder_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .filter_map(|r| r.ok())
+            .collect();
+        rows
+    };
+
+    // 4) 実在チェック(ファイル I/O)はロックの外で
+    let to_mark: Vec<i64> = known
+        .into_iter()
+        .filter(|(_, path)| !seen.contains(path) && !Path::new(path).exists())
+        .map(|(id, _)| id)
+        .collect();
+
+    // 5) missing のマークも 1 トランザクションでまとめる(原則 5)
+    if !to_mark.is_empty() {
+        let conn = state.db.lock().unwrap();
+        let tx = conn.unchecked_transaction()?;
+        for id in &to_mark {
+            tx.execute("UPDATE videos SET is_missing=1 WHERE id=?1", params![id])?;
         }
+        tx.commit()?;
     }
     emit_changed(app);
     Ok(pending)
@@ -265,8 +356,9 @@ pub fn scan_folder(app: &AppHandle, folder_id: i64) -> Result<Vec<i64>> {
 /// 個別登録ファイル(watched_folder_id IS NULL)の存在チェック
 fn check_individual_files(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let conn = state.db.lock().unwrap();
+    // 一覧の取得だけロックして、exists のチェック(ファイル I/O)はロックの外で行う
     let rows: Vec<(i64, String, i64)> = {
+        let conn = state.db.lock().unwrap();
         let Ok(mut stmt) = conn.prepare("SELECT id, path, is_missing FROM videos WHERE watched_folder_id IS NULL") else {
             return;
         };
@@ -275,17 +367,29 @@ fn check_individual_files(app: &AppHandle) {
             .unwrap_or_default()
     };
     let mut roots = offline::RootCache::default();
+    let mut updates: Vec<(i64, i64)> = Vec::new();
     for (id, path, was_missing) in rows {
         if !roots.is_online(&path) {
             continue; // オフライン: 判定保留
         }
         let exists = Path::new(&path).exists();
         if exists && was_missing != 0 {
-            let _ = conn.execute("UPDATE videos SET is_missing=0 WHERE id=?1", params![id]);
+            updates.push((id, 0));
         } else if !exists && was_missing == 0 {
-            let _ = conn.execute("UPDATE videos SET is_missing=1 WHERE id=?1", params![id]);
+            updates.push((id, 1));
         }
     }
+    if updates.is_empty() {
+        return;
+    }
+    let conn = state.db.lock().unwrap();
+    let Ok(tx) = conn.unchecked_transaction() else {
+        return;
+    };
+    for (id, missing) in &updates {
+        let _ = tx.execute("UPDATE videos SET is_missing=?1 WHERE id=?2", params![missing, id]);
+    }
+    let _ = tx.commit();
 }
 
 /// ファイル/フォルダのパス群を個別登録として取り込む
@@ -316,18 +420,39 @@ pub fn register_paths(app: &AppHandle, paths: Vec<String>) -> Result<usize> {
         targets.retain(|p| !excludes::is_excluded(&excluded, &p.to_string_lossy()));
     }
 
-    let mut pending: Vec<i64> = Vec::new();
     let count = targets.len();
     let mut roots = offline::RootCache::default();
+
+    // 既存レコードのサイズを短いロックで控え、metadata・ハッシュはロックの外で計算する
+    // (scan_folder と同じ分割。大きいフォルダの D&D でも書き込みを塞がない)
+    let known_sizes: std::collections::HashMap<String, i64> = {
+        let conn = state.db.lock().unwrap();
+        let Ok(mut stmt) = conn.prepare("SELECT path, size FROM videos") else {
+            return Ok(0);
+        };
+        stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+            .map(|it| it.filter_map(|r| r.ok()).collect())
+            .unwrap_or_default()
+    };
+    let mut facts_list: Vec<FileFacts> = Vec::with_capacity(targets.len());
+    for path in &targets {
+        let known = known_sizes.get(&path.to_string_lossy().to_string()).copied();
+        if let Ok(f) = file_facts(path, known) {
+            facts_list.push(f);
+        }
+    }
+    drop(known_sizes);
+
+    let mut pending: Vec<i64> = Vec::new();
     {
         let conn = state.db.lock().unwrap();
-        conn.execute_batch("BEGIN")?;
-        for path in &targets {
-            if let Ok(Some(id)) = upsert_file(&conn, &mut roots, path, None) {
+        let tx = conn.unchecked_transaction()?;
+        for facts in &facts_list {
+            if let Ok(Some(id)) = upsert_file_prepared(&tx, &mut roots, facts, None) {
                 pending.push(id);
             }
         }
-        conn.execute_batch("COMMIT")?;
+        tx.commit()?;
         db::log_op(&conn, "user", "register_files", &format!("{count} files"));
     }
     emit_changed(app);

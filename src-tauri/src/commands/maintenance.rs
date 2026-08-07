@@ -37,9 +37,20 @@ pub async fn apply_dedupe(
 ) -> Result<dedupe::DedupeResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
+        // 計画とパスは短いロックで読み、ごみ箱送り(シェル API 待ち)はロックの外で行う。
+        // 実行までの隙間に消えた id があっても DELETE が空振りするだけで害はない
+        let (plan, paths) = {
+            let conn = state.db.lock().unwrap();
+            dedupe::plan_for_apply(&conn, scope.as_deref()).map_err(|e| e.to_string())?
+        };
+        let trash_results = if trash_files {
+            Some(crate::core::videos::trash_paths(paths))
+        } else {
+            None
+        };
         let (result, removed_ids) = {
             let conn = state.db.lock().unwrap();
-            dedupe::apply(&conn, "user", scope.as_deref(), trash_files)
+            dedupe::finish(&conn, "user", scope.as_deref(), &plan, trash_results.as_deref())
                 .map_err(|e| e.to_string())?
         };
         for id in &removed_ids {
@@ -254,15 +265,15 @@ pub async fn regenerate_thumbnails(app: AppHandle, only_failed: bool) -> Result<
             .map(|(id, _)| id)
             .collect();
 
-        conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
+        let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
         for id in &ids {
-            conn.execute(
+            tx.execute(
                 "UPDATE videos SET thumb_state = 0 WHERE id = ?1",
                 rusqlite::params![id],
             )
             .map_err(|e| e.to_string())?;
         }
-        conn.execute_batch("COMMIT").map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
         db::log_op(
             &conn,
             "user",

@@ -207,7 +207,7 @@ pub struct TrashResult {
     pub error: Option<String>,
 }
 
-fn paths_of(conn: &Connection, video_ids: &[i64]) -> Result<Vec<(i64, String)>> {
+pub fn paths_of(conn: &Connection, video_ids: &[i64]) -> Result<Vec<(i64, String)>> {
     let sql = format!("SELECT id, path FROM videos WHERE id IN ({})", ids_csv(video_ids));
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt
@@ -235,12 +235,13 @@ pub fn plan_trash(conn: &Connection, video_ids: &[i64]) -> Result<Vec<TrashItem>
     Ok(items)
 }
 
-/// ファイルをごみ箱へ送る。成功分は is_missing=1 にして DB レコードは残す
-/// (ごみ箱から戻して再スキャンすれば復帰できる)。オフラインドライブ上はスキップする
-pub fn trash_files(conn: &Connection, actor: &str, video_ids: &[i64]) -> Result<Vec<TrashResult>> {
+/// ごみ箱へ送るだけ(**DB には触らない**)。1 件ずつシェル API を待つので、
+/// DB ロックを持たずに呼べるようにファイル操作だけを切り出してある。
+/// オフラインドライブ上はスキップする
+pub fn trash_paths(items: Vec<(i64, String)>) -> Vec<TrashResult> {
     let mut roots = offline::RootCache::default();
     let mut results = Vec::new();
-    for (id, path) in paths_of(conn, video_ids)? {
+    for (id, path) in items {
         if !roots.is_online(&path) {
             results.push(TrashResult {
                 id,
@@ -260,21 +261,42 @@ pub fn trash_files(conn: &Connection, actor: &str, video_ids: &[i64]) -> Result<
             continue;
         }
         match trash::delete(&path) {
-            Ok(()) => {
-                let _ = conn.execute("UPDATE videos SET is_missing = 1 WHERE id = ?1", params![id]);
-                db::log_op(
-                    conn,
-                    actor,
-                    "trash_file",
-                    &serde_json::json!({ "id": id, "path": path }).to_string(),
-                );
-                results.push(TrashResult { id, path, trashed: true, error: None });
-            }
+            Ok(()) => results.push(TrashResult { id, path, trashed: true, error: None }),
             Err(e) => {
                 results.push(TrashResult { id, path, trashed: false, error: Some(e.to_string()) });
             }
         }
     }
+    results
+}
+
+/// ごみ箱へ送れたぶんの DB 追従(is_missing=1 + 監査ログ)。1 トランザクションでまとめる
+pub fn record_trashed(conn: &Connection, actor: &str, results: &[TrashResult]) -> Result<()> {
+    if !results.iter().any(|r| r.trashed) {
+        return Ok(());
+    }
+    let tx = conn.unchecked_transaction()?;
+    for r in results.iter().filter(|r| r.trashed) {
+        tx.execute("UPDATE videos SET is_missing = 1 WHERE id = ?1", params![r.id])?;
+        db::log_op(
+            &tx,
+            actor,
+            "trash_file",
+            &serde_json::json!({ "id": r.id, "path": r.path }).to_string(),
+        );
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+/// ファイルをごみ箱へ送る。成功分は is_missing=1 にして DB レコードは残す
+/// (ごみ箱から戻して再スキャンすれば復帰できる)。
+/// conn を渡している間ずっとロックを握る呼び方になるので、UI 経路は
+/// paths_of → trash_paths → record_trashed の 3 分割で呼ぶこと(MCP・テストはこちらで良い)
+pub fn trash_files(conn: &Connection, actor: &str, video_ids: &[i64]) -> Result<Vec<TrashResult>> {
+    let items = paths_of(conn, video_ids)?;
+    let results = trash_paths(items);
+    record_trashed(conn, actor, &results)?;
     Ok(results)
 }
 

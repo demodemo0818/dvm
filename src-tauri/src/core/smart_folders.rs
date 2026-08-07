@@ -90,14 +90,14 @@ pub fn delete(conn: &Connection, actor: &str, id: i64) -> Result<()> {
 
 /// 渡された順に position を振り直す(ドラッグ並べ替え用)
 pub fn reorder(conn: &Connection, ids: &[i64]) -> Result<()> {
-    conn.execute_batch("BEGIN")?;
+    let tx = conn.unchecked_transaction()?;
     for (pos, id) in ids.iter().enumerate() {
-        conn.execute(
+        tx.execute(
             "UPDATE smart_folders SET position = ?1 WHERE id = ?2",
             params![pos as i64, id],
         )?;
     }
-    conn.execute_batch("COMMIT")?;
+    tx.commit()?;
     Ok(())
 }
 

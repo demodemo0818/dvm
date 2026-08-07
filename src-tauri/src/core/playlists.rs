@@ -72,17 +72,21 @@ pub fn create(conn: &Connection, actor: &str, name: &str, video_ids: &[i64]) -> 
         find_by_name(conn, name)?.is_none(),
         "同じ名前のプレイリストがすでにあります"
     );
-    let next: i64 = conn.query_row(
+    // 行の作成とエントリ書き込みを 1 トランザクションに。分けると、エントリ側が
+    // 失敗したときに「名前だけ取られた空のプレイリスト」が残る
+    let tx = conn.unchecked_transaction()?;
+    let next: i64 = tx.query_row(
         "SELECT COALESCE(MAX(position), -1) + 1 FROM playlists",
         [],
         |r| r.get(0),
     )?;
-    conn.execute(
+    tx.execute(
         "INSERT INTO playlists (name, position) VALUES (?1, ?2)",
         params![name, next],
     )?;
-    let id = conn.last_insert_rowid();
-    write_entries(conn, id, video_ids)?;
+    let id = tx.last_insert_rowid();
+    write_entries(&tx, id, video_ids)?;
+    tx.commit()?;
     db::log_op(
         conn,
         actor,
@@ -99,7 +103,9 @@ pub fn replace(conn: &Connection, actor: &str, playlist_id: i64, video_ids: &[i6
             r.get(0)
         })
         .map_err(|_| anyhow::anyhow!("プレイリストが見つかりません"))?;
-    write_entries(conn, playlist_id, video_ids)?;
+    let tx = conn.unchecked_transaction()?;
+    write_entries(&tx, playlist_id, video_ids)?;
+    tx.commit()?;
     db::log_op(
         conn,
         actor,
@@ -110,36 +116,31 @@ pub fn replace(conn: &Connection, actor: &str, playlist_id: i64, video_ids: &[i6
     Ok(())
 }
 
-/// 消してから順に入れ直す。**1 トランザクションでまとめる**(原則 5)。
+/// 消してから順に入れ直す。**呼び出し側のトランザクションの中で呼ぶ**
+/// (create / replace が unchecked_transaction を張ってから渡してくる)。
 /// 重複した video_id は最初の 1 つだけが残る(PK が (playlist_id, video_id) なので
 /// INSERT OR IGNORE が 2 つ目を落とす)—— キュー側でも重複は作らせないが、
-/// MCP や壊れた入力から来ても position が飛ばないようにここでも受け止める
+/// MCP や壊れた入力から来ても position が飛ばないようにここでも受け止める。
+/// ライブラリから消えた動画 id は SELECT が空になって静かに落ちる
+/// (INSERT OR IGNORE は FK 違反を握り潰さないので、VALUES 直書きだと
+/// 保存の往復中に動画が消えただけで保存全体が生エラーになる)
 fn write_entries(conn: &Connection, playlist_id: i64, video_ids: &[i64]) -> Result<()> {
-    conn.execute_batch("BEGIN")?;
-    let result = (|| -> Result<()> {
-        conn.execute(
-            "DELETE FROM playlist_entries WHERE playlist_id = ?1",
-            params![playlist_id],
+    conn.execute(
+        "DELETE FROM playlist_entries WHERE playlist_id = ?1",
+        params![playlist_id],
+    )?;
+    let mut pos: i64 = 0;
+    for vid in video_ids {
+        let n = conn.execute(
+            "INSERT OR IGNORE INTO playlist_entries (playlist_id, video_id, position)
+             SELECT ?1, id, ?3 FROM videos WHERE id = ?2",
+            params![playlist_id, vid, pos],
         )?;
-        let mut pos: i64 = 0;
-        for vid in video_ids {
-            let n = conn.execute(
-                "INSERT OR IGNORE INTO playlist_entries (playlist_id, video_id, position)
-                 VALUES (?1, ?2, ?3)",
-                params![playlist_id, vid, pos],
-            )?;
-            if n > 0 {
-                pos += 1;
-            }
+        if n > 0 {
+            pos += 1;
         }
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = conn.execute_batch("ROLLBACK");
-    } else {
-        conn.execute_batch("COMMIT")?;
     }
-    result
+    Ok(())
 }
 
 /// 名前を変える。同名は弾く(DB の UNIQUE でも止まるが、
@@ -217,14 +218,14 @@ pub fn delete(conn: &Connection, actor: &str, playlist_id: i64) -> Result<()> {
 
 /// 渡された順に position を振り直す(サイドバーのドラッグ並べ替え。smart_folders と同じ)
 pub fn reorder(conn: &Connection, ids: &[i64]) -> Result<()> {
-    conn.execute_batch("BEGIN")?;
+    let tx = conn.unchecked_transaction()?;
     for (pos, id) in ids.iter().enumerate() {
-        conn.execute(
+        tx.execute(
             "UPDATE playlists SET position = ?1 WHERE id = ?2",
             params![pos as i64, id],
         )?;
     }
-    conn.execute_batch("COMMIT")?;
+    tx.commit()?;
     Ok(())
 }
 

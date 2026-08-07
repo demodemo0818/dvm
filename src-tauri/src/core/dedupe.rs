@@ -193,25 +193,39 @@ pub fn plan(conn: &Connection, scope: Option<&str>) -> Result<DedupePlan> {
 ///
 /// 戻り値の 2 つめは登録を外した video id(サムネイル・変換キャッシュの掃除に使う)。
 /// **完全削除はしない**。取り消したいときは Windows のごみ箱から戻して再スキャンする
-pub fn apply(
+/// 実行用の計画。ごみ箱送りの対象パスも一緒に返す
+/// (ごみ箱送りを DB ロックの外で行えるよう、読むものはここで全部読んでおく)
+pub fn plan_for_apply(
+    conn: &Connection,
+    scope: Option<&str>,
+) -> Result<(DedupePlan, Vec<(i64, String)>)> {
+    let plan = plan(conn, scope)?;
+    let paths = crate::core::videos::paths_of(conn, &plan.remove_ids)?;
+    Ok((plan, paths))
+}
+
+/// ごみ箱送りの結果(使わなかったなら None)を受けて、登録を外してログを書く。
+/// 送れたぶんの DB 追従(record_trashed)もここでまとめて行う
+pub fn finish(
     conn: &Connection,
     actor: &str,
     scope: Option<&str>,
-    trash: bool,
+    plan: &DedupePlan,
+    trash_results: Option<&[crate::core::videos::TrashResult]>,
 ) -> Result<(DedupeResult, Vec<i64>)> {
-    let plan = plan(conn, scope)?;
     if plan.remove_ids.is_empty() {
         return Ok((DedupeResult::default(), Vec::new()));
     }
 
-    let (to_remove, trashed, failed) = if trash {
-        let results = crate::core::videos::trash_files(conn, actor, &plan.remove_ids)?;
-        let ok: Vec<i64> = results.iter().filter(|r| r.trashed).map(|r| r.id).collect();
-        let failed = (results.len() - ok.len()) as i64;
-        let trashed = ok.len() as i64;
-        (ok, trashed, failed)
-    } else {
-        (plan.remove_ids.clone(), 0, 0)
+    let (to_remove, trashed, failed) = match trash_results {
+        Some(results) => {
+            crate::core::videos::record_trashed(conn, actor, results)?;
+            let ok: Vec<i64> = results.iter().filter(|r| r.trashed).map(|r| r.id).collect();
+            let failed = (results.len() - ok.len()) as i64;
+            let trashed = ok.len() as i64;
+            (ok, trashed, failed)
+        }
+        None => (plan.remove_ids.clone(), 0, 0),
     };
 
     if to_remove.is_empty() {
@@ -235,6 +249,23 @@ pub fn apply(
         DedupeResult { removed: to_remove.len() as i64, trashed, failed },
         to_remove,
     ))
+}
+
+/// conn を渡している間ずっとロックを握る呼び方になるので、UI 経路は
+/// plan_for_apply → videos::trash_paths → finish の 3 分割で呼ぶこと(テストはこちらで良い)
+pub fn apply(
+    conn: &Connection,
+    actor: &str,
+    scope: Option<&str>,
+    trash: bool,
+) -> Result<(DedupeResult, Vec<i64>)> {
+    let (plan, paths) = plan_for_apply(conn, scope)?;
+    let trash_results = if trash {
+        Some(crate::core::videos::trash_paths(paths))
+    } else {
+        None
+    };
+    finish(conn, actor, scope, &plan, trash_results.as_deref())
 }
 
 /// サイズ 0 で「同じ内容」と言い切れないグループの数(対象外にした理由を見せるため)

@@ -50,9 +50,10 @@ pub fn add_videos_to_series(conn: &Connection, actor: &str, video_ids: &[i64], n
     // 取り消しのために「実際に増えた組」だけを記録する。
     // 既に入っていた動画まで記録すると、取り消しで元から入っていたものまで外れてしまう
     let mut added = Vec::new();
-    conn.execute_batch("BEGIN")?;
+    // 生の BEGIN は途中の ? で抜けると開きっぱなしになる(drop で自動 ROLLBACK させる)
+    let tx = conn.unchecked_transaction()?;
     for vid in video_ids {
-        let n = conn.execute(
+        let n = tx.execute(
             "INSERT OR IGNORE INTO series_entries (series_id, video_id, position)
              VALUES (?1, ?2,
                      (SELECT COALESCE(MAX(position), 0) + 1 FROM series_entries WHERE series_id = ?1))",
@@ -62,7 +63,7 @@ pub fn add_videos_to_series(conn: &Connection, actor: &str, video_ids: &[i64], n
             added.push(*vid);
         }
     }
-    conn.execute_batch("COMMIT")?;
+    tx.commit()?;
     db::log_op(
         conn,
         actor,
@@ -78,16 +79,16 @@ pub fn remove_videos_from_series(conn: &Connection, actor: &str, video_ids: &[i6
         .unwrap_or_default();
     // 取り消しで並び順まで戻せるよう position ごと控えておく
     let mut removed = Vec::new();
-    conn.execute_batch("BEGIN")?;
+    let tx = conn.unchecked_transaction()?;
     for vid in video_ids {
-        let position: Option<i64> = conn
+        let position: Option<i64> = tx
             .query_row(
                 "SELECT position FROM series_entries WHERE series_id = ?1 AND video_id = ?2",
                 params![series_id, vid],
                 |r| r.get(0),
             )
             .ok();
-        let n = conn.execute(
+        let n = tx.execute(
             "DELETE FROM series_entries WHERE series_id = ?1 AND video_id = ?2",
             params![series_id, vid],
         )?;
@@ -95,7 +96,7 @@ pub fn remove_videos_from_series(conn: &Connection, actor: &str, video_ids: &[i6
             removed.push(serde_json::json!({ "id": vid, "position": position.unwrap_or(0) }));
         }
     }
-    conn.execute_batch("COMMIT")?;
+    tx.commit()?;
     db::log_op(
         conn,
         actor,

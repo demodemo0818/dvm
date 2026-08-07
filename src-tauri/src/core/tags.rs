@@ -118,9 +118,11 @@ pub fn tag_videos(conn: &Connection, actor: &str, video_ids: &[i64], tag_name: &
     // 取り消しのために「実際に付いた動画」だけを記録する。
     // 元から付いていたものまで記録すると、取り消しでそれも外れてしまう
     let mut added = Vec::new();
-    conn.execute_batch("BEGIN")?;
+    // 生の BEGIN は途中の ? で抜けるとトランザクションが開きっぱなしになる。
+    // unchecked_transaction なら drop で自動 ROLLBACK される(mark_opened と同じ)
+    let tx = conn.unchecked_transaction()?;
     for vid in video_ids {
-        let n = conn.execute(
+        let n = tx.execute(
             "INSERT OR IGNORE INTO video_tags (video_id, tag_id) VALUES (?1, ?2)",
             params![vid, tag_id],
         )?;
@@ -128,7 +130,7 @@ pub fn tag_videos(conn: &Connection, actor: &str, video_ids: &[i64], tag_name: &
             added.push(*vid);
         }
     }
-    conn.execute_batch("COMMIT")?;
+    tx.commit()?;
     db::log_op(
         conn,
         actor,
@@ -143,9 +145,9 @@ pub fn untag_videos(conn: &Connection, actor: &str, video_ids: &[i64], tag_id: i
         .query_row("SELECT name FROM tags WHERE id = ?1", params![tag_id], |r| r.get(0))
         .unwrap_or_default();
     let mut removed = Vec::new();
-    conn.execute_batch("BEGIN")?;
+    let tx = conn.unchecked_transaction()?;
     for vid in video_ids {
-        let n = conn.execute(
+        let n = tx.execute(
             "DELETE FROM video_tags WHERE video_id = ?1 AND tag_id = ?2",
             params![vid, tag_id],
         )?;
@@ -153,7 +155,7 @@ pub fn untag_videos(conn: &Connection, actor: &str, video_ids: &[i64], tag_id: i
             removed.push(*vid);
         }
     }
-    conn.execute_batch("COMMIT")?;
+    tx.commit()?;
     db::log_op(
         conn,
         actor,
@@ -360,14 +362,14 @@ pub fn delete_tag_group(conn: &Connection, actor: &str, group_id: i64) -> Result
 /// グループの表示順を id の並び順どおりに振り直す。
 /// 表示順は動画のメタデータではないので operations_log には残さない(履歴が並べ替えで埋まる)
 pub fn reorder_tag_groups(conn: &Connection, group_ids: &[i64]) -> Result<()> {
-    conn.execute_batch("BEGIN")?;
+    let tx = conn.unchecked_transaction()?;
     for (i, gid) in group_ids.iter().enumerate() {
-        conn.execute(
+        tx.execute(
             "UPDATE tag_groups SET sort_order = ?1 WHERE id = ?2",
             params![i as i64, gid],
         )?;
     }
-    conn.execute_batch("COMMIT")?;
+    tx.commit()?;
     Ok(())
 }
 
