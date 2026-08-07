@@ -624,9 +624,18 @@ export function Sidebar() {
             保存プレイリスト(v1.40)。**スマートフォルダの直後**に置く ——
             スマートフォルダ = 条件で選んだ集合、プレイリスト = 手で選んだ集合で、
             並べるなら隣同士が意味的に正しい。
-            クリックは既存 2 つと揃えて「一覧を絞り込む」。キューへの読み込みは右クリックから
+            クリックは既存 2 つと揃えて「一覧を絞り込む」。キューへの読み込みは右クリックから。
+            **0 件でも見出し + 案内を出す**(タグと同じ「ここから始める」流儀)——
+            機能に気づく入口が右クリックメニューと Q キーだけで、棚が空の人ほど見えなかった
           */}
-          {shownPlaylists.length > 0 && <div className="side-section">プレイリスト</div>}
+          {(shownPlaylists.length > 0 || !needle) && (
+            <div className="side-section">プレイリスト</div>
+          )}
+          {playlists.length === 0 && !needle && (
+            <div className="side-empty">
+              動画を選んで右クリック →「キュー」で並べ、キューパネルから保存するとここに並びます
+            </div>
+          )}
           {shownPlaylists.map((p) => (
             <div
               key={p.id}

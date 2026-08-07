@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useLibrary } from '../../store';
 import type { VideoPlayer } from './types';
-import { useAutoplayToggle, useRepeatToggle } from './usePlayQueue';
+import { isQueuePlayback, useAutoplayToggle, useRepeatToggle } from './usePlayQueue';
 
 /**
  * プレイヤーのキーボードショートカット(両エンジン共用)。
@@ -152,6 +152,9 @@ export function usePlayerShortcuts(
           break;
         case 'a':
         case 'A':
+          // キューモード中はボタンと同じく効かせない(設定は変わるのに見た目が
+          // 何も変わらない、が起きないように。判定はボタンの disabled と共用)
+          if (isQueuePlayback(useLibrary.getState())) return;
           toggleAutoplay();
           break;
         case 'r':

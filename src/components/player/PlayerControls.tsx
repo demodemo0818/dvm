@@ -276,6 +276,8 @@ export function PlayerControls({
           両エンジンで出す)。単発再生でも隠さない — ⏮⏭ は「今のキューに前後があるか」
           という一時的な状態だから disabled にするが、こちらは永続設定なので
           消えると設定の在り処が分からなくなる。
+          **キューモード中は隠さず disabled にする**(同じ理由 + 位置が動くと押し間違える)——
+          キューは設定に関係なく常に次へ進むので、押しても何も変わらないように見えていた。
           アイコンはプレイリスト(ListVideo)。以前はループ記号を使っていて、
           隣のリピートと見分けが付かなかった(v1.13)
         */}
@@ -283,10 +285,13 @@ export function PlayerControls({
           className={autoplayNext ? 'active' : ''}
           onMouseDown={noFocus}
           onClick={toggleAutoplay}
+          disabled={queue?.inQueue}
           title={
-            autoplayNext
-              ? '連続再生をオフにする (A)'
-              : '連続再生をオンにする(最後まで再生したら次の動画へ)(A)'
+            queue?.inQueue
+              ? 'キュー再生中は設定に関係なく、常に次の動画へ進みます'
+              : autoplayNext
+                ? '連続再生をオフにする (A)'
+                : '連続再生をオンにする(最後まで再生したら次の動画へ)(A)'
           }
         >
           <ListVideo />

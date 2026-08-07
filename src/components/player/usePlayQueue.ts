@@ -21,6 +21,20 @@ import { useLibrary } from '../../store';
  *
  * **キューモードは `autoplayNext` を見ない**(`autoAdvance` を参照)。
  */
+/**
+ * いまキューモードで再生しているか。**判定はこの 1 か所に置く** ——
+ * usePlayQueue の表示・送りのほか、連続再生トグル(ボタンの無効化と A キーの無視)も
+ * 同じ判定を見る。3 条件のコピーが増えると「片方だけ currentId で判定」の
+ * A-5 と同種のずれが再発しやすい
+ */
+export function isQueuePlayback(s: {
+  playQueue: unknown;
+  playingVideo: { id: number } | null;
+  queue: { currentId: number | null };
+}): boolean {
+  return s.playQueue === null && s.playingVideo !== null && s.playingVideo.id === s.queue.currentId;
+}
+
 export function usePlayQueue() {
   const playQueue = useLibrary((s) => s.playQueue);
   const queue = useLibrary((s) => s.queue);
@@ -30,8 +44,7 @@ export function usePlayQueue() {
   const pushToast = useLibrary((s) => s.pushToast);
 
   // playQueue が非 null ならクエリモード。どちらでもなければ単発再生
-  const inQueue =
-    playQueue === null && playingVideo !== null && playingVideo.id === queue.currentId;
+  const inQueue = isQueuePlayback({ playQueue, playingVideo, queue });
 
   const hasPrev = inQueue
     ? queueStep(queue, -1) !== null
@@ -76,11 +89,7 @@ export function usePlayQueue() {
     async function step(delta: 1 | -1): Promise<void> {
       const s = useLibrary.getState();
       // キューモード。行はすでに手元にあるので Rust には聞かない
-      if (
-        s.playQueue === null &&
-        s.playingVideo !== null &&
-        s.playingVideo.id === s.queue.currentId
-      ) {
+      if (isQueuePlayback(s)) {
         /*
          * 見つからない / オフラインは**飛ばして先へ進む**(v1.40)。キューは
          * 「並べて放っておく」ための道具なので、1 本の欠損で列が止まると目的を果たさない。
