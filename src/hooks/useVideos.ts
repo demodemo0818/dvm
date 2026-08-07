@@ -5,6 +5,13 @@ import type { VideoLabels, VideoQuery, VideoRow } from '../types';
 const PAGE_SIZE = 200;
 /** 同じページの取得に連続で失敗したら諦める回数(スクロールのたびに投げ続けないため) */
 const MAX_RETRY = 2;
+/**
+ * version 更新(ライブラリ変更)のとき裏で取り直すページ数の上限。
+ * 最近アクセスした順にこの枚数だけ残す。5 枚 = 1,000 行で、可視範囲 + overscan には十分。
+ * 深くスクロールした後に全ページを取り直すと、取り込み中(version が 300ms おきに上がる)に
+ * 「数十ページ × 200 件」の query_videos が投げ続けられて IPC と読み取りコネクションを圧迫する
+ */
+const KEEP_ON_VERSION = 5;
 
 /**
  * 仮想化グリッド用のスパースなページキャッシュ。
@@ -36,6 +43,9 @@ export function useVideos(query: VideoQuery, version: number, withLabels = false
   const labelPages = useRef<Set<number>>(new Set());
   /** 世代番号。上げると進行中リクエストの結果は破棄される */
   const generation = useRef(0);
+  /** ページ → 最終アクセス順(連番)。version 更新時に「見えているページ」を選ぶのに使う */
+  const pageAccess = useRef<Map<number, number>>(new Map());
+  const accessSeq = useRef(0);
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   const queryKey = JSON.stringify(query);
 
@@ -106,6 +116,7 @@ export function useVideos(query: VideoQuery, version: number, withLabels = false
     failures.current.clear();
     labels.current.clear();
     labelPages.current.clear();
+    pageAccess.current.clear();
     rerender();
   }, [queryKey]);
 
@@ -126,13 +137,33 @@ export function useVideos(query: VideoQuery, version: number, withLabels = false
         setCounted(true);
       })
       .catch(() => {});
-    for (const page of Array.from(pages.current.keys())) fetchPage(page);
+    /*
+     * 保持中のページを全部取り直さない。最近アクセスした順に KEEP_ON_VERSION 枚だけ
+     * 裏で差し替え(見えている範囲はちらつかない)、それ以外は捨てて、
+     * また見えたときに普通の遅延取得で引き直す
+     */
+    const keep = new Set(
+      Array.from(pageAccess.current.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, KEEP_ON_VERSION)
+        .map(([p]) => p),
+    );
+    for (const page of Array.from(pages.current.keys())) {
+      if (keep.has(page)) {
+        fetchPage(page);
+      } else {
+        pages.current.delete(page);
+        labelPages.current.delete(page);
+        pageAccess.current.delete(page);
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queryKey, version, fetchPage]);
 
   const getVideo = useCallback(
     (index: number): VideoRow | undefined => {
       const page = Math.floor(index / PAGE_SIZE);
+      pageAccess.current.set(page, ++accessSeq.current);
       const rows = pages.current.get(page);
       if (!rows) {
         fetchPage(page);
@@ -156,6 +187,7 @@ export function useVideos(query: VideoQuery, version: number, withLabels = false
 
       const needed: number[] = [];
       for (let p = Math.floor(lo / PAGE_SIZE); p <= Math.floor(hi / PAGE_SIZE); p++) {
+        pageAccess.current.set(p, ++accessSeq.current);
         if (!pages.current.has(p)) needed.push(p);
       }
       if (needed.length > 0) {
