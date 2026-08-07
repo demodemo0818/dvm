@@ -5,7 +5,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { decidePlayback } from '../lib/playback';
 import type { PlayMode } from '../lib/playback';
-import { useLibrary } from '../store';
+import { useShallow } from 'zustand/react/shallow';
+import { pickState, useLibrary } from '../store';
 import { ContextMenu } from './ContextMenu';
 import { ensureMpv } from './player/mpv';
 import { MpvPlayerView } from './player/MpvPlayerView';
@@ -55,7 +56,9 @@ function PlayerView({ video }: { video: VideoRow }) {
  * ネイティブ再生に失敗したら transcode へ切り替え、それでも失敗したら外部プレイヤーへ。
  */
 function Html5PlayerView({ video }: { video: VideoRow }) {
-  const { setPlayingVideo, bumpVersion, repeatOne, pushToast } = useLibrary();
+  const { setPlayingVideo, bumpVersion, repeatOne, pushToast } = useLibrary(
+    useShallow(pickState('setPlayingVideo', 'bumpVersion', 'repeatOne', 'pushToast')),
+  );
   const queue = usePlayQueue();
   const videoRef = useRef<HTMLVideoElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);

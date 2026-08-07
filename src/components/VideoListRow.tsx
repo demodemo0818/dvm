@@ -1,4 +1,5 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { memo } from 'react';
 import { COLUMNS, layout } from '../lib/listColumns';
 import type { ColumnKey } from '../lib/listColumns';
 import { thumbSrc } from '../lib/thumbs';
@@ -15,7 +16,7 @@ import type { VideoRowProps } from './rowProps';
  * ホバープレビューは付けない — 行が細く、マウスが横切るだけで次々に
  * 元動画を開くことになるため(グリッドのカードは面積が大きいので誤爆しにくい)
  */
-export function VideoListRow({
+export const VideoListRow = memo(function VideoListRow({
   video, labels, index, selected, focused, onPick, onPlay, onContextMenu, height, columns,
 }: VideoRowProps & { height: number; columns: ColumnKey[] }) {
   const { thumb, rest } = layout(columns);
@@ -71,4 +72,4 @@ export function VideoListRow({
       })}
     </div>
   );
-}
+});

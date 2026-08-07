@@ -3,7 +3,8 @@ import { useFilterMasters } from '../hooks/useFilterMasters';
 import { dedupeMessage } from '../lib/dedupeMessage';
 import { describeFilter, type ClearAction } from '../lib/filterChips';
 import type { FilterState } from '../lib/query';
-import { useLibrary } from '../store';
+import { useShallow } from 'zustand/react/shallow';
+import { pickState, useLibrary } from '../store';
 import { EMPTY_ADVANCED, type AdvancedFilter } from '../types';
 import { DedupeDialog } from './DedupeDialog';
 
@@ -33,7 +34,11 @@ export function FilterBar({
     setText, setAdvanced, toggleTagFilter, setTagFilter, setFolderId, toggleDirPath,
     toggleSeriesFilter, togglePlaylistFilter, toggleMissingOnly, toggleDirPathRecursive,
     toggleDuplicatesOnly, applyFilter, version, bumpVersion, pushToast,
-  } = useLibrary();
+  } = useLibrary(useShallow(pickState(
+    'setText', 'setAdvanced', 'toggleTagFilter', 'setTagFilter', 'setFolderId', 'toggleDirPath',
+    'toggleSeriesFilter', 'togglePlaylistFilter', 'toggleMissingOnly', 'toggleDirPathRecursive',
+    'toggleDuplicatesOnly', 'applyFilter', 'version', 'bumpVersion', 'pushToast',
+  )));
   const [showDedupe, setShowDedupe] = useState(false);
 
   // 名前を引かないと出せない条件が効いているときだけマスタを取りに行く

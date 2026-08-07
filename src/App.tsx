@@ -19,7 +19,8 @@ import { Sidebar } from './components/Sidebar';
 import { Toasts } from './components/Toast';
 import { Toolbar } from './components/Toolbar';
 import { VideoGrid } from './components/VideoGrid';
-import { AI_PANEL_WIDTH, INSPECTOR_WIDTH, SIDEBAR_WIDTH, useLibrary } from './store';
+import { useShallow } from 'zustand/react/shallow';
+import { AI_PANEL_WIDTH, INSPECTOR_WIDTH, SIDEBAR_WIDTH, pickState, useLibrary } from './store';
 
 export default function App() {
   const {
@@ -31,7 +32,15 @@ export default function App() {
     setSubStyle, subStyle,
     inspectorPinned, sidebarWidth, inspectorWidth, sidebarCollapsed, selection,
     showAiPanel, aiPanelWidth, queueTabOpen, version,
-  } = useLibrary();
+  } = useLibrary(useShallow(pickState(
+    'bumpVersion', 'bumpThumbVersion', 'setStatus', 'status', 'scanning', 'setPlayerPath',
+    'setPreviewOnHover', 'setViewMode', 'setCardWidth', 'setAutoplayNext', 'setSeekPreview',
+    'setHdrPassthrough', 'setCardTags', 'setCardSeries', 'setInspectorPinned', 'setMediaInfoOpen',
+    'setListColumns', 'setListZebra', 'setSidebarWidth', 'setInspectorWidth', 'setSidebarCollapsed',
+    'setAiPanelWidth', 'setSettingsModalSize', 'setSubStyle', 'subStyle', 'inspectorPinned',
+    'sidebarWidth', 'inspectorWidth', 'sidebarCollapsed', 'selection', 'showAiPanel',
+    'aiPanelWidth', 'queueTabOpen', 'version',
+  )));
   // キューの引き直しと、閉じるときの保存確認(v1.40)
   useQueueLifecycle(version);
   const debounceTimer = useRef<number | undefined>(undefined);
@@ -244,18 +253,29 @@ export default function App() {
 
   useEffect(() => {
     const unlisteners: Array<() => void> = [];
+    /*
+     * cleanup が Promise 解決より先に走ると解除漏れになる(StrictMode の
+     * 「mount → 即 cleanup → 再 mount」で必ず起きる)ので、解決後に
+     * disposed を見て、手遅れならその場で解除する。放置すると開発中は
+     * D&D や library:changed が**二重に処理される**(ドロップの確認が 2 回出る)
+     */
+    let disposed = false;
+    const track = (u: () => void) => {
+      if (disposed) u();
+      else unlisteners.push(u);
+    };
 
     listen('library:changed', () => {
       window.clearTimeout(debounceTimer.current);
       debounceTimer.current = window.setTimeout(() => bumpVersion(), 300);
-    }).then((u) => unlisteners.push(u));
+    }).then(track);
 
     listen<{ scanning: boolean; message: string }>('scan:state', (e) => {
       setStatus(e.payload.scanning, e.payload.message);
-    }).then((u) => unlisteners.push(u));
+    }).then(track);
 
     // 中身が変わったサムネイルを読み直させる(URL は {id}.jpg のままなので lib/thumbs.ts 参照)
-    listen('thumbs:changed', () => bumpThumbVersion()).then((u) => unlisteners.push(u));
+    listen('thumbs:changed', () => bumpThumbVersion()).then(track);
 
     getCurrentWebview()
       .onDragDropEvent((e) => {
@@ -263,9 +283,12 @@ export default function App() {
           void handleDrop(e.payload.paths);
         }
       })
-      .then((u) => unlisteners.push(u));
+      .then(track);
 
-    return () => unlisteners.forEach((u) => u());
+    return () => {
+      disposed = true;
+      unlisteners.forEach((u) => u());
+    };
   }, [bumpVersion, bumpThumbVersion, setStatus, handleDrop]);
 
   // ライブラリを開けていないときは通常の UI を出さない(v1.27)。

@@ -21,7 +21,8 @@ import { sortLabel, sortOptions } from '../lib/listColumns';
 import { advancedCount, buildQuery } from '../lib/query';
 import { splitToolbar, TOOLBAR_ITEMS, toolbarKeys } from '../lib/toolbarItems';
 import type { ToolbarItemKey } from '../lib/toolbarItems';
-import { CARD_WIDTH_MAX, CARD_WIDTH_MIN, useLibrary } from '../store';
+import { useShallow } from 'zustand/react/shallow';
+import { CARD_WIDTH_MAX, CARD_WIDTH_MIN, pickState, useLibrary } from '../store';
 import type { SortKey } from '../types';
 import { AdvancedSearch } from './AdvancedSearch';
 import { HistoryModal } from './HistoryModal';
@@ -40,7 +41,13 @@ export function Toolbar() {
     setShowStats, setShowShortcuts, bumpVersion, pushToast,
     viewMode, setViewMode, cardWidth, setCardWidth,
     inspectorPinned, setInspectorPinned, sidebarCollapsed, setSidebarCollapsed,
-  } = useLibrary();
+  } = useLibrary(useShallow(pickState(
+    'text', 'setText', 'sort', 'setSort', 'scanning', 'seriesId',
+    'showAiPanel', 'toggleAiPanel', 'advanced', 'duplicatesOnly',
+    'setShowStats', 'setShowShortcuts', 'bumpVersion', 'pushToast',
+    'viewMode', 'setViewMode', 'cardWidth', 'setCardWidth',
+    'inspectorPinned', 'setInspectorPinned', 'sidebarCollapsed', 'setSidebarCollapsed',
+  )));
   const [input, setInput] = useState(text);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);

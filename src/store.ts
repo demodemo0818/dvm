@@ -15,6 +15,21 @@ import type {
 
 let toastSeq = 0;
 
+/**
+ * セレクタ購読の定型。`useLibrary(useShallow(pickState('a', 'b')))` の形で使う。
+ *
+ * セレクタなしの `useLibrary()` はストア全体を返し、**どのフィールドが変わっても
+ * 再レンダー**される(Zustand v5)。スキャン中の scan:state や字幕スライダーの
+ * ドラッグのたびにアプリ全ツリーが描き直されていたので、使うキーだけを列挙して購読する
+ */
+export function pickState<K extends keyof LibraryState>(...keys: K[]) {
+  return (s: LibraryState): Pick<LibraryState, K> => {
+    const out = {} as Pick<LibraryState, K>;
+    for (const k of keys) out[k] = s[k];
+    return out;
+  };
+}
+
 /** シャッフル種。0 は使わない(Rust 側で 1 に丸められる) */
 const newSeed = () => Math.floor(Math.random() * 999_000) + 1;
 
@@ -370,7 +385,8 @@ export const useLibrary = create<LibraryState>((set) => ({
     set(playingVideo === null ? { playingVideo: null, playQueue: null } : { playingVideo }),
   /*
    * クエリ方式で再生を始める。**playQueue が非 null であることがそのままクエリモードの印**
-   * (キューモードは playQueue === null かつ queue.currentId !== null)。
+   * (キューモードは playQueue === null かつ再生中の動画が queue.currentId と一致。
+   * 判定は usePlayQueue に集約)。
    * queue は触らない —— 別の動画を見に戻っただけで並べたものを捨てないため
    */
   playFromList: (playingVideo, playQueue) => set({ playingVideo, playQueue }),

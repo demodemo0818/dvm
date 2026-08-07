@@ -5,7 +5,8 @@ import { api } from '../api';
 import { useContextMenu } from '../hooks/useContextMenu';
 import { buildTagGroupMenu, buildTagMenu } from '../lib/contextMenu';
 import { TAG_PALETTE } from '../lib/tagColors';
-import { useLibrary } from '../store';
+import { useShallow } from 'zustand/react/shallow';
+import { pickState, useLibrary } from '../store';
 import type { Tag, TagGroup } from '../types';
 import { ContextMenu } from './ContextMenu';
 
@@ -235,7 +236,9 @@ export function TagTree({
   /** サイドバーの絞り込みが効いているか。効いている間は畳まず、空のグループも出さない */
   filtering: boolean;
 }) {
-  const { tagIds, toggleTagFilter, setTagFilter, bumpVersion, libraryId } = useLibrary();
+  const { tagIds, toggleTagFilter, setTagFilter, bumpVersion, libraryId } = useLibrary(
+    useShallow(pickState('tagIds', 'toggleTagFilter', 'setTagFilter', 'bumpVersion', 'libraryId')),
+  );
   // ライブラリ id が分かってから読む(App.tsx が起動直後に 1 回だけ入れる)。
   // それまでは畳まれていない状態 = 全部見えている側に倒す
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());

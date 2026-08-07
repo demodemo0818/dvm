@@ -5,7 +5,8 @@ import { api } from '../api';
 import { useContextMenu } from '../hooks/useContextMenu';
 import { buildFolderTreeMenu } from '../lib/contextMenu';
 import { dedupeMessage } from '../lib/dedupeMessage';
-import { useLibrary } from '../store';
+import { useShallow } from 'zustand/react/shallow';
+import { pickState, useLibrary } from '../store';
 import type { FolderNode } from '../types';
 import { ContextMenu } from './ContextMenu';
 import { DedupeDialog } from './DedupeDialog';
@@ -34,7 +35,9 @@ function buildTree(nodes: FolderNode[]): Map<string | null, FolderNode[]> {
  * 監視フォルダ配下をまとめて見たいときは「ライブラリ」タブの監視フォルダ一覧を使う
  */
 export function FolderTree({ nodes }: { nodes: FolderNode[] }) {
-  const { dirPath, toggleDirPath } = useLibrary();
+  const { dirPath, toggleDirPath } = useLibrary(
+    useShallow(pickState('dirPath', 'toggleDirPath')),
+  );
   // 既定はすべて畳んだ状態(ルートだけ見える)。深いライブラリでサイドバーが伸びきらないように
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const tree = useMemo(() => buildTree(nodes), [nodes]);

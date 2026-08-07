@@ -12,7 +12,8 @@ import {
 import { baseName } from '../lib/paths';
 import { buildQuery, toFilterState } from '../lib/query';
 import { loadedQueue, needsSavePrompt } from '../lib/queue';
-import { useLibrary } from '../store';
+import { useShallow } from 'zustand/react/shallow';
+import { pickState, useLibrary } from '../store';
 import type {
   FolderNode, LibraryEntry, PlanItem, Playlist, Series, SidebarTab, SmartFolder, Tag, TagGroup,
   VideoQuery, WatchedFolder,
@@ -54,7 +55,12 @@ export function Sidebar() {
     missingOnly, toggleMissingOnly,
     duplicatesOnly, toggleDuplicatesOnly, applyFilter, pushToast,
     libraryId: currentLibId,
-  } = useLibrary();
+  } = useLibrary(useShallow(pickState(
+    'folderId', 'setFolderId', 'dirPath', 'version', 'bumpVersion', 'sidebarWidth',
+    'seriesId', 'toggleSeriesFilter', 'playlistId', 'togglePlaylistFilter',
+    'missingOnly', 'toggleMissingOnly', 'duplicatesOnly', 'toggleDuplicatesOnly',
+    'applyFilter', 'pushToast', 'libraryId',
+  )));
   const [tab, setTab] = useState<SidebarTab>('library');
   const [folderTree, setFolderTree] = useState<FolderNode[]>([]);
   const [folders, setFolders] = useState<WatchedFolder[]>([]);

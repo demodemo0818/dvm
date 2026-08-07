@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { ListOrdered, ListVideo } from 'lucide-react';
 import { api } from '../api';
-import { useLibrary } from '../store';
+import { useShallow } from 'zustand/react/shallow';
+import { pickState, useLibrary } from '../store';
 import type { Series, Tag, TagCount, TagGroup } from '../types';
 import { MediaInfoSection } from './MediaInfoSection';
 import { QueuePanel } from './queue/QueuePanel';
@@ -20,7 +21,10 @@ export function Inspector() {
   const {
     selection, version, bumpVersion, clearSelection, patchSelection,
     inspectorPinned, inspectorWidth, queueTabOpen, setQueueTabOpen,
-  } = useLibrary();
+  } = useLibrary(useShallow(pickState(
+    'selection', 'version', 'bumpVersion', 'clearSelection', 'patchSelection',
+    'inspectorPinned', 'inspectorWidth', 'queueTabOpen', 'setQueueTabOpen',
+  )));
   const queueCount = useLibrary((s) => s.queue.items.length);
   const [tagCounts, setTagCounts] = useState<TagCount[]>([]);
   const [allTags, setAllTags] = useState<Tag[]>([]);
@@ -67,15 +71,27 @@ export function Inspector() {
 
   useEffect(() => {
     if (ids.length === 0) return;
-    // パレットの 3 状態(全部 / 一部 / なし)は件数から導くので、共通タグも tagCounts から出す
-    api.tagCountsForVideos(ids).then(setTagCounts);
-    api.listTags().then(setAllTags);
-    api.listTagGroups().then(setTagGroups);
-    api.seriesForVideos(ids).then(setCommonSeries);
-    api.listSeries().then(setAllSeries);
-    // 全選択で同じレーティングならそれを、バラバラなら 0 を表示
+    // 全選択で同じレーティングならそれを、バラバラなら 0 を表示(これは手元の値なので即時)
     const ratings = new Set(selection.map((v) => v.rating));
     setRatingLocal(ratings.size === 1 ? selection[0].rating : 0);
+    /*
+     * タグ・シリーズの引き直しは 5 本の IPC になるので、
+     * - 少し待ってから投げる(矢印キーの押しっぱなしで 1 選択ごとに 5 本飛ばさない)
+     * - 古い応答は捨てる(getVideoInfo と同じ。遅れて届いた前の選択の結果が
+     *   今の選択の表示を上書きして、**別の動画のタグが出る**のを防ぐ)
+     */
+    let alive = true;
+    const timer = window.setTimeout(() => {
+      api.tagCountsForVideos(ids).then((v) => alive && setTagCounts(v));
+      api.listTags().then((v) => alive && setAllTags(v));
+      api.listTagGroups().then((v) => alive && setTagGroups(v));
+      api.seriesForVideos(ids).then((v) => alive && setCommonSeries(v));
+      api.listSeries().then((v) => alive && setAllSeries(v));
+    }, 120);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsKey, version]);
 

@@ -3,7 +3,8 @@ import type { ReactNode } from 'react';
 import { api } from '../api';
 import { fmtTime } from '../lib/format';
 import { DURATION_RANGES } from '../lib/query';
-import { useLibrary } from '../store';
+import { useShallow } from 'zustand/react/shallow';
+import { pickState, useLibrary } from '../store';
 import type { DurationBucket, LibraryStats, Orientation, StatBucket } from '../types';
 
 /**
@@ -138,7 +139,9 @@ function Section({
  * AI に聞いた数字と画面の数字が食い違わない
  */
 export function StatsModal() {
-  const { showStats, setShowStats, version, applyFilter } = useLibrary();
+  const { showStats, setShowStats, version, applyFilter } = useLibrary(
+    useShallow(pickState('showStats', 'setShowStats', 'version', 'applyFilter')),
+  );
   const [stats, setStats] = useState<LibraryStats | null>(null);
   const [metric, setMetric] = useState<Metric>('count');
 

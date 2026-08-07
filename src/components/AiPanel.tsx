@@ -4,7 +4,8 @@ import { Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { buildSystemPrompt, buildTools } from '../lib/aiTools';
-import { useLibrary } from '../store';
+import { useShallow } from 'zustand/react/shallow';
+import { pickState, useLibrary } from '../store';
 
 const DEFAULT_MODEL = 'claude-opus-5';
 
@@ -16,7 +17,9 @@ interface ChatItem {
 }
 
 export function AiPanel() {
-  const { showAiPanel, aiPanelWidth } = useLibrary();
+  const { showAiPanel, aiPanelWidth } = useLibrary(
+    useShallow(pickState('showAiPanel', 'aiPanelWidth')),
+  );
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [model, setModel] = useState(DEFAULT_MODEL);
   const [chat, setChat] = useState<ChatItem[]>([]);
@@ -46,17 +49,20 @@ export function AiPanel() {
     setBusy(true);
     setChat((c) => [...c, { role: 'user', text, cards: [] }, { role: 'assistant', text: '', cards: [] }]);
 
+    // 空配列ガード: クリア直後にストリーミングの残りが届いても落とさない
     const appendText = (delta: string) =>
       setChat((c) => {
+        const last = c[c.length - 1];
+        if (!last) return c;
         const next = [...c];
-        const last = next[next.length - 1];
         next[next.length - 1] = { ...last, text: last.text + delta };
         return next;
       });
     const addCard = (card: string) =>
       setChat((c) => {
+        const last = c[c.length - 1];
+        if (!last) return c;
         const next = [...c];
-        const last = next[next.length - 1];
         next[next.length - 1] = { ...last, cards: [...last.cards, card] };
         return next;
       });
@@ -117,7 +123,8 @@ export function AiPanel() {
       <div className="ai-header">
         <span>AI アシスタント</span>
         <button
-          title="会話をクリア"
+          title={busy ? '応答中はクリアできません' : '会話をクリア'}
+          disabled={busy}
           onClick={() => {
             setChat([]);
             history.current = [];

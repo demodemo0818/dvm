@@ -1,6 +1,6 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { ListOrdered, TriangleAlert } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { fmtSize, fmtTime } from '../lib/format';
 import { chipBudget } from '../lib/grid';
 import { thumbSrc } from '../lib/thumbs';
@@ -11,7 +11,12 @@ import type { VideoRowProps } from './rowProps';
 /** この時間ホバーし続けたらプレビューを開始する(グリッドを撫でただけで再生しない) */
 const HOVER_DELAY_MS = 400;
 
-export function VideoCard({
+/**
+ * memo 化(A-4): 可視カードは数十枚あるので、スキャン中の status 更新や
+ * 選択移動のたびに全カードを描き直さない。コールバック(onPick / onPlay /
+ * onContextMenu)は VideoGrid 側が useCallback で安定させている前提
+ */
+export const VideoCard = memo(function VideoCard({
   video, labels, index, selected, focused, onPick, onPlay, onContextMenu, cardW,
 }: VideoRowProps & { cardW: number }) {
   const previewOnHover = useLibrary((s) => s.previewOnHover);
@@ -143,7 +148,7 @@ export function VideoCard({
       )}
     </div>
   );
-}
+});
 
 /**
  * 1 行に収まるぶんだけ出し、余りは `+N` にまとめる。

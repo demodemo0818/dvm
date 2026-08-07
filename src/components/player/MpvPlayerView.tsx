@@ -5,7 +5,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { command, listenEvents, setProperty } from 'tauri-plugin-libmpv-api';
 import { api } from '../../api';
 import { isAssCodec } from '../../lib/subtitleStyle';
-import { useLibrary } from '../../store';
+import { useShallow } from 'zustand/react/shallow';
+import { pickState, useLibrary } from '../../store';
 import type { VideoRow } from '../../types';
 import { ContextMenu } from '../ContextMenu';
 import { PlayerControls } from './PlayerControls';
@@ -23,7 +24,9 @@ import { usePlayQueue } from './usePlayQueue';
  * ファイルが再生できない(end-file reason=error)ときは onFail で WebView2 経路へ。
  */
 export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () => void }) {
-  const { setPlayingVideo, bumpVersion, pushToast } = useLibrary();
+  const { setPlayingVideo, bumpVersion, pushToast } = useLibrary(
+    useShallow(pickState('setPlayingVideo', 'bumpVersion', 'pushToast')),
+  );
   const player = useMpvPlayer();
   const queue = usePlayQueue();
   const counted = useRef(false);

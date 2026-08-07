@@ -6,7 +6,8 @@ import {
   displayName, groupByDate, PERIOD_LABELS, periodRange, progressLabel, statsLabel, timeOf,
 } from '../lib/viewHistory';
 import type { ViewPeriod, ViewRange } from '../lib/viewHistory';
-import { useLibrary } from '../store';
+import { useShallow } from 'zustand/react/shallow';
+import { pickState, useLibrary } from '../store';
 import type { OpEntry, ViewEntry, ViewStats } from '../types';
 
 const PAGE = 100;
@@ -135,7 +136,9 @@ export function HistoryModal({ onClose }: { onClose: () => void }) {
  * 日付ごとのまとめと表示文言は lib/viewHistory.ts の純関数が決める
  */
 function ViewTab({ onClose }: { onClose: () => void }) {
-  const { setPlayingVideo, playerPath, pushToast, thumbVersion } = useLibrary();
+  const { setPlayingVideo, playerPath, pushToast, thumbVersion } = useLibrary(
+    useShallow(pickState('setPlayingVideo', 'playerPath', 'pushToast', 'thumbVersion')),
+  );
   const [entries, setEntries] = useState<ViewEntry[]>([]);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -292,7 +295,7 @@ function ViewTab({ onClose }: { onClose: () => void }) {
  * ファイルを動かす操作は履歴には出すが取り消しは拒否する(理由を出す)
  */
 function OpsTab() {
-  const { bumpVersion, pushToast } = useLibrary();
+  const { bumpVersion, pushToast } = useLibrary(useShallow(pickState('bumpVersion', 'pushToast')));
   const [entries, setEntries] = useState<OpEntry[]>([]);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(false);

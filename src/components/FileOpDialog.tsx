@@ -1,7 +1,8 @@
 import { listen } from '@tauri-apps/api/event';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { useLibrary } from '../store';
+import { useShallow } from 'zustand/react/shallow';
+import { pickState, useLibrary } from '../store';
 import type { FileOpProgress, OpResult, PlanItem, PlanStatus } from '../types';
 
 const STATUS_LABEL: Record<PlanStatus, string> = {
@@ -44,7 +45,9 @@ export function FileOpDialog({
   plan: PlanItem[];
   onClose: () => void;
 }) {
-  const { bumpVersion, pushToast, clearSelection } = useLibrary();
+  const { bumpVersion, pushToast, clearSelection } = useLibrary(
+    useShallow(pickState('bumpVersion', 'pushToast', 'clearSelection')),
+  );
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<FileOpProgress | null>(null);
   const [results, setResults] = useState<OpResult[] | null>(null);

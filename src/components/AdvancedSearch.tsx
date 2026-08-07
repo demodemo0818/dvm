@@ -5,7 +5,8 @@ import {
   ORIENTATION_OPTIONS, RESOLUTION_MAX_OPTIONS, RESOLUTION_OPTIONS, sizeUnitFor,
   WITHIN_DAYS_OPTIONS,
 } from '../lib/query';
-import { useLibrary } from '../store';
+import { useShallow } from 'zustand/react/shallow';
+import { pickState, useLibrary } from '../store';
 import type { AdvancedFilter, DurationBucket, ExtensionCount, Orientation } from '../types';
 
 /** .adv-popover の幅(App.css と対)と、画面端に残す余白 */
@@ -36,7 +37,9 @@ export function AdvancedSearch({
   at: { x: number; y: number };
   onClose: () => void;
 }) {
-  const { advanced, setAdvanced, clearAdvanced } = useLibrary();
+  const { advanced, setAdvanced, clearAdvanced } = useLibrary(
+    useShallow(pickState('advanced', 'setAdvanced', 'clearAdvanced')),
+  );
   const ref = useRef<HTMLDivElement>(null);
   const [exts, setExts] = useState<ExtensionCount[] | null>(null);
 

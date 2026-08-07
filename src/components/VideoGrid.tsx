@@ -13,7 +13,8 @@ import { parentDir } from '../lib/paths';
 import { buildQuery, type FilterState } from '../lib/query';
 import { addToQueue, EMPTY_QUEUE, QUEUE_LIMIT } from '../lib/queue';
 import type { AddMode } from '../lib/queue';
-import { useLibrary } from '../store';
+import { useShallow } from 'zustand/react/shallow';
+import { pickState, useLibrary } from '../store';
 import type { PlanItem, SortKey, VideoQuery, VideoRow, ViewMode } from '../types';
 import { ContextMenu } from './ContextMenu';
 import { DeleteDialog } from './DeleteDialog';
@@ -48,7 +49,13 @@ export function VideoGrid() {
     viewMode, cardWidth, listColumns, listZebra, selection, anchorIndex, focusIndex,
     clearSelection, setSelection, setFocusIndex, selectOnly, playFromList, toggleDirPath,
     playerPath, playingVideo, showAiPanel, pushToast, contextMenuOpen, cardTags, cardSeries,
-  } = useLibrary();
+  } = useLibrary(useShallow(pickState(
+    'text', 'sort', 'folderId', 'dirPath', 'dirPathRecursive', 'tagIds', 'seriesId', 'playlistId',
+    'missingOnly', 'duplicatesOnly', 'advanced', 'randomSeed', 'version', 'viewMode', 'cardWidth',
+    'listColumns', 'listZebra', 'selection', 'anchorIndex', 'focusIndex', 'clearSelection',
+    'setSelection', 'setFocusIndex', 'selectOnly', 'playFromList', 'toggleDirPath', 'playerPath',
+    'playingVideo', 'showAiPanel', 'pushToast', 'contextMenuOpen', 'cardTags', 'cardSeries',
+  )));
 
   /** 絞り込み一式。buildQuery と余白メニューが同じものを見る */
   const filters = useMemo<FilterState>(() => ({
@@ -218,7 +225,13 @@ export function VideoGrid() {
       if (videos.length === 0) return;
 
       if (mode === 'replace') {
-        const { queue: next } = addToQueue(EMPTY_QUEUE, videos);
+        const { queue: next, overflow } = addToQueue(EMPTY_QUEUE, videos);
+        if (overflow) {
+          // ここで setQueue すると空キューで**既存のキューを消してしまう**。
+          // 断り方は追加系と同じ(部分的に入れず全部断る)
+          pushToast(`キューの上限は ${QUEUE_LIMIT} 件です(${videos.length} 件は入りません)`);
+          return;
+        }
         s.setQueue(next);
         s.setQueueTabOpen(true);
         const first = next.items.find((v) => !v.isMissing && !v.isOffline);
