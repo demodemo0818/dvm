@@ -1,7 +1,8 @@
-import { ask, open } from '@tauri-apps/plugin-dialog';
+import { convertFileSrc } from '@tauri-apps/api/core';
+import { ask, open, save } from '@tauri-apps/plugin-dialog';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import {
-  ChevronDown, Copy, FolderSearch, Library, ListOrdered, ListVideo, TriangleAlert,
+  ChevronDown, Copy, FolderSearch, Library, ListOrdered, TriangleAlert,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
@@ -9,9 +10,12 @@ import { useContextMenu } from '../hooks/useContextMenu';
 import {
   buildLibraryMenu, buildPlaylistMenu, buildSeriesMenu, buildSmartFolderMenu, buildWatchedFolderMenu,
 } from '../lib/contextMenu';
+import { fmtTime } from '../lib/format';
 import { baseName } from '../lib/paths';
 import { buildQuery, toFilterState } from '../lib/query';
-import { loadedQueue, needsSavePrompt, sourceRemoved, sourceRenamed } from '../lib/queue';
+import { QUEUE_LIMIT, sourceRemoved, sourceRenamed } from '../lib/queue';
+import { replaceQueueWith } from '../lib/queueLoad';
+import { thumbSrc } from '../lib/thumbs';
 import { useShallow } from 'zustand/react/shallow';
 import { pickState, useLibrary } from '../store';
 import type {
@@ -54,12 +58,12 @@ export function Sidebar() {
     playlistId, togglePlaylistFilter,
     missingOnly, toggleMissingOnly,
     duplicatesOnly, toggleDuplicatesOnly, applyFilter, pushToast,
-    libraryId: currentLibId,
+    libraryId: currentLibId, thumbVersion,
   } = useLibrary(useShallow(pickState(
     'folderId', 'setFolderId', 'dirPath', 'version', 'bumpVersion', 'sidebarWidth',
     'seriesId', 'toggleSeriesFilter', 'playlistId', 'togglePlaylistFilter',
     'missingOnly', 'toggleMissingOnly', 'duplicatesOnly', 'toggleDuplicatesOnly',
-    'applyFilter', 'pushToast', 'libraryId',
+    'applyFilter', 'pushToast', 'libraryId', 'thumbVersion',
   )));
   const [tab, setTab] = useState<SidebarTab>('library');
   const [folderTree, setFolderTree] = useState<FolderNode[]>([]);
@@ -169,34 +173,82 @@ export function Sidebar() {
   /**
    * 保存リストをキューへ**複写**して再生を始める(v1.40)。
    * 複写なので、ここから先の編集は保存リストに一切届かない
-   * (書き戻すのは「上書き保存」を押したときだけ)
+   * (書き戻すのは「上書き保存」を押したときだけ)。
+   * 確認(A-29)・上限・再生開始は replaceQueueWith(v1.41 で C-4 と共通化)の担当
    */
   const loadPlaylist = async (p: Playlist) => {
     try {
-      /*
-       * 手で編集したキューを黙って捨てない(A-29)。終了時は保存を尋ねるのに
-       * ここだけ無言で消えるのは非対称。判定は終了時と同じ needsSavePrompt
-       */
-      if (needsSavePrompt(useLibrary.getState().queue)) {
-        const yes = await ask(
-          `保存していないキュー(${useLibrary.getState().queue.items.length} 件)を捨てて、\n` +
-            `「${p.name}」を読み込みますか?`,
-          { title: 'キューの置き換え', kind: 'warning' },
-        );
-        if (!yes) return;
-      }
       const rows = await api.getPlaylistVideos(p.id);
-      if (rows.length === 0) {
-        pushToast(`「${p.name}」は空です`, 'info');
-        return;
-      }
-      const s = useLibrary.getState();
-      s.setQueue(loadedQueue(rows, p.id, p.name));
-      s.setQueueTabOpen(true);
-      // 先頭から再生。見つからない動画なら開かず、送りに任せて飛ばさせる
-      const first = rows.find((v) => !v.isMissing && !v.isOffline);
-      if (first) s.playFromQueue(first);
-      else pushToast(`「${p.name}」の動画はどれも見つかりませんでした`);
+      await replaceQueueWith(rows, { id: p.id, name: p.name }, {
+        label: `「${p.name}」`,
+        emptyMessage: `「${p.name}」は空です`,
+      });
+    } catch {
+      // トーストは call() の担当
+    }
+  };
+
+  /**
+   * スマートフォルダの中身でキューを置き換えて再生する(v1.41、C-4)。
+   * 「平日の消化リスト」のような条件を 1 クリックで流すための入口
+   */
+  const loadSmartFolder = async (sf: SmartFolder) => {
+    let q: VideoQuery;
+    try {
+      q = JSON.parse(sf.queryJson);
+    } catch {
+      pushToast(`「${sf.name}」の検索条件を読めませんでした`);
+      return;
+    }
+    try {
+      // 上限 + 1 件引く。501 件返れば「切り詰めた」と分かる(件数クエリを別に投げない)
+      const rows = await api.queryVideos(q, QUEUE_LIMIT + 1, 0);
+      await replaceQueueWith(rows, null, {
+        label: `「${sf.name}」`,
+        emptyMessage: `「${sf.name}」に一致する動画はありません`,
+      });
+    } catch {
+      // トーストは call() の担当
+    }
+  };
+
+  /** プレイリストを M3U8 に書き出す(v1.41、C-3)。外部プレイヤーでそのまま流せる */
+  const exportPlaylist = async (p: Playlist) => {
+    const dest = await save({
+      title: 'M3U8 へ書き出す',
+      // リスト名はファイル名に使えない文字を含み得るので、そこだけ置き換える
+      defaultPath: `${p.name.replace(/[\\/:*?"<>|]/g, '_')}.m3u8`,
+      filters: [{ name: 'M3U8 プレイリスト', extensions: ['m3u8'] }],
+    });
+    if (typeof dest !== 'string') return;
+    try {
+      const n = await api.exportM3u8(p.id, dest);
+      pushToast(`「${p.name}」を書き出しました(${n} 件)`, 'info');
+    } catch {
+      // トーストは call() の担当
+    }
+  };
+
+  /**
+   * M3U8 を読み込んでプレイリストを作る(v1.41、C-3)。
+   * 未登録の動画は個別登録としてライブラリにも入る(取り込みは Rust 側)
+   */
+  const importM3u8 = async () => {
+    const selected = await open({
+      multiple: false,
+      title: 'M3U8 を読み込む',
+      filters: [{ name: 'M3U8 プレイリスト', extensions: ['m3u8', 'm3u'] }],
+    });
+    if (typeof selected !== 'string') return;
+    try {
+      const r = await api.importM3u8(selected);
+      pushToast(
+        r.skipped > 0
+          ? `「${r.name}」を作成しました(${r.count} 件。${r.skipped} 行は見つからないため外しました)`
+          : `「${r.name}」を作成しました(${r.count} 件)`,
+        'info',
+      );
+      bumpVersion();
     } catch {
       // トーストは call() の担当
     }
@@ -324,18 +376,10 @@ export function Sidebar() {
       return;
     }
     /*
-     * キューの保存確認(v1.40)。**切り替えは再起動なのでユーザーから見れば終了と同じ**だが、
-     * `AppHandle::restart()` は `CloseRequested` を配送しないので、
-     * useQueueLifecycle の確認はここを通らない。だから自前で 1 枚挟む
+     * v1.40 まではここで「キューが失われます」の確認を挟んでいたが、v1.41 の
+     * 常時自動保存(C-2)で不要になった —— キューはこのライブラリの library.db に
+     * 保存済みで、戻ってくればそのまま復元される
      */
-    if (needsSavePrompt(useLibrary.getState().queue)) {
-      const keep = await ask(
-        `保存していないキュー(${useLibrary.getState().queue.items.length} 件)があります。\n` +
-          '切り替えると失われます。続けますか?',
-        { title: 'キューの保存', kind: 'warning' },
-      );
-      if (!keep) return;
-    }
     const yes = await ask(`「${lib.name}」に切り替えます。アプリを再起動しますか?`, {
       title: 'ライブラリの切り替え',
     });
@@ -405,6 +449,7 @@ export function Sidebar() {
         const index = smartFolders.findIndex((x) => x.id === sf.id);
         switch (id) {
           case 'sf:open': openSmartFolder(sf); break;
+          case 'sf:load': await loadSmartFolder(sf); break;
           case 'sf:rename': {
             const name = window.prompt('新しい名前', sf.name);
             if (name === null || name.trim() === '' || name.trim() === sf.name) return;
@@ -447,6 +492,7 @@ export function Sidebar() {
             break;
           }
           case 'pl:duplicate': await api.duplicatePlaylist(p.id).then(() => bumpVersion()); break;
+          case 'pl:export': await exportPlaylist(p); break;
           case 'pl:moveUp': await movePlaylist(index, -1); break;
           case 'pl:moveDown': await movePlaylist(index, 1); break;
           case 'pl:delete': await removePlaylist(p); break;
@@ -639,7 +685,7 @@ export function Sidebar() {
           {shownPlaylists.map((p) => (
             <div
               key={p.id}
-              className={`side-item folder ${playlistId === p.id ? 'active' : ''}`}
+              className={`side-item playlist-row ${playlistId === p.id ? 'active' : ''}`}
               onClick={() => togglePlaylistFilter(p.id)}
               onContextMenu={(e) =>
                 openMenu(
@@ -656,9 +702,34 @@ export function Sidebar() {
                 )}
               title={`${p.name}(クリックで絞り込み。右クリックからキューに読み込めます)`}
             >
-              <ListVideo className="tag-mark" />
-              <span className="folder-name">{p.name}</span>
-              <span className="count">{p.videoCount}</span>
+              {/*
+                先頭サムネイル + 2 行(v1.41、C-6)。キュー行と同じ 44×25 の枠で、
+                **ディスクキャッシュの jpg を読むだけ**(原則 2 の内側)。
+                サムネイルを持つ動画が 1 本も無ければ枠の地色だけが見える
+              */}
+              <span className="pl-thumb">
+                {p.thumbPath && (
+                  <img
+                    src={thumbSrc(convertFileSrc(p.thumbPath), thumbVersion)}
+                    loading="lazy"
+                    alt=""
+                    draggable={false}
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                    onLoad={(e) => {
+                      e.currentTarget.style.display = '';
+                    }}
+                  />
+                )}
+              </span>
+              <span className="pl-lines">
+                <span className="folder-name">{p.name}</span>
+                <span className="pl-meta">
+                  {p.videoCount} 本
+                  {p.durationMs > 0 ? `・${fmtTime(p.durationMs / 1000)}` : ''}
+                </span>
+              </span>
               <button
                 className="remove"
                 title="プレイリストを削除"
@@ -671,6 +742,16 @@ export function Sidebar() {
               </button>
             </div>
           ))}
+          {/* M3U8 の取り込み(v1.41、C-3)。絞り込み中は追加ボタンを隠す(下の 2 つと同じ) */}
+          {!needle && (
+            <button
+              className="side-action"
+              title="M3U8 / M3U を読み込んで同じ名前のプレイリストを作ります(未登録の動画はライブラリにも登録されます)"
+              onClick={importM3u8}
+            >
+              + M3U8 を読み込む
+            </button>
+          )}
 
           {(shownFolders.length > 0 || !needle) && (
             <div className="side-section" title="クリックするとそのフォルダ配下の動画をまとめて表示します">

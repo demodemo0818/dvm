@@ -56,6 +56,9 @@ pub struct LibraryStats {
     pub by_file_year: Vec<Bucket>,
     /// 月ごとの視聴回数(古い順、直近 24 か月)。`view_history` 由来なので v1.18 以降だけ
     pub by_view_month: Vec<Bucket>,
+    /// 曜日 × 時間帯の視聴回数(v1.41、C-7)。`[曜日 0=日〜6=土][0〜23 時]` の 7×24。
+    /// `view_history` 由来なので v1.18 以降の記録だけ
+    pub view_heatmap: Vec<Vec<i64>>,
 }
 
 /// 束ごとに数える 3 つの値。0 行のとき SUM は NULL を返すので COALESCE で 0 に落とす
@@ -325,7 +328,29 @@ pub fn library_stats(conn: &Connection) -> Result<LibraryStats> {
                FROM view_history GROUP BY m ORDER BY m DESC LIMIT 24
              ) ORDER BY m",
         )?,
+        view_heatmap: view_heatmap(conn)?,
     })
+}
+
+/// 曜日 × 時間帯(7×24)の視聴回数(v1.41、C-7)。
+/// `viewed_at` は localtime の 'YYYY-MM-DD HH:MM:SS' なので modifier なしで刻める
+fn view_heatmap(conn: &Connection) -> Result<Vec<Vec<i64>>> {
+    let mut grid = vec![vec![0i64; 24]; 7];
+    let mut stmt = conn.prepare(
+        "SELECT CAST(strftime('%w', viewed_at) AS INTEGER),
+                CAST(strftime('%H', viewed_at) AS INTEGER), COUNT(*)
+         FROM view_history GROUP BY 1, 2",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+    })?;
+    // 壊れた日時(strftime が NULL)は上の get がエラーになり、ここで黙って落ちる
+    for (dow, hour, n) in rows.filter_map(|r| r.ok()) {
+        if (0..7).contains(&dow) && (0..24).contains(&hour) {
+            grid[dow as usize][hour as usize] = n;
+        }
+    }
+    Ok(grid)
 }
 
 #[cfg(test)]
@@ -512,5 +537,15 @@ mod tests {
             s.by_view_month.iter().all(|b| b.bytes == 0 && b.duration_ms == 0),
             "視聴回数の内訳は容量・時間の軸を持たない"
         );
+
+        // 曜日 × 時間帯(v1.41)。2026-06-30 は火曜、07-01 / 07-15 は水曜、07-16 は木曜
+        assert_eq!(s.view_heatmap.len(), 7);
+        assert!(s.view_heatmap.iter().all(|row| row.len() == 24));
+        assert_eq!(s.view_heatmap[2][22], 1, "火 22 時");
+        assert_eq!(s.view_heatmap[3][10], 1, "水 10 時");
+        assert_eq!(s.view_heatmap[3][23], 1, "水 23 時");
+        assert_eq!(s.view_heatmap[4][1], 1, "木 1 時");
+        let total: i64 = s.view_heatmap.iter().flatten().sum();
+        assert_eq!(total, 4);
     }
 }

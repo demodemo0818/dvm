@@ -275,6 +275,74 @@ body {
   color: #d8dbe2;
 }
 
+/* プレイリスト行(v1.41、C-6)。キュー行と同じ 44×25 のサムネイル + 名前と件数の 2 行 */
+.side-item.playlist-row {
+  align-items: center;
+}
+
+.pl-thumb {
+  flex: none;
+  width: 44px;
+  height: 25px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: #14161b;
+}
+
+.pl-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.pl-lines {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.pl-meta {
+  font-size: 11px;
+  color: #8a8f9c;
+  font-variant-numeric: tabular-nums;
+}
+
+.side-item.active .pl-meta {
+  color: #dfe6f5;
+}
+
+/* カード → キューパネル D&D のゴースト(v1.41、C-5)。カーソルに追従する札 */
+.queue-drag-ghost {
+  position: fixed;
+  z-index: 300;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 14px;
+  background: #22252d;
+  border: 1px solid #3a3f4b;
+  color: #aab0bd;
+  font-size: 12px;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.queue-drag-ghost svg {
+  width: 14px;
+  height: 14px;
+}
+
+.queue-drag-ghost.over {
+  background: #2f66d0;
+  border-color: #2f66d0;
+  color: #fff;
+}
+
 /* ---- メイン ---- */
 .main {
   flex: 1;
@@ -2725,6 +2793,52 @@ button.stats-tile:hover {
   font-size: 12px;
   color: #8a8f9c;
   padding: 8px 0;
+}
+
+/*
+ * 曜日 × 時間帯のヒートマップ(v1.41、C-7)。
+ * 濃さは単一色相(アクセントの青)の透明度だけで表す。マスの間の 2px は
+ * 隣どうしの塗りを区切るための余白で、正確な値はマスの title に出す
+ */
+.heatmap {
+  display: grid;
+  grid-template-columns: 20px repeat(24, 1fr);
+  gap: 2px;
+  align-items: center;
+}
+
+.heatmap-dow {
+  font-size: 11px;
+  color: #8a8f9c;
+  text-align: center;
+}
+
+.heatmap-hour {
+  font-size: 10px;
+  color: #6b7180;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+
+.heatmap-cell {
+  height: 15px;
+  border-radius: 3px;
+  background: #191c22;
+}
+
+.heatmap-legend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  margin-top: 6px;
+  font-size: 10px;
+  color: #6b7180;
+}
+
+.heatmap-legend .heatmap-cell {
+  width: 15px;
+  flex: none;
 }
 
 /* ---- 詳細リスト表示 (v1.8) ---- */

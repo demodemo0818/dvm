@@ -369,6 +369,20 @@ export interface Playlist {
   name: string;
   videoCount: number;
   position: number;
+  /** 中身の合計再生時間(ミリ秒)。尺が未取得の動画は入らない(v1.41、C-6) */
+  durationMs: number;
+  /** サムネイル生成済みの先頭動画の jpg パス。1 枚も無ければ null(v1.41、C-6) */
+  thumbPath: string | null;
+}
+
+/** M3U8 取り込みの結果(v1.41、C-3。Rust の commands/playlists::M3u8Import と対) */
+export interface M3u8Import {
+  playlistId: number;
+  name: string;
+  /** プレイリストに入った動画数(重複は畳まれる) */
+  count: number;
+  /** 実在しない・対応形式でないなどで登録できなかった行数 */
+  skipped: number;
 }
 
 /**
@@ -494,6 +508,8 @@ export interface LibraryStats {
   byFileYear: StatBucket[];
   /** 月ごとの視聴回数(古い順、直近 24 か月)。view_history 由来なので v1.18 以降だけ */
   byViewMonth: StatBucket[];
+  /** 曜日 × 時間帯の視聴回数(v1.41、C-7)。[曜日 0=日〜6=土][0〜23 時] の 7×24 */
+  viewHeatmap: number[][];
 }
 
 export interface Series {

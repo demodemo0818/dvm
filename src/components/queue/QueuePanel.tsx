@@ -149,7 +149,9 @@ export function QueuePanel({ compact = false }: { compact?: boolean }) {
   const empty = queue.items.length === 0;
 
   return (
-    <div className={`queue-panel ${compact ? 'compact' : ''}`}>
+    // data-queue-dropzone: グリッドのカードをここへドラッグすると末尾に追加される
+    // (v1.41、C-5。掴む側・落とす判定は VideoGrid が持つ)
+    <div className={`queue-panel ${compact ? 'compact' : ''}`} data-queue-dropzone>
       <div className="queue-head">
         <span className="queue-title">
           <ListVideo />

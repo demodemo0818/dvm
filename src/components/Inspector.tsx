@@ -115,6 +115,9 @@ export function Inspector() {
         className={queueTabOpen ? 'active' : ''}
         onClick={() => setQueueTabOpen(true)}
         title="再生キュー(選択して Q で追加)"
+        // カードをこのタブに落としてもキューに入る(v1.41、C-5)。
+        // パネルを開いていない状態からのドラッグの受け皿
+        data-queue-dropzone
       >
         <ListVideo />
         キュー

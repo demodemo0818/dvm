@@ -1,6 +1,7 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ask, open } from '@tauri-apps/plugin-dialog';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
+import { ListVideo } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { useContextMenu } from '../hooks/useContextMenu';
@@ -12,6 +13,7 @@ import { gridTemplate, needsLabels, totalWidth } from '../lib/listColumns';
 import { parentDir } from '../lib/paths';
 import { buildQuery, type FilterState } from '../lib/query';
 import { addToQueue, EMPTY_QUEUE, needsSavePrompt, QUEUE_LIMIT } from '../lib/queue';
+import { replaceQueueWith } from '../lib/queueLoad';
 import type { AddMode } from '../lib/queue';
 import { useShallow } from 'zustand/react/shallow';
 import { pickState, useLibrary } from '../store';
@@ -35,6 +37,13 @@ const LIST_ROW_H_SLIM = 28;
  * 超えたぶんは黙って捨てずにトーストで知らせる
  */
 const SELECT_ALL_LIMIT = 1000;
+
+/**
+ * カード → キューパネル D&D(v1.41、C-5)のドラッグ判定(px)。これ未満はクリック。
+ * キューパネル内の並べ替え(4px)よりわずかに大きいのは、こちらはクリック・
+ * ダブルクリック・範囲選択と同居していて誤発動の実害が大きいため
+ */
+const QUEUE_DRAG_THRESHOLD = 6;
 
 /** 右クリックメニューの対象。動画・サブフォルダ・余白で持ち物が違う */
 type MenuTarget =
@@ -269,6 +278,91 @@ export function VideoGrid() {
     },
     [pushToast],
   );
+
+  /*
+   * カードからキューパネルへの D&D(v1.41、C-5)。
+   *
+   * **HTML5 の D&D は使えない**(Tauri のドロップハンドラを切るとフォルダの
+   * ドロップ登録が壊れる。DESIGN.md「タグのグループ移動は D&D」節)ので、
+   * キューパネル内の並べ替えと同じくポインタイベントの自前実装。
+   * ドロップ先は elementFromPoint で `[data-queue-dropzone]` を探す ——
+   * 右ペインのキューパネルと、詳細ペインの「キュー」タブの 2 か所が受け皿。
+   * 掴んだカードが選択の外なら選択をそこへ移す(右クリックメニューと同じ規則)ので、
+   * ドラッグを始めた時点で詳細ペインが現れ、パネルを開いていなくてもタブに落とせる
+   */
+  const [queuePress, setQueuePress] = useState<
+    { x: number; y: number; video: VideoRow; index: number } | null
+  >(null);
+  const [queueDrag, setQueueDrag] = useState<
+    { x: number; y: number; over: boolean; count: number } | null
+  >(null);
+
+  const onGridPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (e.button !== 0) return;
+      const el = (e.target as HTMLElement).closest('[data-grid-index]');
+      if (!(el instanceof HTMLElement)) return;
+      const index = Number(el.dataset.gridIndex);
+      const video = getVideo(index);
+      if (!video) return;
+      setQueuePress({ x: e.clientX, y: e.clientY, video, index });
+    },
+    [getVideo],
+  );
+
+  useEffect(() => {
+    if (!queuePress) return;
+    let started = false;
+    const overDropzone = (x: number, y: number) =>
+      document.elementFromPoint(x, y)?.closest('[data-queue-dropzone]') != null;
+    const onMove = (e: PointerEvent) => {
+      if (!started) {
+        const moved = Math.hypot(e.clientX - queuePress.x, e.clientY - queuePress.y);
+        if (moved < QUEUE_DRAG_THRESHOLD) return;
+        started = true;
+        const s = useLibrary.getState();
+        if (!s.selection.some((v) => v.id === queuePress.video.id)) {
+          s.selectOnly(queuePress.video, queuePress.index);
+        }
+      }
+      setQueueDrag({
+        x: e.clientX,
+        y: e.clientY,
+        over: overDropzone(e.clientX, e.clientY),
+        count: useLibrary.getState().selection.length,
+      });
+    };
+    const finish = () => {
+      setQueuePress(null);
+      setQueueDrag(null);
+    };
+    const onUp = (e: PointerEvent) => {
+      const dropped = started && overDropzone(e.clientX, e.clientY);
+      finish();
+      if (!started) return; // 動かしていない = ただのクリック。通常の選択に任せる
+      // ドラッグで終わった pointerup の直後の click を 1 回だけ食べる
+      // (通さないと単独選択が走って、複数選択で掴んだものが 1 件に潰れる)
+      const eat = (ce: MouseEvent) => {
+        ce.stopPropagation();
+        ce.preventDefault();
+      };
+      window.addEventListener('click', eat, { capture: true, once: true });
+      // click が来なかったときに次のクリックを食べないよう、必ず外す(QueuePanel と同じ)
+      window.setTimeout(
+        () => window.removeEventListener('click', eat, { capture: true }),
+        0,
+      );
+      if (dropped) void addSelectionToQueue('end');
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', finish);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', finish);
+    };
+  }, [queuePress, addSelectionToQueue]);
 
   /** クリック。Shift = anchor からの範囲、Ctrl = トグル、素 = 単独選択 */
   const onPick = useCallback(
@@ -574,6 +668,19 @@ export function VideoGrid() {
         case 'blank:clearSelection':
           s.clearSelection();
           break;
+        // 表示中の絞り込み結果でキューを置き換えて再生(v1.41、C-4)
+        case 'blank:loadQueue':
+          try {
+            // 上限 + 1 件引く。501 件返れば「切り詰めた」と分かる
+            const rows = await api.queryVideos(query, QUEUE_LIMIT + 1, 0);
+            await replaceQueueWith(rows, null, {
+              label: '表示中の一覧',
+              emptyMessage: '表示中の動画がありません',
+            });
+          } catch {
+            // トーストは call() の担当
+          }
+          break;
         case 'blank:up':
           if (parentPath) s.toggleDirPath(parentPath);
           break;
@@ -595,7 +702,7 @@ export function VideoGrid() {
         default:
       }
     },
-    [selectAll, parentPath, pushToast],
+    [selectAll, parentPath, pushToast, query],
   );
 
   // キーボード操作。プレイヤー表示中と入力欄にフォーカスがある間は何もしない
@@ -697,6 +804,8 @@ export function VideoGrid() {
       style={list ? ({ '--list-cols': gridTemplate(listColumns) } as React.CSSProperties) : undefined}
       // スクロールしたらメニューを閉じる処理は ContextMenu 側が持つ(v1.20)
       onContextMenu={onBlankContextMenu}
+      // カード → キューパネルの D&D(v1.41、C-5)。カード上の pointerdown を委譲で拾う
+      onPointerDown={onGridPointerDown}
       onClick={(e) => {
         // カード以外の余白クリックで選択解除(フォルダは選択の対象外なので押しても解除する)
         const hit = (e.target as HTMLElement).closest('.card, .list-row');
@@ -796,6 +905,19 @@ export function VideoGrid() {
         </div>
       )}
     </div>
+
+    {/* D&D 中のゴースト(v1.41、C-5)。カーソルに追従する小さな札 */}
+    {queueDrag && (
+      <div
+        className={`queue-drag-ghost ${queueDrag.over ? 'over' : ''}`}
+        style={{ left: queueDrag.x + 14, top: queueDrag.y + 18 }}
+      >
+        <ListVideo />
+        {queueDrag.over
+          ? `${queueDrag.count} 件をキューに追加`
+          : `${queueDrag.count} 件 — キューパネルへドロップ`}
+      </div>
+    )}
 
     {/* メニューとダイアログはスクロール領域の外に置く。
         仮想化の transform が position: fixed の基準になってしまうため */}

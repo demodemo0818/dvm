@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useLibrary } from './store';
 import type {
   AppInfo, BackupInfo, DedupePlan, DedupeResult, ExcludedPath, ExtensionCount, FolderNode,
-  LibraryEntry, LibraryState, LibraryStats, MediaInfo, OpEntry,
+  LibraryEntry, LibraryState, LibraryStats, M3u8Import, MediaInfo, OpEntry,
   OpResult, PlanItem, Playlist, Series, SmartFolder, SubfolderView, Tag, TagCount, TagGroup,
   VideoLabels, VideoInfo, VideoQuery, VideoRow, ViewEntry, ViewStats, WatchedFolder,
 } from './types';
@@ -186,6 +186,17 @@ export const api = {
   duplicatePlaylist: (id: number) => call<number>('duplicate_playlist', { id }),
   deletePlaylist: (id: number) => call<void>('delete_playlist', { id }),
   reorderPlaylists: (ids: number[]) => call<void>('reorder_playlists', { ids }),
+  /**
+   * キューの自動保存(v1.41、C-2)。値は lib/queueStorage.ts が組む JSON。
+   * 保存は編集のたびに裏で走るので silent —— 失敗しても「次回復元されない」だけで、
+   * 毎回トーストが出るほうが害が大きい
+   */
+  getQueueState: () => call<string | null>('get_queue_state', undefined, true),
+  setQueueState: (value: string) => call<void>('set_queue_state', { value }, true),
+  /** プレイリストを UTF-8 の M3U8 に書き出す(v1.41、C-3)。返り値は書いた動画数 */
+  exportM3u8: (id: number, dest: string) => call<number>('export_m3u8', { id, dest }),
+  /** M3U8 を読み、ファイルを登録して同名のプレイリストを作る(v1.41、C-3) */
+  importM3u8: (path: string) => call<M3u8Import>('import_m3u8', { path }),
   libraryStats: () => call<LibraryStats>('library_stats'),
   getAppInfo: () => call<AppInfo>('get_app_info'),
   backupDb: () => call<BackupInfo>('backup_db'),

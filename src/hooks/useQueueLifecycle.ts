@@ -1,17 +1,21 @@
-import { getCurrentWindow } from '@tauri-apps/api/window';
-import { ask } from '@tauri-apps/plugin-dialog';
 import { useEffect } from 'react';
 import { api } from '../api';
-import { needsSavePrompt, savedQueue, syncQueue } from '../lib/queue';
+import { syncQueue } from '../lib/queue';
+import { parseSnapshot, restoredQueue, serializeQueue } from '../lib/queueStorage';
 import { useLibrary } from '../store';
 
 /**
- * キューの寿命まわり(v1.40)。**App.tsx から 1 回だけ呼ぶ**。
+ * キューの寿命まわり(v1.40。自動保存・復元は v1.41 の C-2)。**App.tsx から 1 回だけ呼ぶ**。
  *
  * やることは 2 つ:
  *
  * 1. `library:changed` でキューの中身を引き直す(消えた動画を落とし、リネームに追従する)
- * 2. ウィンドウを閉じるときに「保存しますか?」を尋ねる
+ * 2. 編集のたびに library.db(session_state)へ自動保存し、起動時に黙って復元する
+ *
+ * v1.40 の「閉じるときに保存を尋ねる 3 択」は**廃止した** —— 常時保存になったことで
+ * クラッシュ・強制終了・ライブラリ切り替えでもキューが失われなくなり、
+ * 確認で守るものが無くなったため(DESIGN.md「キューは自動保存」節)。
+ * プレイリストへの保存はパネルの「名前を付けて保存 / 上書き保存」だけになった
  */
 export function useQueueLifecycle(version: number) {
   /*
@@ -39,88 +43,52 @@ export function useQueueLifecycle(version: number) {
   }, [version]);
 
   /*
-   * 閉じるときの確認。
+   * 自動保存と起動時復元(v1.41、C-2)。
    *
-   * **聞くのはキューに中身があって、かつ保存済みと内容が違うときだけ**(needsSavePrompt)。
-   * 開発中はキューが空なのが普通なので、`stop.ps1`(× ボタンと同じ WM_CLOSE を送って
-   * 終了を待つ)はほとんど止まらずに済む。
-   *
-   * **`CloseRequested` を通らない終わり方では聞けない** —— タスクマネージャ・
-   * OS のシャットダウン・クラッシュ、そして `switch_library` の再起動
-   * (あちらは Sidebar 側で別に尋ねている)。「必ず聞く」ではなく
-   * 「× ボタンで閉じたときは聞く」であることは DESIGN.md に書いてある
+   * - 保存は queue が差し替わるたび。ドラッグ並べ替えもドロップで 1 回しか
+   *   setQueue しないので、デバウンスは要らない。**再生の進行(currentId)だけの
+   *   変化では書かない** —— serializeQueue が currentId を含まないので、
+   *   直列化した文字列の比較(lastSaved)が自然にそれを吸収する
+   * - **復元が終わるまで保存は動かさない**。起動直後の空キューで先に書くと、
+   *   前回の中身をその場で消してしまう
    */
   useEffect(() => {
-    const win = getCurrentWindow();
-    // cleanup が Promise 解決より先に走ると解除漏れになる(StrictMode で必ず起きる)。
-    // 放置すると確認ダイアログが 2 枚重なる
     let disposed = false;
-    let unlisten: (() => void) | undefined;
-    void win
-      .onCloseRequested(async (event) => {
-        if (!needsSavePrompt(useLibrary.getState().queue)) return;
-        event.preventDefault();
-        const answer = await confirmSaveQueue();
-        if (answer === 'cancel') return;
-        if (answer === 'save' && !(await saveQueueByName())) return; // 保存に失敗 / 名前を入れずに閉じた
-        // preventDefault したぶん、自分で閉じ直す。destroy でも RunEvent::Exit は届くので
-        // ウィンドウ位置(tauri-plugin-window-state)は保存される
-        await win.destroy();
-      })
-      .then((u) => {
-        if (disposed) u();
-        else unlisten = u;
-      });
+    let ready = false;
+    let lastSaved: string | null = null;
+
+    const unsubscribe = useLibrary.subscribe((s, prev) => {
+      if (!ready || s.queue === prev.queue) return;
+      const value = serializeQueue(s.queue);
+      if (value === lastSaved) return;
+      lastSaved = value;
+      void api.setQueueState(value).catch(() => {});
+    });
+
+    void (async () => {
+      try {
+        const snap = parseSnapshot(await api.getQueueState());
+        if (disposed || !snap || snap.videoIds.length === 0) return;
+        // StrictMode の再マウントや HMR で、組み立て済みのキューを上書きしない
+        if (useLibrary.getState().queue.items.length > 0) return;
+        // 引き直しで消えた動画は落ちる(順序は渡した id 順のまま返る)
+        const rows = await api.getVideosByIds(snap.videoIds);
+        if (disposed || rows.length === 0) return;
+        const s = useLibrary.getState();
+        if (s.queue.items.length > 0) return;
+        s.setQueue(restoredQueue(snap, rows));
+      } catch {
+        // 読めなくても「前回のキューが空で始まる」だけ。保存側は動かす
+      } finally {
+        // 復元直後の状態を「保存済み」とみなす(直後に同じ内容を書き戻さない)
+        lastSaved = serializeQueue(useLibrary.getState().queue);
+        ready = true;
+      }
+    })();
+
     return () => {
       disposed = true;
-      unlisten?.();
+      unsubscribe();
     };
   }, []);
-}
-
-export type SaveAnswer = 'save' | 'discard' | 'cancel';
-
-/**
- * 3 択を出す。`@tauri-apps/plugin-dialog` の `ask` は 2 択しか出せないので、
- * 「キャンセル」を別の質問に分けている(1 枚目で「保存する?」、
- * いいえなら 2 枚目で「保存せずに終了する?」)
- */
-async function confirmSaveQueue(): Promise<SaveAnswer> {
-  const q = useLibrary.getState().queue;
-  const what = q.sourceId !== null
-    ? `「${q.sourceName}」から変更したキュー(${q.items.length} 件)`
-    : `名前を付けていないキュー(${q.items.length} 件)`;
-  const save = await ask(`${what}があります。\n名前を付けて保存しますか?`, {
-    title: 'キューの保存',
-    kind: 'warning',
-  });
-  if (save) return 'save';
-  const discard = await ask('保存せずに終了しますか?\n(キューは失われます)', {
-    title: 'キューの保存',
-    kind: 'warning',
-  });
-  return discard ? 'discard' : 'cancel';
-}
-
-/** 名前を尋ねて保存する。保存できたら true。空・キャンセル・失敗なら false */
-async function saveQueueByName(): Promise<boolean> {
-  const q = useLibrary.getState().queue;
-  const name = window.prompt('プレイリストの名前', q.sourceName || '')?.trim();
-  if (!name) return false;
-  try {
-    const ids = q.items.map((v) => v.id);
-    const existing = await api.findPlaylistByName(name);
-    if (existing !== null) {
-      if (!window.confirm(`「${name}」はすでにあります。上書きしますか?`)) return false;
-      await api.replacePlaylist(existing, ids);
-      useLibrary.getState().setQueue(savedQueue(q, existing, name));
-    } else {
-      const id = await api.createPlaylist(name, ids);
-      useLibrary.getState().setQueue(savedQueue(q, id, name));
-    }
-    return true;
-  } catch {
-    // トーストは call() の担当。保存できていないので閉じない
-    return false;
-  }
 }

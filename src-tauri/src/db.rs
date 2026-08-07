@@ -177,6 +177,14 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT
 );
 
+-- ライブラリごとのセッション状態(v1.41)。最初の利用者は再生キューの自動保存。
+-- settings(app.db 側の get_setting/set_setting)とは別物 —— キューは video_id を
+-- 含むのでライブラリに紐づく。値の形は書き込む側(フロント)が決める JSON
+CREATE TABLE IF NOT EXISTS session_state (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 -- 保存した検索条件(VideoQuery の JSON)。サイドバーに出す
 CREATE TABLE IF NOT EXISTS smart_folders (
   id INTEGER PRIMARY KEY,

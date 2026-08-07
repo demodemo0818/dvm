@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { api } from '../api';
 import { fmtTime } from '../lib/format';
@@ -113,6 +113,57 @@ function BarList({
         </button>
       ))}
     </div>
+  );
+}
+
+/** ヒートマップの行見出し。%w の並び(0 = 日)のまま出す */
+const DOW_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
+
+/** マスの濃さ。0 は地色、1 回以上は回数に比例してアクセント色を濃くする */
+const heatColor = (n: number, max: number) =>
+  n > 0 ? { background: `rgba(79, 129, 224, ${(0.18 + 0.82 * (n / max)).toFixed(3)})` } : undefined;
+
+/**
+ * 曜日 × 時間帯の視聴回数(v1.41、C-7)。「自分はいつ観ているか」を 1 枚で見せる。
+ * 濃さは単一色相の濃淡だけ(色数を増やさない)。正確な回数はマスの title に出す
+ */
+function ViewHeatmap({ grid }: { grid: number[][] }) {
+  const cells = grid.flat();
+  const max = Math.max(...cells, 1);
+  if (cells.every((n) => n === 0)) {
+    return <div className="stats-empty">まだ視聴の記録がありません</div>;
+  }
+  return (
+    <>
+      <div className="heatmap">
+        <span className="heatmap-dow" />
+        {Array.from({ length: 24 }, (_, h) => (
+          // 24 本ぜんぶに数字を振ると潰れるので 6 時間おき
+          <span key={h} className="heatmap-hour">{h % 6 === 0 ? h : ''}</span>
+        ))}
+        {grid.map((row, d) => (
+          // 行 = 曜日。grid-template-columns が列を 25 分割しているので並べるだけでよい
+          <Fragment key={d}>
+            <span className="heatmap-dow">{DOW_LABELS[d]}</span>
+            {row.map((n, h) => (
+              <span
+                key={h}
+                className="heatmap-cell"
+                style={heatColor(n, max)}
+                title={`${DOW_LABELS[d]}曜 ${h} 時台: ${n.toLocaleString()} 回`}
+              />
+            ))}
+          </Fragment>
+        ))}
+      </div>
+      <div className="heatmap-legend">
+        0
+        {[0.25, 0.5, 0.75, 1].map((r) => (
+          <span key={r} className="heatmap-cell" style={heatColor(r * max, max)} />
+        ))}
+        {max.toLocaleString()} 回
+      </div>
+    </>
   );
 }
 
@@ -387,6 +438,10 @@ export function StatsModal() {
                   unit="回"
                   empty="まだ視聴の記録がありません"
                 />
+              </Section>
+
+              <Section title="曜日 × 時間帯の視聴回数" wide>
+                <ViewHeatmap grid={stats.viewHeatmap} />
               </Section>
             </div>
 

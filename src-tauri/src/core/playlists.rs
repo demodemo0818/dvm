@@ -17,22 +17,40 @@ pub struct Playlist {
     pub name: String,
     pub video_count: i64,
     pub position: i64,
+    /// 中身の合計再生時間(ミリ秒)。尺が未取得の動画は足されない(v1.41、C-6)
+    pub duration_ms: i64,
+    /// 先頭側でサムネイルが生成済みの動画の jpg パス(サイドバーの行に出す)。
+    /// history.rs と同じく**実在確認はしない**(原則 7: 一覧クエリで行ごとの I/O をしない)
+    pub thumb_path: Option<String>,
 }
 
-pub fn list(conn: &Connection) -> Result<Vec<Playlist>> {
+pub fn list(conn: &Connection, thumbs_dir: Option<&std::path::Path>) -> Result<Vec<Playlist>> {
     let mut stmt = conn.prepare(
         "SELECT p.id, p.name,
                 (SELECT COUNT(*) FROM playlist_entries pe WHERE pe.playlist_id = p.id) AS cnt,
-                p.position
+                p.position,
+                (SELECT COALESCE(SUM(v.duration_ms), 0) FROM playlist_entries pe
+                   JOIN videos v ON v.id = pe.video_id WHERE pe.playlist_id = p.id) AS dur,
+                -- 先頭の動画に絵が無いこともあるので「サムネイルを持つ最初の 1 件」を選ぶ
+                (SELECT pe.video_id FROM playlist_entries pe
+                   JOIN videos v ON v.id = pe.video_id
+                  WHERE pe.playlist_id = p.id AND v.thumb_state = 1
+                  ORDER BY pe.position, pe.video_id LIMIT 1) AS thumb_video
          FROM playlists p ORDER BY p.position, p.id",
     )?;
     let rows = stmt
         .query_map([], |r| {
+            let thumb_video: Option<i64> = r.get(5)?;
             Ok(Playlist {
                 id: r.get(0)?,
                 name: r.get(1)?,
                 video_count: r.get(2)?,
                 position: r.get(3)?,
+                duration_ms: r.get(4)?,
+                thumb_path: thumbs_dir.and_then(|dir| {
+                    thumb_video
+                        .map(|id| dir.join(format!("{id}.jpg")).to_string_lossy().to_string())
+                }),
             })
         })?
         .filter_map(|r| r.ok())
@@ -258,7 +276,7 @@ mod tests {
         // 上書き保存は「消して入れ直す」。position は 0 から詰め直る
         replace(&conn, "user", id, &[2, 5]).unwrap();
         assert_eq!(entries(&conn, id).unwrap(), vec![2, 5]);
-        assert_eq!(list(&conn).unwrap()[0].video_count, 2);
+        assert_eq!(list(&conn, None).unwrap()[0].video_count, 2);
     }
 
     #[test]
@@ -306,7 +324,7 @@ mod tests {
         let a = create(&conn, "user", "夜", &[2, 1]).unwrap();
         let b = duplicate(&conn, "user", a).unwrap();
         let c = duplicate(&conn, "user", a).unwrap();
-        let names: Vec<String> = list(&conn).unwrap().into_iter().map(|p| p.name).collect();
+        let names: Vec<String> = list(&conn, None).unwrap().into_iter().map(|p| p.name).collect();
         assert!(names.contains(&"夜 のコピー".to_string()));
         assert!(names.contains(&"夜 のコピー (2)".to_string()));
         // 中身も並びごと複製される
@@ -328,11 +346,11 @@ mod tests {
         let conn = setup();
         let a = create(&conn, "user", "A", &[1]).unwrap();
         let b = create(&conn, "user", "B", &[2]).unwrap();
-        assert_eq!(list(&conn).unwrap().iter().map(|p| p.id).collect::<Vec<_>>(), vec![a, b]);
+        assert_eq!(list(&conn, None).unwrap().iter().map(|p| p.id).collect::<Vec<_>>(), vec![a, b]);
         reorder(&conn, &[b, a]).unwrap();
-        assert_eq!(list(&conn).unwrap().iter().map(|p| p.id).collect::<Vec<_>>(), vec![b, a]);
+        assert_eq!(list(&conn, None).unwrap().iter().map(|p| p.id).collect::<Vec<_>>(), vec![b, a]);
 
         delete(&conn, "user", a).unwrap();
-        assert_eq!(list(&conn).unwrap().len(), 1);
+        assert_eq!(list(&conn, None).unwrap().len(), 1);
     }
 }

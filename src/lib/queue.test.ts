@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  addToQueue, clearQueue, EMPTY_QUEUE, loadedQueue, moveInQueue, needsSavePrompt,
+  addToQueue, clearQueue, composedQueue, EMPTY_QUEUE, loadedQueue, moveInQueue, needsSavePrompt,
   playingInQueue, queueIndex, queueStep, QUEUE_LIMIT, removeFromQueue, savedQueue,
   sourceRemoved, sourceRenamed, syncQueue,
 } from './queue';
@@ -213,6 +213,18 @@ describe('保存の状態', () => {
   it('空のキューでは尋ねない(開発中に stop.ps1 が止まらないため)', () => {
     expect(needsSavePrompt(EMPTY_QUEUE)).toBe(false);
     expect(needsSavePrompt(clearQueue(queueOf(1, 2)))).toBe(false);
+  });
+
+  // v1.41(C-4)。スマートフォルダ・絞り込み結果から組んだキュー
+  it('組み立てたキューは出所を持たず「変更あり」が点く', () => {
+    const q = composedQueue([v(1), v(2)]);
+    expect(ids(q)).toEqual([1, 2]);
+    expect(q.sourceId).toBeNull();
+    expect(q.currentId).toBeNull();
+    expect(q.dirty).toBe(true);
+    expect(needsSavePrompt(q)).toBe(true);
+    // 空の結果で組んだときは dirty も点かない(確認を出す意味がない)
+    expect(composedQueue([]).dirty).toBe(false);
   });
 
   it('すべて外しても再生は続く(currentId を消さない)', () => {

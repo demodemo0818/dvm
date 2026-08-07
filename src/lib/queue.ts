@@ -155,6 +155,23 @@ export function loadedQueue(items: VideoRow[], sourceId: number, sourceName: str
   return { items, currentId: null, orphanIndex: null, sourceId, sourceName, dirty: false };
 }
 
+/**
+ * スマートフォルダ・絞り込み結果から組んだ直後の状態(v1.41、C-4)。
+ * 出所(sourceId)を持たない —— スマートフォルダは条件でありリストではないので、
+ * 「上書き保存」の書き戻し先にならない。保存するなら「名前を付けて保存」から。
+ * `dirty` は立てる(この中身はまだどこにも保存されていない)
+ */
+export function composedQueue(items: VideoRow[]): QueueState {
+  return {
+    items,
+    currentId: null,
+    orphanIndex: null,
+    sourceId: null,
+    sourceName: '',
+    dirty: items.length > 0,
+  };
+}
+
 /** 保存した直後。中身は変えず、出所と `dirty` だけ付け替える */
 export function savedQueue(q: QueueState, sourceId: number, sourceName: string): QueueState {
   return { ...q, sourceId, sourceName, dirty: false };
@@ -214,10 +231,12 @@ export function playingInQueue(q: QueueState, videoId: number): QueueState {
 }
 
 /**
- * 終了時に「保存しますか?」を尋ねるか(v1.40)。
+ * 「保存していないキューを捨てますか?」を確認するか。
  *
- * **空のとき・保存済みと同じ内容のときは尋ねない**。開発中はキューが空なのが普通なので、
- * これで `stop.ps1`(× ボタンと同じ WM_CLOSE を送って終了を待つ)がほぼ止まらずに済む
+ * v1.40 では終了時の 3 択にも使っていたが、v1.41 の常時自動保存(C-2)で終了確認は
+ * 廃止した。残る用途は**キューを丸ごと置き換える操作の前の確認**(プレイリストの
+ * 読み込み・「キューを置き換えて再生」・スマートフォルダの読み込み)。
+ * **空のとき・保存済みと同じ内容のときは尋ねない**
  */
 export function needsSavePrompt(q: QueueState): boolean {
   return q.items.length > 0 && q.dirty;

@@ -20,6 +20,8 @@ export type ToolbarItemKey =
   | 'sidebarToggle'
   | 'search'
   | 'advanced'
+  | 'filterBack'
+  | 'filterForward'
   | 'sort'
   | 'saveQuery'
   | 'viewMode'
@@ -71,6 +73,9 @@ export const TOOLBAR_ITEMS: Record<ToolbarItemKey, ToolbarItemDef> = {
    */
   search: { key: 'search', label: '検索', width: 180, priority: 0 },
   advanced: { key: 'advanced', label: '絞り込み', width: ICON_W, priority: 0 },
+  // 絞り込みの「戻る / 進む」(v1.41、C-8)。Alt+←/→ でも使えるので早めに畳んでよい
+  filterBack: { key: 'filterBack', label: '絞り込みを戻す', width: ICON_W, priority: 7 },
+  filterForward: { key: 'filterForward', label: '絞り込みを進める', width: ICON_W, priority: 8 },
   // 並び順で「ランダム」を選ぶたびにシャッフルし直すので、専用ボタンは持たない(v1.20)
   sort: { key: 'sort', label: '並び順', width: 172, priority: 13 },
   saveQuery: { key: 'saveQuery', label: '条件を保存', width: ICON_W, priority: 1 },
@@ -95,6 +100,8 @@ export const TOOLBAR_ORDER: ToolbarItemKey[] = [
   'sidebarToggle',
   'search',
   'advanced',
+  'filterBack',
+  'filterForward',
   'sort',
   'saveQuery',
   'viewMode',

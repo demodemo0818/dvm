@@ -8,10 +8,12 @@ import {
   List,
   PanelLeft,
   PanelRight,
+  Redo2,
   RefreshCw,
   RotateCcwClock,
   Settings,
   Sparkles,
+  Undo2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -41,12 +43,14 @@ export function Toolbar() {
     setShowStats, setShowShortcuts, bumpVersion, pushToast,
     viewMode, setViewMode, cardWidth, setCardWidth,
     inspectorPinned, setInspectorPinned, sidebarCollapsed, setSidebarCollapsed,
+    filterPast, filterFuture, filterBack, filterForward,
   } = useLibrary(useShallow(pickState(
     'text', 'setText', 'sort', 'setSort', 'scanning', 'seriesId',
     'showAiPanel', 'toggleAiPanel', 'advanced', 'duplicatesOnly',
     'setShowStats', 'setShowShortcuts', 'bumpVersion', 'pushToast',
     'viewMode', 'setViewMode', 'cardWidth', 'setCardWidth',
     'inspectorPinned', 'setInspectorPinned', 'sidebarCollapsed', 'setSidebarCollapsed',
+    'filterPast', 'filterFuture', 'filterBack', 'filterForward',
   )));
   const [input, setInput] = useState(text);
   const [showSettings, setShowSettings] = useState(false);
@@ -191,6 +195,33 @@ export function Toolbar() {
             <Funnel />
             {advCount > 0 && <span className="tb-badge">{advCount}</span>}
           </button>
+        );
+
+      case 'filterBack':
+        // 絞り込み履歴(v1.41、C-8)。押せるかどうかがそのまま「履歴があるか」
+        return (
+          <ToolButton
+            key={key}
+            place={place}
+            icon={Undo2}
+            label={label}
+            title="絞り込みを戻す (Alt+←)"
+            disabled={filterPast.length === 0}
+            onClick={act(filterBack)}
+          />
+        );
+
+      case 'filterForward':
+        return (
+          <ToolButton
+            key={key}
+            place={place}
+            icon={Redo2}
+            label={label}
+            title="絞り込みを進める (Alt+→)"
+            disabled={filterFuture.length === 0}
+            onClick={act(filterForward)}
+          />
         );
 
       case 'sort':

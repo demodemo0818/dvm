@@ -11,7 +11,7 @@
  * だから `keys` には表示用の文字列ではなく **生の `e.key` の値**を入れること。
  */
 
-export type ShortcutMod = 'Ctrl' | 'Shift';
+export type ShortcutMod = 'Ctrl' | 'Shift' | 'Alt';
 
 export interface ShortcutDef {
   /** 修飾キー。表示にも使う */
@@ -98,6 +98,8 @@ export const SHORTCUTS: ShortcutGroup[] = [
       { mods: ['Ctrl'], keys: ['a'], label: 'すべて選択', note: '先頭 1000 件まで' },
       { keys: ['q'], label: '選択を再生キューに追加', note: '右クリックの「キュー」からは「次に再生」も選べます' },
       { keys: ['Delete'], label: '削除する', note: 'ライブラリからか、ごみ箱かをダイアログで選びます' },
+      // 処理は App.tsx(Escape と同じく、VideoGrid のソース突き合わせの対象外)
+      { mods: ['Alt'], keys: ['ArrowLeft', 'ArrowRight'], label: '絞り込みを 戻す / 進む', note: 'スマートフォルダ・AI 検索・統計から変えた条件を行き来します' },
       { keys: ['Escape'], label: '選択を解除' },
     ],
   },

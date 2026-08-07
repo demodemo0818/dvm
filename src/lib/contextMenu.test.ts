@@ -373,7 +373,7 @@ describe('buildWatchedFolderMenu', () => {
 describe('buildSmartFolderMenu', () => {
   it('項目の並びは固定', () => {
     expect(ids(buildSmartFolderMenu(smartRow(), 0, 3, false))).toEqual([
-      'sf:open', 'sf:rename', 'sf:overwrite', 'sf:moveUp', 'sf:moveDown', 'sf:delete',
+      'sf:open', 'sf:load', 'sf:rename', 'sf:overwrite', 'sf:moveUp', 'sf:moveDown', 'sf:delete',
     ]);
   });
 
@@ -473,7 +473,7 @@ describe('buildFolderTreeMenu', () => {
 describe('buildGridBlankMenu', () => {
   it('項目の並びは固定', () => {
     expect(ids(buildGridBlankMenu(blank()))).toEqual([
-      'blank:selectAll', 'blank:clearSelection', 'blank:view', 'blank:sort',
+      'blank:selectAll', 'blank:clearSelection', 'blank:loadQueue', 'blank:view', 'blank:sort',
       'blank:up', 'blank:reveal', 'blank:clearFilters', 'blank:refresh',
     ]);
   });
@@ -481,6 +481,12 @@ describe('buildGridBlankMenu', () => {
   it('一覧が空なら全選択できない', () => {
     expect(isDisabled(buildGridBlankMenu(blank({ total: 0 })), 'blank:selectAll')).toBe(true);
     expect(isDisabled(buildGridBlankMenu(blank({ total: 1 })), 'blank:selectAll')).toBe(false);
+  });
+
+  // v1.41(C-4)
+  it('一覧が空ならキューに読み込めない', () => {
+    expect(isDisabled(buildGridBlankMenu(blank({ total: 0 })), 'blank:loadQueue')).toBe(true);
+    expect(isDisabled(buildGridBlankMenu(blank({ total: 1 })), 'blank:loadQueue')).toBe(false);
   });
 
   it('選択が無ければ解除できない', () => {

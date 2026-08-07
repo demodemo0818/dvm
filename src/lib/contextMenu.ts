@@ -1,9 +1,9 @@
 import {
   AppWindow, ArrowDown, ArrowDownUp, ArrowUp, BookmarkPlus, Camera, ChevronDown, Copy, CopyMinus,
-  CopyPlus, ExternalLink, EyeOff, Folder, FolderInput, FolderOpen, FolderPlus, FolderSearch,
-  FolderUp, Funnel, FunnelPlus, FunnelX, GalleryThumbnails, Layers, LayoutGrid, Library,
-  ListOrdered, ListVideo, ListX, Palette, Pencil, Play, Plus, RefreshCw, SquareCheck, SquareDashed,
-  Star, Trash2, Unplug, X,
+  CopyPlus, ExternalLink, EyeOff, FileDown, Folder, FolderInput, FolderOpen, FolderPlus,
+  FolderSearch, FolderUp, Funnel, FunnelPlus, FunnelX, GalleryThumbnails, Layers, LayoutGrid,
+  Library, ListOrdered, ListVideo, ListX, Palette, Pencil, Play, Plus, RefreshCw, SquareCheck,
+  SquareDashed, Star, Trash2, Unplug, X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type {
@@ -492,6 +492,13 @@ export function buildSmartFolderMenu(
       icon: FolderSearch,
       hint: '保存した検索条件を復元します',
     },
+    {
+      // v1.41(C-4)。「平日の消化リスト」のような条件を 1 クリックで流すための入口
+      id: 'sf:load',
+      label: 'キューに読み込んで再生',
+      icon: ListVideo,
+      hint: '条件に合う動画で今のキューを置き換えます(先頭 500 件まで)',
+    },
     { separator: true },
     { id: 'sf:rename', label: '名前を変更...', icon: Pencil },
     {
@@ -565,6 +572,15 @@ export function buildPlaylistMenu(
       label: '複製',
       icon: CopyPlus,
       hint: `「${playlist.name} のコピー」を作ります`,
+    },
+    {
+      // v1.41(C-3)。フルパスの並びを UTF-8 の M3U8 に書くだけなので、
+      // mpv・VLC などの外部プレイヤーでそのまま流せる
+      id: 'pl:export',
+      label: 'M3U8 へ書き出す...',
+      icon: FileDown,
+      disabled: empty,
+      hint: empty ? '空のプレイリストです' : '外部プレイヤーで使えるリストとして保存します',
     },
     {
       id: 'pl:moveUp',
@@ -745,6 +761,17 @@ export function buildGridBlankMenu(s: GridBlankState): MenuEntry[] {
       icon: SquareDashed,
       disabled: s.selectionCount === 0,
       hint: s.selectionCount === 0 ? '選択中の動画がありません' : undefined,
+    },
+    { separator: true },
+    {
+      // v1.41(C-4)。選択してから追加する手間を省き、いま見えている結果を丸ごと流す
+      id: 'blank:loadQueue',
+      label: '表示中の一覧をキューに読み込んで再生',
+      icon: ListVideo,
+      disabled: s.total === 0,
+      hint: s.total === 0
+        ? '表示中の動画がありません'
+        : '絞り込み結果で今のキューを置き換えます(先頭 500 件まで)',
     },
     { separator: true },
     {

@@ -79,6 +79,27 @@ export default function App() {
   }, []);
 
   /**
+   * Alt+← / Alt+→ で絞り込みの履歴を行き来する(v1.41、C-8)。
+   * ブラウザの戻る / 進むと同じ操法。素の ←→ は一覧の選択移動が使っているので Alt を付ける。
+   * VideoGrid のキー処理は Alt 付きを素通しする(`e.altKey` で return)ので衝突しない
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.altKey || e.ctrlKey || e.shiftKey || e.metaKey) return;
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      if (isTypingTarget(e)) return;
+      const s = useLibrary.getState();
+      // プレイヤー表示中と右クリックメニュー中は拾わない(Escape と同じ扱い)
+      if (s.playingVideo || s.contextMenuOpen) return;
+      e.preventDefault();
+      if (e.key === 'ArrowLeft') s.filterBack();
+      else s.filterForward();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  /**
    * `?` でキー操作の一覧を開く / 閉じる(v1.39)。
    *
    * **修飾キー付きのショートカットとして足している** —— 素の 1 文字キーは空きが少なく、

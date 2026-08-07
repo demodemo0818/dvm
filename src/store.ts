@@ -3,6 +3,9 @@ import { DEFAULT_COLUMNS } from './lib/listColumns';
 import type { ColumnKey } from './lib/listColumns';
 import { EMPTY_FILTER } from './lib/query';
 import type { FilterState } from './lib/query';
+
+/** 絞り込み履歴(C-8)に積める上限。超えたら古いものから捨てる */
+const FILTER_HISTORY_LIMIT = 50;
 import { SETTINGS_SIZE_DEFAULT, clampModalSize } from './lib/settings';
 import type { ModalSize } from './lib/settings';
 import { DEFAULT_SUB_STYLE } from './lib/subtitleStyle';
@@ -45,6 +48,27 @@ export const AI_PANEL_WIDTH = { min: 260, max: 560, default: 320 };
 
 const clamp = (v: number, { min, max }: { min: number; max: number }) =>
   Math.min(Math.max(Math.round(v), min), max);
+
+/**
+ * いまの絞り込み一式を写し取る(v1.41、C-8)。
+ * 戻り値の型が FilterState なので、条件が増えてここに書き忘れるとコンパイルで落ちる
+ */
+function snapshotFilter(s: LibraryState): FilterState {
+  return {
+    text: s.text,
+    sort: s.sort,
+    folderId: s.folderId,
+    dirPath: s.dirPath,
+    dirPathRecursive: s.dirPathRecursive,
+    tagIds: s.tagIds,
+    seriesId: s.seriesId,
+    playlistId: s.playlistId,
+    missingOnly: s.missingOnly,
+    duplicatesOnly: s.duplicatesOnly,
+    advanced: s.advanced,
+    randomSeed: s.randomSeed,
+  };
+}
 
 /**
  * 手動順(シリーズ / プレイリスト)を選んだときの並び。`applyFilter` の sort 決定に使う。
@@ -247,6 +271,14 @@ interface LibraryState {
    * 開いたまま次の起動に持ち越しても意味が無い(統計ダッシュボードと同じ扱い)
    */
   showShortcuts: boolean;
+  /**
+   * 絞り込みの「戻る / 進む」(v1.41、C-8)。`applyFilter`(条件が丸ごと変わる操作:
+   * AI 検索・スマートフォルダ・統計からのジャンプ・全解除)のたびに直前の条件一式を
+   * past へ積む。**個別のトグル(タグの付け外し・検索語の編集)は積まない** ——
+   * 「大きく変わったときに 1 手で戻れる」が目的で、全操作の undo ではない
+   */
+  filterPast: FilterState[];
+  filterFuture: FilterState[];
   /** 画面右下の通知(API 失敗を無反応にしないため) */
   toasts: Toast[];
   pushToast: (message: string, kind?: Toast['kind']) => void;
@@ -320,6 +352,10 @@ interface LibraryState {
    * 呼ぶ側は `toFilterState(query)` の結果をそのまま渡せばよい
    */
   applyFilter: (filter: FilterPatch) => void;
+  /** 1 つ前の絞り込みへ戻る(Alt+←)。履歴が無ければ何もしない */
+  filterBack: () => void;
+  /** 戻る前の絞り込みへ進む(Alt+→) */
+  filterForward: () => void;
   /** index は一覧内の通し番号。省略すると範囲選択の起点を持たない選択になる */
   selectOnly: (video: VideoRow, index?: number | null) => void;
   toggleSelect: (video: VideoRow, index?: number | null) => void;
@@ -372,6 +408,8 @@ export const useLibrary = create<LibraryState>((set) => ({
   showAiPanel: false,
   showStats: false,
   showShortcuts: false,
+  filterPast: [],
+  filterFuture: [],
   toasts: [],
   pushToast: (message, kind = 'error') =>
     set((s) => {
@@ -432,18 +470,53 @@ export const useLibrary = create<LibraryState>((set) => ({
   setShowStats: (showStats) => set({ showStats }),
   setShowShortcuts: (showShortcuts) => set({ showShortcuts }),
   applyFilter: (f) =>
-    set((s) => ({
-      ...EMPTY_FILTER,
-      ...f,
-      advanced: { ...EMPTY_ADVANCED, ...f.advanced },
-      // 並び順だけは既定に戻さない。指定が無ければ今の並びを引き継ぐ
-      // (シリーズを選んだらシリーズ順、外したら追加日順に戻すのは従来どおり。
-      //  v1.40 のプレイリストもまったく同じ扱いにしてある)
-      sort: f.sort ?? manualSort(s.sort, f.seriesId ?? null, f.playlistId ?? null),
-      // 種も同じ。指定が無ければ今の種のまま(ランダム並びが勝手に組み変わらないように)
-      randomSeed: f.randomSeed ?? s.randomSeed,
-      ...CLEARED,
-    })),
+    set((s) => {
+      const prev = snapshotFilter(s);
+      const next: FilterState = {
+        ...EMPTY_FILTER,
+        ...f,
+        advanced: { ...EMPTY_ADVANCED, ...f.advanced },
+        // 並び順だけは既定に戻さない。指定が無ければ今の並びを引き継ぐ
+        // (シリーズを選んだらシリーズ順、外したら追加日順に戻すのは従来どおり。
+        //  v1.40 のプレイリストもまったく同じ扱いにしてある)
+        sort: f.sort ?? manualSort(s.sort, f.seriesId ?? null, f.playlistId ?? null),
+        // 種も同じ。指定が無ければ今の種のまま(ランダム並びが勝手に組み変わらないように)
+        randomSeed: f.randomSeed ?? s.randomSeed,
+      };
+      // 同じ条件の適用は履歴に積まない —— 「戻る」を押しても見た目が変わらない段が増えるだけ
+      // (どちらも EMPTY_FILTER 由来でキーの並びが揃っているので JSON 比較でよい)
+      const same = JSON.stringify(prev) === JSON.stringify(next);
+      return {
+        ...next,
+        filterPast: same ? s.filterPast : [...s.filterPast, prev].slice(-FILTER_HISTORY_LIMIT),
+        filterFuture: same ? s.filterFuture : [],
+        ...CLEARED,
+      };
+    }),
+  // 戻る = いまの条件を future へ退避して、past の末尾を丸ごと復元する(C-8)。
+  // applyFilter を経由しない(履歴を積む側と消費する側を分ける)
+  filterBack: () =>
+    set((s) => {
+      const prev = s.filterPast[s.filterPast.length - 1];
+      if (!prev) return s;
+      return {
+        ...prev,
+        filterPast: s.filterPast.slice(0, -1),
+        filterFuture: [...s.filterFuture, snapshotFilter(s)],
+        ...CLEARED,
+      };
+    }),
+  filterForward: () =>
+    set((s) => {
+      const next = s.filterFuture[s.filterFuture.length - 1];
+      if (!next) return s;
+      return {
+        ...next,
+        filterFuture: s.filterFuture.slice(0, -1),
+        filterPast: [...s.filterPast, snapshotFilter(s)],
+        ...CLEARED,
+      };
+    }),
   setText: (text) => set({ text, ...CLEARED }),
   // 選択の照合は id の Set なので、並べ替えても正しい行がハイライトされ続ける。
   // 「ランダム」は**選ぶたびに引き直す**(v1.20)。種を据え置くと 2 回目以降が

@@ -16,7 +16,7 @@ use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 use dvm_lib::core::query::{self, VideoQuery};
-use dvm_lib::core::{dedupe, libraries, series, stats, tags, videos};
+use dvm_lib::core::{dedupe, libraries, playlists, series, stats, tags, videos};
 
 fn data_dir() -> PathBuf {
     let appdata = std::env::var("APPDATA").expect("APPDATA is not set");
@@ -196,6 +196,22 @@ fn read_tool_definitions() -> Value {
             "inputSchema": { "type": "object", "properties": {} }
         },
         {
+            "name": "list_playlists",
+            "description": "保存プレイリストを一覧する(動画数・合計再生時間ミリ秒つき)。プレイリストは「何をどの順で観るか」を手で並べたリストで、シリーズ(動画側の属性)とは別物",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "get_playlist_videos",
+            "description": "プレイリストの中身を保存された並び順で取得する",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "playlist": { "type": "string", "description": "プレイリスト名(完全一致。大文字小文字は区別しない)" }
+                },
+                "required": ["playlist"]
+            }
+        },
+        {
             "name": "library_stats",
             "description": "ライブラリ全体の統計を取得する。全体の数(動画数・合計サイズ・合計再生時間・タグ数・シリーズ数・missing 数・未視聴数・タグなし数・重複数)と、内訳(レーティング別・長さ別・解像度別・向き別・コーデック別・拡張子別・再生回数別・保存先別・追加月別・ファイル更新年別)。内訳の 1 項目はそれぞれ件数・合計サイズ・合計再生時間を持つ。さらに月ごとの視聴回数(v1.18 以降の記録)",
             "inputSchema": { "type": "object", "properties": {} }
@@ -252,6 +268,30 @@ fn write_tool_definitions() -> Value {
                     "series": { "type": "string", "description": "シリーズ名(完全一致)" }
                 },
                 "required": ["video_ids", "series"]
+            }
+        },
+        {
+            "name": "create_playlist",
+            "description": "新しいプレイリストを作る。video_ids は再生したい順に並べて渡す(重複した id は最初の 1 つだけが残る)。同じ名前のプレイリストがあるとエラーになる",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "プレイリスト名(大文字小文字を区別せず一意)" },
+                    "video_ids": video_ids,
+                },
+                "required": ["name", "video_ids"]
+            }
+        },
+        {
+            "name": "add_to_playlist",
+            "description": "既存のプレイリストの末尾に動画を追加する(すでに入っている動画は増えない)。プレイリストが無ければエラーになるので、先に create_playlist で作ること",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "playlist": { "type": "string", "description": "プレイリスト名(完全一致。大文字小文字は区別しない)" },
+                    "video_ids": video_ids,
+                },
+                "required": ["playlist", "video_ids"]
             }
         },
         {
@@ -316,6 +356,16 @@ fn write_tool_definitions() -> Value {
     ])
 }
 
+/// `playlist`(名前)引数からプレイリストを引く。無ければ日本語のエラーで返す
+fn playlist_arg(conn: &rusqlite::Connection, args: &Value) -> anyhow::Result<(String, i64)> {
+    let name = args["playlist"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("playlist(名前)が必要です"))?;
+    let id = playlists::find_by_name(conn, name)?
+        .ok_or_else(|| anyhow::anyhow!("プレイリスト「{name}」が見つかりません(一覧は list_playlists で確認できます)"))?;
+    Ok((name.trim().to_string(), id))
+}
+
 /// JSON 配列引数から i64 の Vec を取り出す
 fn ids_arg(args: &Value) -> anyhow::Result<Vec<i64>> {
     let ids: Vec<i64> = args["video_ids"]
@@ -337,7 +387,7 @@ fn call_tool(
     const WRITE_TOOLS: &[&str] = &[
         "tag_videos", "untag_videos", "add_to_series", "remove_from_series",
         "set_rating", "set_video_info", "remove_from_library", "trash_video_files",
-        "dedupe",
+        "dedupe", "create_playlist", "add_to_playlist",
     ];
     if WRITE_TOOLS.contains(&name) && !allow_write {
         anyhow::bail!("書き込みは無効です。環境変数 DVM_ALLOW_WRITE=1 を付けて起動してください");
@@ -466,6 +516,39 @@ fn call_tool(
         }
         "list_tags" => Ok(serde_json::to_string_pretty(&tags::list_tags(conn)?)?),
         "list_series" => Ok(serde_json::to_string_pretty(&series::list_series(conn)?)?),
+        // サムネイルのパスは AI には意味を持たないので thumbs_dir は渡さない
+        "list_playlists" => Ok(serde_json::to_string_pretty(&playlists::list(conn, None)?)?),
+        "get_playlist_videos" => {
+            let (name, pid) = playlist_arg(conn, args)?;
+            let ids = playlists::entries(conn, pid)?;
+            let rows = query::videos_by_ids(conn, None, &ids)?;
+            Ok(serde_json::to_string_pretty(&json!({
+                "playlist": name,
+                "count": rows.len(),
+                "videos": rows,
+            }))?)
+        }
+        "create_playlist" => {
+            let name = args["name"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("name が必要です"))?;
+            let ids = ids_arg(args)?;
+            let id = playlists::create(conn, "ai", name, &ids)?;
+            // 重複 id や消えた動画 id は書き込み時に落ちるので、実際に入った数を返す
+            let count = playlists::entries(conn, id)?.len();
+            Ok(format!("プレイリスト「{}」を作成しました({count} 件)", name.trim()))
+        }
+        "add_to_playlist" => {
+            let (name, pid) = playlist_arg(conn, args)?;
+            let ids = ids_arg(args)?;
+            let mut all = playlists::entries(conn, pid)?;
+            let before = all.len();
+            all.extend(ids);
+            // 末尾に足して丸ごと書き直す。すでに入っている id は write_entries が畳む
+            playlists::replace(conn, "ai", pid, &all)?;
+            let after = playlists::entries(conn, pid)?.len();
+            Ok(format!("「{name}」に {} 件を追加しました(合計 {after} 件)", after - before))
+        }
         // 集計はアプリの統計画面と同じ core::stats を使う(数字が食い違わないように)
         "library_stats" => Ok(serde_json::to_string_pretty(&stats::library_stats(conn)?)?),
         "tag_videos" => {

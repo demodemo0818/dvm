@@ -49,6 +49,8 @@ export const VideoCard = memo(function VideoCard({
     <div
       className={`card ${selected ? 'selected' : ''} ${focused ? 'focused' : ''}`}
       title={video.path}
+      // キューパネルへの D&D の掴み先(v1.41、C-5)。VideoGrid が委譲で拾う
+      data-grid-index={index}
       onClick={(e) => onPick(video, index, e)}
       onDoubleClick={() => onPlay(video, index)}
       onContextMenu={(e) => onContextMenu(video, index, e)}
