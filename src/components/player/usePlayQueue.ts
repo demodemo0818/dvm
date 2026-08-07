@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../api';
 import { queueIndex, queueStep } from '../../lib/queue';
 import { useLibrary } from '../../store';
@@ -36,6 +36,36 @@ export function usePlayQueue() {
 
   // 状態は毎回 getState() から読む(キューは編集で頻繁に変わるので、
   // 参照を deps に入れるとハンドラが張り替わり続ける)
+  /*
+   * ⏭ のツールチップに出す「次の 1 件」(v1.40)。
+   *
+   * クエリモードは**リストの実体を持たない**(次は押した瞬間に引く)ので、
+   * 出すには 1 行だけ先読みするしかない。DB を 1 行読むだけで元動画には触らないため、
+   * 原則 2(自動的に起きる表示では元動画に触らない)には抵触しない。
+   *
+   * **silent で引く** —— 失敗してもツールチップが出ないだけなのに、
+   * 全画面で観ている最中にトーストが浮くほうが害が大きい。
+   * キューモードは行が手元にあるので先読みは要らない(下の useMemo で同期に求める)
+   */
+  const [prefetched, setPrefetched] = useState<string | null>(null);
+  useEffect(() => {
+    if (inQueue || playQueue === null) return;
+    const at = playQueue.index + 1;
+    if (at >= playQueue.total) return;
+    let alive = true;
+    void api
+      .queryVideos(playQueue.query, 1, at, true)
+      .then((rows) => {
+        // 素早く送ったときに古い応答が新しい位置の名前として残らないようにする
+        if (alive) setPrefetched(rows[0] ? rows[0].title || rows[0].filename : null);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+      setPrefetched(null);
+    };
+  }, [inQueue, playQueue]);
+
   const go = useCallback(
     async function step(delta: 1 | -1): Promise<void> {
       const s = useLibrary.getState();
@@ -80,11 +110,18 @@ export function usePlayQueue() {
 
   return useMemo(() => {
     const at = queueIndex(queue);
+    const upNext = inQueue ? queueStep(queue, 1) : null;
     return {
       hasPrev,
       hasNext,
       next: () => go(1),
       prev: () => go(-1),
+      /**
+       * 次に再生される動画の名前。分からなければ null(端・単発再生・先読み前)。
+       * ⏭ のツールチップに出す —— 位置(`3 / 128`)だけでは
+       * 「あと何本あるか」は分かっても「次が何か」が分からない
+       */
+      nextTitle: inQueue ? (upNext ? upNext.title || upNext.filename : null) : prefetched,
       /** キューの中を進んでいるか。位置表示にアイコンを添える判断に使う */
       inQueue,
       /**
@@ -105,7 +142,7 @@ export function usePlayQueue() {
           ? `${playQueue.index + 1} / ${playQueue.total}`
           : null,
     };
-  }, [hasPrev, hasNext, go, playQueue, queue, inQueue, autoplayNext]);
+  }, [hasPrev, hasNext, go, playQueue, queue, inQueue, autoplayNext, prefetched]);
 }
 
 export type PlayQueueControls = ReturnType<typeof usePlayQueue>;

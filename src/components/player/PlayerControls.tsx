@@ -261,7 +261,12 @@ export function PlayerControls({
             onMouseDown={noFocus}
             onClick={queue.next}
             disabled={!queue.hasNext}
-            title="次の動画 (N)"
+            /*
+              名前が分かっているなら出す(v1.40)。位置(`3 / 128`)だけでは
+              「あと何本あるか」は分かっても「次が何か」が分からない。
+              先読みが済んでいない・端にいるときは従来の文言に落ちる
+            */
+            title={queue.nextTitle ? `次の動画: ${queue.nextTitle} (N)` : '次の動画 (N)'}
           >
             <SkipForward />
           </button>

@@ -51,8 +51,13 @@ export const api = {
    * 全件走査なので**詳細検索を開いたときだけ**呼ぶこと
    */
   listExtensions: () => call<ExtensionCount[]>('list_extensions'),
-  queryVideos: (query: VideoQuery, limit: number, offset: number) =>
-    call<VideoRow[]>('query_videos', { query, limit, offset }),
+  /**
+   * `silent` は**先読みのような「失敗しても画面が成立する」呼び出し**だけに使う(v1.40)。
+   * ⏭ のツールチップに出す次の 1 件がこれ —— 全画面で観ている最中に
+   * 「取得に失敗しました」が浮くほうが害が大きい。一覧の取得では使わないこと
+   */
+  queryVideos: (query: VideoQuery, limit: number, offset: number, silent = false) =>
+    call<VideoRow[]>('query_videos', { query, limit, offset }, silent),
   /**
    * 一覧に出すタグ・シリーズを表示中のページぶんまとめて引く(v1.23)。
    * 要求した id ごとに必ず 1 エントリ返る(何も付いていなければ空配列)
