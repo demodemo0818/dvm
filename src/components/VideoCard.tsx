@@ -89,6 +89,10 @@ export const VideoCard = memo(function VideoCard({
             onError={(e) => {
               e.currentTarget.style.display = 'none';
             }}
+            // 再生成に成功して読めるようになったら戻す(onError で隠しっぱなしにしない)
+            onLoad={(e) => {
+              e.currentTarget.style.display = '';
+            }}
           />
         )}
         {hovering && <HoverPreview key={video.id} video={video} />}

@@ -4798,6 +4798,8 @@ input[type='range']:focus-visible {
   border-radius: 4px;
   /* 挿入位置の線をここに出す。常に透明な線を敷いて、出し入れで行がずれないようにする */
   border-top: 2px solid transparent;
+  /* 末尾ドロップの線(drop-after)用。上と同じく常に敷いておく */
+  border-bottom: 2px solid transparent;
 }
 
 .queue-item:hover {
@@ -4806,6 +4808,11 @@ input[type='range']:focus-visible {
 
 .queue-item.drop-before {
   border-top-color: #2f66d0;
+}
+
+/* 末尾へのドロップだけは下の行が無いので、最終行の下辺に線を出す */
+.queue-item.drop-after {
+  border-bottom-color: #2f66d0;
 }
 
 .queue-item.dragging {

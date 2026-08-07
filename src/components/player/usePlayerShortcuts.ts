@@ -65,6 +65,16 @@ export function usePlayerShortcuts(
       // スライダーや速度メニューにフォーカスがある間は要素側の操作を優先する
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      /*
+       * Ctrl / Alt / Win 付きは**すべてのキーで一律に**拾わない。以前は S/U/A/R/Q だけ
+       * 除けていて、Ctrl+P(印刷)で前の動画へ飛ぶ・Ctrl+F で全画面になる等の
+       * 取りこぼしがあった。例外は ←→ だけ —— Ctrl+←→ を前後のチャプターに
+       * 割り当てている(case 側で分岐)。**Shift は除外しない**(< > は Shift 入力)
+       */
+      if (
+        (e.ctrlKey || e.altKey || e.metaKey) &&
+        e.key !== 'ArrowLeft' && e.key !== 'ArrowRight'
+      ) return;
       switch (e.key) {
         case ' ':
         case 'k':
@@ -131,35 +141,25 @@ export function usePlayerShortcuts(
         case 'T':
           onSetThumbnail?.();
           break;
-        // S も修飾キー付きを除ける(v1.26)。**Ctrl+S は「保存」として手が最も覚えている**ので、
-        // うっかり押したときに画像が増えないようにする
         case 's':
         case 'S':
-          if (e.ctrlKey || e.altKey || e.metaKey) return;
           onSaveFrame?.();
           break;
-        // U / A / R は修飾キー付きを除ける(v1.12)。特に Ctrl+A(全選択)や Ctrl+R
-        // (再読み込み)は手が覚えているので、うっかり設定を書き換えないようにする
         case 'u':
         case 'U':
-          if (e.ctrlKey || e.altKey || e.metaKey) return;
           // mpv のみ。未対応エンジンでは undefined なので何も起きない
           toggleUnscaled?.();
           break;
         case 'a':
         case 'A':
-          if (e.ctrlKey || e.altKey || e.metaKey) return;
           toggleAutoplay();
           break;
         case 'r':
         case 'R':
-          if (e.ctrlKey || e.altKey || e.metaKey) return;
           toggleRepeat();
           break;
-        // Q も修飾キー付きを除ける(v1.40)。**Ctrl+Q は「終了」として手が覚えている**
         case 'q':
         case 'Q':
-          if (e.ctrlKey || e.altKey || e.metaKey) return;
           onToggleQueue?.();
           break;
         default:

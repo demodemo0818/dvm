@@ -1,5 +1,5 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { thumbSrc } from '../lib/thumbs';
 import {
@@ -100,6 +100,21 @@ function summarize(entry: OpEntry): string {
 export function HistoryModal({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<Tab>('views');
 
+  /*
+   * Escape で閉じる。**window ではなく document に張って stopPropagation する** ——
+   * App.tsx の Escape(選択解除)は window にいるので、ここで止めれば届かない
+   * (SettingsModal と同じ理由)。IME の変換中は「変換の取り消し」なので拾わない
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.isComposing) return;
+      e.stopPropagation();
+      onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal history-modal" onClick={(e) => e.stopPropagation()}>
@@ -142,6 +157,10 @@ function ViewTab({ onClose }: { onClose: () => void }) {
   const [entries, setEntries] = useState<ViewEntry[]>([]);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(false);
+  /** 最後のページが満杯だったか。総件数がちょうど PAGE の倍数でも空振りボタンを残さない */
+  const [hasMore, setHasMore] = useState(false);
+  /** 期間切り替えの古いレスポンスを捨てる世代カウンタ(Inspector の alive ガードと同じ発想) */
+  const genRef = useRef(0);
   const [stats, setStats] = useState<ViewStats | null>(null);
   const [period, setPeriod] = useState<ViewPeriod>('all');
   /** 「期間を指定」で使う入力値。プリセットに戻しても消さない(往復しやすいように) */
@@ -160,15 +179,19 @@ function ViewTab({ onClose }: { onClose: () => void }) {
    * 毎レンダーで別オブジェクトになって無限に取り直す。中身の文字列を見る
    */
   const load = useCallback(async (off: number, r: ViewRange) => {
+    const gen = ++genRef.current;
     setLoading(true);
     try {
       const rows = await api.listViewHistory(r, PAGE, off);
+      // 期間を速く切り替えたときの古い便。新しい load が走っているので何も触らない
+      if (gen !== genRef.current) return;
       setEntries((cur) => (off === 0 ? rows : [...cur, ...rows]));
       setOffset(off + rows.length);
+      setHasMore(rows.length === PAGE);
     } catch {
       // api 側でトースト済み
     } finally {
-      setLoading(false);
+      if (gen === genRef.current) setLoading(false);
     }
   }, []);
 
@@ -268,6 +291,10 @@ function ViewTab({ onClose }: { onClose: () => void }) {
                     onError={(ev) => {
                       ev.currentTarget.style.visibility = 'hidden';
                     }}
+                    // 再生成に成功して読めるようになったら戻す(onError で隠しっぱなしにしない)
+                    onLoad={(ev) => {
+                      ev.currentTarget.style.visibility = '';
+                    }}
                   />
                 ) : (
                   <span className="view-thumb" />
@@ -279,7 +306,7 @@ function ViewTab({ onClose }: { onClose: () => void }) {
           </div>
         ))}
       </div>
-      {entries.length > 0 && entries.length % PAGE === 0 && (
+      {hasMore && (
         <div className="modal-actions">
           <button onClick={() => load(offset, range)} disabled={loading}>
             さらに読み込む
@@ -299,18 +326,24 @@ function OpsTab() {
   const [entries, setEntries] = useState<OpEntry[]>([]);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(false);
+  // ViewTab と同じ空振り対策。取り消し後の load(0) が古い便に負けないよう世代も見る
+  const [hasMore, setHasMore] = useState(false);
+  const genRef = useRef(0);
 
   const load = useCallback(
     async (off: number) => {
+      const gen = ++genRef.current;
       setLoading(true);
       try {
         const rows = await api.listOperations(PAGE, off);
+        if (gen !== genRef.current) return;
         setEntries((cur) => (off === 0 ? rows : [...cur, ...rows]));
         setOffset(off + rows.length);
+        setHasMore(rows.length === PAGE);
       } catch {
         // api 側でトースト済み
       } finally {
-        setLoading(false);
+        if (gen === genRef.current) setLoading(false);
       }
     },
     [],
@@ -359,7 +392,7 @@ function OpsTab() {
         ))}
       </div>
 
-      {entries.length > 0 && entries.length % PAGE === 0 && (
+      {hasMore && (
         <div className="modal-actions">
           <button onClick={() => load(offset)} disabled={loading}>
             さらに読み込む

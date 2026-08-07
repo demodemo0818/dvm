@@ -44,6 +44,10 @@ export const VideoListRow = memo(function VideoListRow({
               onError={(e) => {
                 e.currentTarget.style.visibility = 'hidden';
               }}
+              // 再生成に成功して読めるようになったら戻す(onError で隠しっぱなしにしない)
+              onLoad={(e) => {
+                e.currentTarget.style.visibility = '';
+              }}
             />
           ) : null}
         </div>

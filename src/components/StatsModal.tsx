@@ -151,6 +151,22 @@ export function StatsModal() {
     api.libraryStats().then(setStats).catch(() => {});
   }, [showStats, version]);
 
+  /*
+   * Escape で閉じる。**window ではなく document に張って stopPropagation する** ——
+   * App.tsx の Escape(選択解除)は window にいるので、ここで止めれば届かない
+   * (SettingsModal と同じ理由)。IME の変換中は「変換の取り消し」なので拾わない
+   */
+  useEffect(() => {
+    if (!showStats) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.isComposing) return;
+      e.stopPropagation();
+      setShowStats(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [showStats, setShowStats]);
+
   if (!showStats) return null;
   const close = () => setShowStats(false);
 

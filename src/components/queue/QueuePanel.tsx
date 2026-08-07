@@ -205,6 +205,13 @@ export function QueuePanel({ compact = false }: { compact?: boolean }) {
                 dragging && dragging.insertAt === i && dragging.index !== i && dragging.index !== i - 1
                   ? 'drop-before'
                   : '',
+                // 末尾へのドロップ(insertAt === 件数)は下に行が無いので、最終行の下辺に出す
+                dragging &&
+                i === queue.items.length - 1 &&
+                dragging.insertAt === queue.items.length &&
+                dragging.index !== i
+                  ? 'drop-after'
+                  : '',
               ].join(' ')}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
@@ -240,6 +247,10 @@ export function QueuePanel({ compact = false }: { compact?: boolean }) {
                       draggable={false}
                       onError={(e) => {
                         e.currentTarget.style.display = 'none';
+                      }}
+                      // 再生成に成功して読めるようになったら戻す(onError で隠しっぱなしにしない)
+                      onLoad={(e) => {
+                        e.currentTarget.style.display = '';
                       }}
                     />
                   )}
