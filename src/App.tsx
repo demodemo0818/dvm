@@ -4,6 +4,7 @@ import { ask } from '@tauri-apps/plugin-dialog';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import './App.css';
 import { api } from './api';
+import { useQueueLifecycle } from './hooks/useQueueLifecycle';
 import { parseColumns } from './lib/listColumns';
 import { parseModalSize, SETTINGS_SIZE_KEY } from './lib/settings';
 import { isTypingTarget } from './lib/shortcuts';
@@ -29,8 +30,10 @@ export default function App() {
     setInspectorWidth, setSidebarCollapsed, setAiPanelWidth, setSettingsModalSize,
     setSubStyle, subStyle,
     inspectorPinned, sidebarWidth, inspectorWidth, sidebarCollapsed, selection,
-    showAiPanel, aiPanelWidth,
+    showAiPanel, aiPanelWidth, queueTabOpen, version,
   } = useLibrary();
+  // キューの引き直しと、閉じるときの保存確認(v1.40)
+  useQueueLifecycle(version);
   const debounceTimer = useRef<number | undefined>(undefined);
   /** 字幕スタイルのロードが済んだか。済むまでは保存側を動かさない(下の effect 参照) */
   const subStyleLoaded = useRef(false);
@@ -48,9 +51,9 @@ export default function App() {
     });
   }, []);
 
-  // 詳細ペインは「固定表示」か「何か選択中」のときに出す。
+  // 詳細ペインは「固定表示」か「何か選択中」か「キュータブを開いている」ときに出す。
   // 幅を変える帯もペインと一緒に出し入れするので、判定はここに置く
-  const showInspector = inspectorPinned || selection.length > 0;
+  const showInspector = inspectorPinned || selection.length > 0 || queueTabOpen;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

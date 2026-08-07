@@ -364,6 +364,7 @@ const SORT_LABELS: Record<SortKey, string> = {
   bitrate_asc: 'ビットレート(低い順)',
   bitrate_desc: 'ビットレート(高い順)',
   series_asc: 'シリーズ順',
+  playlist_asc: 'プレイリスト順',
   dup: '重複をまとめる',
   random: 'ランダム',
 };

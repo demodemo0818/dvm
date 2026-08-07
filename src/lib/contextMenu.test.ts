@@ -84,18 +84,28 @@ describe('buildVideoMenu', () => {
     const menu = buildVideoMenu([v], v);
     const ids = menu.filter((e): e is MenuItem => !isSeparator(e)).map((e) => e.id);
     expect(ids).toEqual([
-      'play', 'rating', 'openDefault', 'openWith', 'reveal', 'openFolder', 'copyPath',
+      'play', 'rating', 'queue', 'openWithApp', 'reveal', 'openFolder', 'copyPath',
       'rename', 'move', 'rethumb', 'removeFromLibrary', 'trash',
     ]);
     expect(menu.filter(isSeparator)).toHaveLength(5);
     for (const id of ids) expect(isDisabled(menu, id)).toBe(false);
   });
 
+  it('キューはサブメニューに畳んである(トップレベルを 12 に収めるため)', () => {
+    const v = row();
+    const menu = buildVideoMenu([v], v);
+    const queue = menu.find((e): e is MenuItem => !isSeparator(e) && e.id === 'queue');
+    expect(queue?.submenu?.map((s) => s.id))
+      .toEqual(['queue:add', 'queue:next', 'queue:replace']);
+    // 「保存リストに追加」は載せない(どのリストかを選ぶ入力が要るので基準の外)
+    expect(ids(menu).some((id) => id.startsWith('playlist'))).toBe(false);
+  });
+
   it('複数選択では単一件専用の項目だけが無効になる', () => {
     const a = row({ id: 1 });
     const b = row({ id: 2 });
     const menu = buildVideoMenu([a, b], a);
-    for (const id of ['openDefault', 'openWith', 'rename']) {
+    for (const id of ['openWithApp', 'rename']) {
       expect(isDisabled(menu, id)).toBe(true);
     }
     // 右クリックした 1 件に対して働くもの・全件に働くものは押せたまま
@@ -107,11 +117,12 @@ describe('buildVideoMenu', () => {
   it('オフラインの動画では実体を触る項目が無効になる', () => {
     const v = row({ isOffline: true });
     const menu = buildVideoMenu([v], v);
-    for (const id of ['play', 'openDefault', 'openWith', 'reveal', 'rename', 'move', 'rethumb', 'trash']) {
+    for (const id of ['play', 'openWithApp', 'reveal', 'rename', 'move', 'rethumb', 'trash']) {
       expect(isDisabled(menu, id)).toBe(true);
     }
-    // パス由来の操作とライブラリ登録の削除は、オフラインでも使える必要がある
-    for (const id of ['rating', 'openFolder', 'copyPath', 'removeFromLibrary']) {
+    // パス由来の操作とライブラリ登録の削除は、オフラインでも使える必要がある。
+    // キューは行を並べるだけなので、実体を触れなくても入れられる(再生時に飛ばす)
+    for (const id of ['rating', 'queue', 'openFolder', 'copyPath', 'removeFromLibrary']) {
       expect(isDisabled(menu, id)).toBe(false);
     }
     expect(item(menu, 'play').hint).toBe('ドライブが未接続です');

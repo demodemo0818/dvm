@@ -26,6 +26,8 @@ export function usePlayerShortcuts(
     onSetThumbnail?: () => void;
     /** 今見ているコマを画像として保存する(S、v1.26) */
     onSaveFrame?: () => void;
+    /** 再生キューのパネルを開閉する(Q、v1.40) */
+    onToggleQueue?: () => void;
     /**
      * 真の間はすべてのキーを無視する(v1.24)。
      * 字幕設定パネルのように、入力欄が並んでいて Esc を自前で処理したい UI 用
@@ -35,8 +37,10 @@ export function usePlayerShortcuts(
 ) {
   const { togglePlay, seekBy, changeVolume, toggleMute, cycleRate, toggleUnscaled, jumpChapter } =
     player;
-  const { onEscape, toggleFullscreen, wake, onNext, onPrev, onSetThumbnail, onSaveFrame, suspended } =
-    opts;
+  const {
+    onEscape, toggleFullscreen, wake, onNext, onPrev, onSetThumbnail, onSaveFrame,
+    onToggleQueue, suspended,
+  } = opts;
   // 連続再生・リピートは engine ごとに実装が変わらないので、opts を経由せず直接取る
   const { toggle: toggleAutoplay } = useAutoplayToggle();
   const { toggle: toggleRepeat } = useRepeatToggle();
@@ -152,6 +156,12 @@ export function usePlayerShortcuts(
           if (e.ctrlKey || e.altKey || e.metaKey) return;
           toggleRepeat();
           break;
+        // Q も修飾キー付きを除ける(v1.40)。**Ctrl+Q は「終了」として手が覚えている**
+        case 'q':
+        case 'Q':
+          if (e.ctrlKey || e.altKey || e.metaKey) return;
+          onToggleQueue?.();
+          break;
         default:
           return;
       }
@@ -162,6 +172,6 @@ export function usePlayerShortcuts(
   }, [
     onEscape, toggleFullscreen, wake, togglePlay, seekBy, changeVolume, toggleMute, cycleRate,
     onNext, onPrev, onSetThumbnail, onSaveFrame, toggleUnscaled, toggleAutoplay, toggleRepeat,
-    jumpChapter, suspended,
+    jumpChapter, onToggleQueue, suspended,
   ]);
 }

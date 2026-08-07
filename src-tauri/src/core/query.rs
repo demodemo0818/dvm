@@ -22,6 +22,8 @@ pub struct VideoQuery {
     pub tag_ids: Option<Vec<i64>>,
     /// シリーズで絞る
     pub series_id: Option<i64>,
+    /// 保存プレイリストで絞る(v1.40)。sort = "playlist_asc" と組で使うと登録順に並ぶ
+    pub playlist_id: Option<i64>,
     /// true: missing のみ / false: missing 以外
     pub missing: Option<bool>,
     /// このレーティング以上に絞る(1〜5。0 / None は無条件)
@@ -215,6 +217,11 @@ impl VideoQuery {
                 "id IN (SELECT video_id FROM series_entries WHERE series_id = {sid})"
             ));
         }
+        if let Some(pid) = self.playlist_id {
+            conds.push(format!(
+                "id IN (SELECT video_id FROM playlist_entries WHERE playlist_id = {pid})"
+            ));
+        }
         if let Some(missing) = self.missing {
             conds.push(format!("is_missing = {}", if missing { 1 } else { 0 }));
         }
@@ -362,6 +369,17 @@ impl VideoQuery {
                 return format!(
                     "ORDER BY (SELECT se.position FROM series_entries se
                                WHERE se.video_id = videos.id AND se.series_id = {sid}), id"
+                );
+            }
+        }
+        // プレイリストの手動順(v1.40)。series_asc とまったく同型。
+        // playlist_id が無いときに素通しするのも同じ —— 絞りを外したのに
+        // 意味を失った ORDER BY が残るより、既定の並びへ落ちるほうがまし
+        if self.sort.as_deref() == Some("playlist_asc") {
+            if let Some(pid) = self.playlist_id {
+                return format!(
+                    "ORDER BY (SELECT pe.position FROM playlist_entries pe
+                               WHERE pe.video_id = videos.id AND pe.playlist_id = {pid}), id"
                 );
             }
         }
@@ -534,6 +552,44 @@ pub fn video_by_id(conn: &Connection, thumbs_dir: Option<&Path>, id: i64) -> Res
         .filter(|_| row.thumb_state == 1)
         .map(|dir| dir.join(format!("{}.jpg", row.id)).to_string_lossy().to_string());
     Ok(Some(row))
+}
+
+/// id を指定して一覧と同じ形の行をまとめて引く(v1.40)。**返す順は渡した id の順**。
+///
+/// 再生キューのためにある。キューは「手で並べた列」なので `VideoQuery` では表現できず、
+/// かといって 1 件ずつ `video_by_id` を呼ぶと原則 7(行ごとのファイル I/O をしない)に反する。
+/// 見つからなかった id は黙って落ちる —— ライブラリから消えた動画がキューに残っている
+/// ときの掃除がこれで済む。件数はキューの上限(500)を見込んで 1000 で頭打ちにする
+pub fn videos_by_ids(
+    conn: &Connection,
+    thumbs_dir: Option<&Path>,
+    ids: &[i64],
+) -> Result<Vec<VideoRow>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let ids: Vec<i64> = ids.iter().copied().take(1000).collect();
+    // id は i64 なので文字列に埋めても注入にならない(tag_ids 等と同じ扱い)
+    let csv = ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+    let sql = format!("SELECT {SELECT_COLUMNS} FROM videos WHERE id IN ({csv})");
+    let mut stmt = conn.prepare(&sql)?;
+    let mut found: Vec<VideoRow> = stmt
+        .query_map([], map_row)?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    let mut roots = RootCache::default();
+    for row in &mut found {
+        row.is_offline = !roots.is_online(&row.path);
+        row.thumb_path = thumbs_dir
+            .filter(|_| row.thumb_state == 1)
+            .map(|dir| dir.join(format!("{}.jpg", row.id)).to_string_lossy().to_string());
+    }
+
+    // SQL の IN は順序を保証しないので、ここで渡された順に並べ直す
+    let mut by_id: std::collections::HashMap<i64, VideoRow> =
+        found.into_iter().map(|r| (r.id, r)).collect();
+    Ok(ids.iter().filter_map(|id| by_id.remove(id)).collect())
 }
 
 /// 検索を実行して一覧行を返す。thumbs_dir が None のときはサムネイルパスを解決しない(MCP 用)

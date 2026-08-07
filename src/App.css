@@ -4622,3 +4622,332 @@ input[type='range']:focus-visible {
 .exclude-on-delete-modal {
   width: 520px;
 }
+
+/* ===== 再生キュー / プレイリスト (v1.40) ===== */
+
+/*
+ * 詳細ペインのタブ。「詳細」と「キュー」を切り替える。
+ * サイドバーの .sidebar-tabs と同じ形にしてあるが、クラスは共用しない
+ * (片方の調整がもう片方へ漏れないようにする。設定モーダルの左レールと同じ判断)
+ */
+.inspector-tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 8px;
+  padding: 2px;
+  background: #171a20;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.inspector-tabs button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  padding: 5px 4px;
+  color: #9aa0ad;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.inspector-tabs button:hover {
+  color: #d8dbe2;
+}
+
+.inspector-tabs button.active {
+  background: #262a33;
+  color: #fff;
+}
+
+/* タブとプレイヤーのボタンに出す件数。0 件のときは出さない(呼び出し側の判断) */
+.tab-badge,
+.queue-badge {
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #2f66d0;
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.queue-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  pointer-events: none;
+}
+
+.queue-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  flex: 1;
+}
+
+.queue-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.queue-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 「変更あり」。バナーやトーストではなく点 1 つで出す */
+.queue-dot {
+  flex: none;
+  color: #e0a33a;
+  font-size: 10px;
+}
+
+.queue-count {
+  flex: none;
+  font-size: 11px;
+  font-weight: 400;
+  color: #8a8f9c;
+  font-variant-numeric: tabular-nums;
+}
+
+.queue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.queue-actions button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #22252d;
+  border: 1px solid #343945;
+  border-radius: 5px;
+  padding: 4px 8px;
+  color: #d8dbe2;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.queue-actions button:hover:not(:disabled) {
+  border-color: #2f66d0;
+}
+
+/* 押せない項目は消さずに残す(右クリックメニューと同じ作法)。理由は title で見せる */
+.queue-actions button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.queue-actions svg {
+  width: 13px;
+  height: 13px;
+}
+
+.queue-empty {
+  padding: 12px 4px;
+  color: #8a8f9c;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.queue-empty kbd {
+  padding: 1px 5px;
+  border: 1px solid #3a3f4b;
+  border-radius: 4px;
+  background: #22252d;
+  font-family: inherit;
+  font-size: 11px;
+}
+
+/*
+ * 上限 500 件なので**仮想化していない**(lib/queue.ts)。
+ * 自前 D&D と仮想化を組み合わせると、掴んだ行がスクロールで DOM から消える
+ */
+.queue-list {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+}
+
+.queue-item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 0;
+  border-radius: 4px;
+  /* 挿入位置の線をここに出す。常に透明な線を敷いて、出し入れで行がずれないようにする */
+  border-top: 2px solid transparent;
+}
+
+.queue-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.queue-item.drop-before {
+  border-top-color: #2f66d0;
+}
+
+.queue-item.dragging {
+  opacity: 0.45;
+}
+
+/* いま再生している行。開いた瞬間にどこにいるか分かるようにする(チャプター一覧と同じ) */
+.queue-item.current {
+  background: rgba(47, 102, 208, 0.3);
+}
+
+.queue-item.current .queue-file {
+  color: #9dc0ff;
+}
+
+/* 見つからない / オフライン。再生する前に気づけるようにする */
+.queue-item.unavailable .queue-file {
+  color: #8a8f9c;
+  text-decoration: line-through;
+}
+
+.queue-grip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  color: #6b7280;
+  cursor: grab;
+  touch-action: none;
+}
+
+.queue-grip:active {
+  cursor: grabbing;
+}
+
+.queue-grip svg {
+  width: 14px;
+  height: 14px;
+}
+
+.queue-name {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 3px 2px;
+  color: #d8dbe2;
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.queue-no {
+  flex: none;
+  width: 1.8em;
+  color: #6b7280;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.queue-file {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-dur {
+  flex: none;
+  color: #8a8f9c;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.queue-remove {
+  flex: none;
+  background: none;
+  border: none;
+  padding: 2px;
+  color: #6b7280;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+.queue-remove:hover {
+  color: #e06c6c;
+}
+
+.queue-remove svg {
+  width: 13px;
+  height: 13px;
+}
+
+/*
+ * プレイヤー内のポップオーバー。**必ず .mpv-overlay / .player-inner の内側**に
+ * 描くこと —— 再生中は html.mpv-active が .app ごと消し、全画面時はトップレイヤーの
+ * 外に置いた position:fixed が見えなくなる(ContextMenu と同じ制約)
+ */
+.queue-anchor {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.queue-popover {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  margin-bottom: 8px;
+  z-index: 6;
+  display: flex;
+  width: 340px;
+  max-height: 380px;
+  padding: 10px;
+  background: rgba(24, 26, 32, 0.97);
+  border: 1px solid #3a3f4b;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+}
+
+/* .player-buttons button の中央寄せ・アイコン用の見た目を打ち消す */
+.queue-popover .queue-panel button {
+  justify-content: flex-start;
+}
+
+.queue-popover .queue-panel .queue-name {
+  justify-content: flex-start;
+}
+
+/* 位置表示にキューモードの印を添える(数字だけではどちらのモードか読み取れない) */
+.player-position.in-queue {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #9dc0ff;
+}
+
+.player-position.in-queue svg {
+  width: 13px;
+  height: 13px;
+}

@@ -7,8 +7,11 @@ import { SETTINGS_SIZE_DEFAULT, clampModalSize } from './lib/settings';
 import type { ModalSize } from './lib/settings';
 import { DEFAULT_SUB_STYLE } from './lib/subtitleStyle';
 import type { SubStyle } from './lib/subtitleStyle';
+import * as queue from './lib/queue';
 import { EMPTY_ADVANCED } from './types';
-import type { AdvancedFilter, PlayQueue, SortKey, Toast, VideoRow, ViewMode } from './types';
+import type {
+  AdvancedFilter, PlayQueue, QueueState, SortKey, Toast, VideoRow, ViewMode,
+} from './types';
 
 let toastSeq = 0;
 
@@ -27,6 +30,20 @@ export const AI_PANEL_WIDTH = { min: 260, max: 560, default: 320 };
 
 const clamp = (v: number, { min, max }: { min: number; max: number }) =>
   Math.min(Math.max(Math.round(v), min), max);
+
+/**
+ * 手動順(シリーズ / プレイリスト)を選んだときの並び。`applyFilter` の sort 決定に使う。
+ *
+ * 選んだらその手動順に切り替え、**外したら追加日順へ戻す**。戻さないと
+ * `playlist_asc` のまま絞りだけが消え、Rust 側で意味を失った ORDER BY が
+ * 素通しされて「並べ替えたはずなのに既定順」に見える
+ */
+function manualSort(current: SortKey, seriesId: number | null, playlistId: number | null): SortKey {
+  if (playlistId != null) return 'playlist_asc';
+  if (seriesId != null) return 'series_asc';
+  const wasManual = current === 'series_asc' || current === 'playlist_asc';
+  return wasManual ? 'added_desc' : current;
+}
 
 /**
  * 絞り込みが変わったら選択は無効になる(一覧の中身も通し番号も別物になるため)。
@@ -59,6 +76,8 @@ interface LibraryState {
   tagIds: number[];
   /** 選択中のシリーズフィルタ */
   seriesId: number | null;
+  /** 選択中の保存プレイリストフィルタ(v1.40。サイドバーの「プレイリスト」から) */
+  playlistId: number | null;
   /** dirPath をサブフォルダ込みで見る(絞り込み帯のトグル。v1.35) */
   dirPathRecursive: boolean;
   /** true のとき「見つからないファイル」だけを表示 */
@@ -141,6 +160,18 @@ interface LibraryState {
   playingVideo: VideoRow | null;
   /** 連続再生の位置(null = 単発再生。⏭ が無効になる) */
   playQueue: PlayQueue | null;
+  /**
+   * 再生キュー(v1.40)。**DB には保存しない** —— 名前を付けて保存したものだけが残る、
+   * という線引きにしてある(終了時に中身があれば保存するか尋ねる)。
+   *
+   * `playQueue`(クエリ + 位置)とは**排他**。キューから再生を始めると playQueue が
+   * null になり、グリッドのダブルクリックで再生するとキューモードを抜ける。
+   * ただし**モードを抜けても中身は消さない** —— ちょっと別の動画を見に戻っただけで
+   * 並べたものが消えるのは、終了時に確認する方針より弱い扱いになってしまう
+   */
+  queue: QueueState;
+  /** 右ペインでキュータブを開いているか(v1.40)。開いている間は選択が空でもペインを出す */
+  queueTabOpen: boolean;
   /** 外部プレイヤーのパス設定(起動時ロード・設定保存時更新) */
   playerPath: string;
   /** カードのホバープレビューを有効にするか(設定で切り替え。既定 ON) */
@@ -214,6 +245,8 @@ interface LibraryState {
   setTagFilter: (tagIds: number[]) => void;
   clearTagFilter: () => void;
   toggleSeriesFilter: (seriesId: number) => void;
+  /** 保存プレイリストで絞る(v1.40)。同じ id をもう一度渡すと解除 */
+  togglePlaylistFilter: (playlistId: number) => void;
   toggleMissingOnly: () => void;
   toggleDuplicatesOnly: () => void;
   /** サブフォルダも含めるかを切り替える(フォルダで絞っているときだけ意味を持つ) */
@@ -227,6 +260,14 @@ interface LibraryState {
   setPlayingVideo: (video: VideoRow | null) => void;
   /** 一覧から再生を始める(⏭ で次へ進めるようにキュー情報も持つ) */
   playFromList: (video: VideoRow, queue: PlayQueue) => void;
+  /**
+   * キューを差し替える(v1.40)。`lib/queue.ts` の純関数が返した状態をそのまま入れる。
+   * store 側で中身の判断はしない
+   */
+  setQueue: (queue: QueueState) => void;
+  /** キューから 1 件を再生する。playQueue を捨ててキューモードへ入る */
+  playFromQueue: (video: VideoRow) => void;
+  setQueueTabOpen: (open: boolean) => void;
   setViewMode: (viewMode: ViewMode) => void;
   setCardWidth: (cardWidth: number) => void;
   setInspectorPinned: (inspectorPinned: boolean) => void;
@@ -301,6 +342,8 @@ export const useLibrary = create<LibraryState>((set) => ({
   repeatOne: false,
   playingVideo: null,
   playQueue: null,
+  queue: queue.EMPTY_QUEUE,
+  queueTabOpen: false,
   playerPath: '',
   previewOnHover: true,
   // タグは付いている動画が多いので既定 ON、シリーズは限られるので既定 OFF
@@ -325,7 +368,21 @@ export const useLibrary = create<LibraryState>((set) => ({
   // 単発再生。プレイヤーを閉じたらキューも捨てる
   setPlayingVideo: (playingVideo) =>
     set(playingVideo === null ? { playingVideo: null, playQueue: null } : { playingVideo }),
+  /*
+   * クエリ方式で再生を始める。**playQueue が非 null であることがそのままクエリモードの印**
+   * (キューモードは playQueue === null かつ queue.currentId !== null)。
+   * queue は触らない —— 別の動画を見に戻っただけで並べたものを捨てないため
+   */
   playFromList: (playingVideo, playQueue) => set({ playingVideo, playQueue }),
+  setQueue: (queue) => set({ queue }),
+  // キューから再生 = クエリモードを抜ける(2 つのモードは排他)
+  playFromQueue: (video) =>
+    set((s) => ({
+      playingVideo: video,
+      playQueue: null,
+      queue: queue.playingInQueue(s.queue, video.id),
+    })),
+  setQueueTabOpen: (queueTabOpen) => set({ queueTabOpen }),
   setViewMode: (viewMode) => set({ viewMode }),
   setCardWidth: (cardWidth) =>
     set({ cardWidth: Math.min(Math.max(Math.round(cardWidth), CARD_WIDTH_MIN), CARD_WIDTH_MAX) }),
@@ -364,8 +421,9 @@ export const useLibrary = create<LibraryState>((set) => ({
       ...f,
       advanced: { ...EMPTY_ADVANCED, ...f.advanced },
       // 並び順だけは既定に戻さない。指定が無ければ今の並びを引き継ぐ
-      // (シリーズを選んだらシリーズ順、外したら追加日順に戻すのは従来どおり)
-      sort: f.sort ?? (f.seriesId != null ? 'series_asc' : s.sort === 'series_asc' ? 'added_desc' : s.sort),
+      // (シリーズを選んだらシリーズ順、外したら追加日順に戻すのは従来どおり。
+      //  v1.40 のプレイリストもまったく同じ扱いにしてある)
+      sort: f.sort ?? manualSort(s.sort, f.seriesId ?? null, f.playlistId ?? null),
       // 種も同じ。指定が無ければ今の種のまま(ランダム並びが勝手に組み変わらないように)
       randomSeed: f.randomSeed ?? s.randomSeed,
       ...CLEARED,
@@ -421,7 +479,17 @@ export const useLibrary = create<LibraryState>((set) => ({
       return {
         seriesId: next,
         // シリーズを選んだらシリーズ順、外したら追加日順に戻す
-        sort: next !== null ? 'series_asc' : s.sort === 'series_asc' ? 'added_desc' : s.sort,
+        sort: manualSort(s.sort, next, s.playlistId),
+        ...CLEARED,
+      };
+    }),
+  // シリーズとまったく同じ扱い(選んだら手動順、外したら追加日順)
+  togglePlaylistFilter: (playlistId) =>
+    set((s) => {
+      const next = s.playlistId === playlistId ? null : playlistId;
+      return {
+        playlistId: next,
+        sort: manualSort(s.sort, s.seriesId, next),
         ...CLEARED,
       };
     }),

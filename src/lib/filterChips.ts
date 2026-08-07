@@ -8,7 +8,7 @@
  * React も api も import しない(vitest でそのまま動かせるようにするため)。
  */
 
-import type { AdvancedFilter, Series, Tag, WatchedFolder } from '../types';
+import type { AdvancedFilter, Playlist, Series, Tag, WatchedFolder } from '../types';
 import { baseName } from './paths';
 import {
   durationLabel, ORIENTATION_OPTIONS, RESOLUTION_MAX_OPTIONS, RESOLUTION_OPTIONS,
@@ -23,9 +23,10 @@ export interface FilterMasters {
   tags: Tag[];
   folders: WatchedFolder[];
   series: Series[];
+  playlists: Playlist[];
 }
 
-export const NO_MASTERS: FilterMasters = { tags: [], folders: [], series: [] };
+export const NO_MASTERS: FilterMasters = { tags: [], folders: [], series: [], playlists: [] };
 
 /** × を押したとき何を外すか。store の関数への振り分けは FilterBar 側の仕事 */
 export type ClearAction =
@@ -35,6 +36,7 @@ export type ClearAction =
   | { type: 'folder' }
   | { type: 'dirPath' }
   | { type: 'series' }
+  | { type: 'playlist' }
   | { type: 'missing' }
   | { type: 'duplicates' }
   /** 詳細検索の 1 項目。値は EMPTY_ADVANCED から引くので、条件が増えてもここは増えない */
@@ -225,6 +227,10 @@ export function describeFilter(f: FilterState, m: FilterMasters): FilterTerm[] {
   if (f.seriesId !== null) {
     const series = m.series.find((x) => x.id === f.seriesId);
     terms.push(named('series', series?.name, 'シリーズ: ', { type: 'series' }));
+  }
+  if (f.playlistId !== null) {
+    const playlist = m.playlists.find((x) => x.id === f.playlistId);
+    terms.push(named('playlist', playlist?.name, 'プレイリスト: ', { type: 'playlist' }));
   }
   if (a.minRating > 0) {
     terms.push(single('minRating', `★${a.minRating} 以上`, { type: 'advanced', key: 'minRating' }));

@@ -25,6 +25,7 @@ const masters: FilterMasters = {
   ],
   folders: [{ id: 5, path: 'D:\\動画\\アニメ', recursive: true, enabled: true, online: true, videoCount: 3 }] as WatchedFolder[],
   series: [{ id: 7, name: '名作劇場', videoCount: 12 }] as Series[],
+  playlists: [{ id: 3, name: '週末に観る', videoCount: 8, position: 0 }],
 };
 
 describe('describeFilter の基本', () => {

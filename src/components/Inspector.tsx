@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { ListOrdered } from 'lucide-react';
+import { ListOrdered, ListVideo } from 'lucide-react';
 import { api } from '../api';
 import { useLibrary } from '../store';
 import type { Series, Tag, TagCount, TagGroup } from '../types';
 import { MediaInfoSection } from './MediaInfoSection';
+import { QueuePanel } from './queue/QueuePanel';
 
 /** 未分類タグをまとめる擬似グループ id(実グループの id は 1 以上) */
 const UNGROUPED = 0;
@@ -18,8 +19,9 @@ const UNGROUPED = 0;
 export function Inspector() {
   const {
     selection, version, bumpVersion, clearSelection, patchSelection,
-    inspectorPinned, inspectorWidth,
+    inspectorPinned, inspectorWidth, queueTabOpen, setQueueTabOpen,
   } = useLibrary();
+  const queueCount = useLibrary((s) => s.queue.items.length);
   const [tagCounts, setTagCounts] = useState<TagCount[]>([]);
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [tagGroups, setTagGroups] = useState<TagGroup[]>([]);
@@ -80,15 +82,47 @@ export function Inspector() {
   // 幅はドラッグで変えられる。min-width も同じ値にして、flex に縮められないようにする
   const style = { width: inspectorWidth, minWidth: inspectorWidth };
 
+  /*
+   * タブ(v1.40)。**キューを見ている間はタグ付けの UI が見えない**が、
+   * キューを組み立てる作業とタグ付けは別の作業なので許容している。
+   * キュータブを開いている間は選択が空でもペインを出す(判定は App.tsx)
+   */
+  const tabs = (
+    <div className="inspector-tabs">
+      <button
+        className={queueTabOpen ? '' : 'active'}
+        onClick={() => setQueueTabOpen(false)}
+      >
+        詳細
+      </button>
+      <button
+        className={queueTabOpen ? 'active' : ''}
+        onClick={() => setQueueTabOpen(true)}
+        title="再生キュー(選択して Q で追加)"
+      >
+        <ListVideo />
+        キュー
+        {queueCount > 0 && <span className="tab-badge">{queueCount}</span>}
+      </button>
+    </div>
+  );
+
+  if (queueTabOpen) {
+    return (
+      <aside className="inspector" style={style}>
+        {tabs}
+        <QueuePanel />
+      </aside>
+    );
+  }
+
   if (selection.length === 0) {
     // 固定表示していないときは従来どおり畳む
     if (!inspectorPinned) return null;
     // 固定中は枠だけ残す。レーティングやタグは選択が無いと操作できないので出さない
     return (
       <aside className="inspector" style={style}>
-        <div className="inspector-head">
-          <span>詳細</span>
-        </div>
+        {tabs}
         <div className="inspector-empty">動画を選ぶとここに詳細が出ます</div>
       </aside>
     );
@@ -217,6 +251,7 @@ export function Inspector() {
 
   return (
     <aside className="inspector" style={style}>
+      {tabs}
       <div className="inspector-head">
         <span>{single ? '詳細' : `${selection.length} 件選択中`}</span>
         <button className="close" title="選択解除 (Esc)" onClick={clearSelection}>×</button>

@@ -152,6 +152,8 @@ export type SortKey =
   | 'fps_asc' | 'fps_desc'
   | 'bitrate_asc' | 'bitrate_desc'
   | 'series_asc'
+  /** 保存プレイリストの手動順(v1.40)。playlistId と組でだけ意味を持つ */
+  | 'playlist_asc'
   /** 重複表示用。同じファイルが隣り合う */
   | 'dup'
   /** randomSeed から決定的にシャッフル(ページングしても崩れない) */
@@ -171,6 +173,8 @@ export interface VideoQuery {
    */
   tagIds?: number[];
   seriesId?: number | null;
+  /** 保存プレイリストで絞る(v1.40)。sort: 'playlist_asc' と組で登録順に並ぶ */
+  playlistId?: number | null;
   missing?: boolean;
   /** このレーティング以上に絞る(1〜5) */
   minRating?: number;
@@ -354,6 +358,47 @@ export interface PlayQueue {
   query: VideoQuery;
   index: number;
   total: number;
+}
+
+/**
+ * 保存プレイリスト(v1.40)。サイドバーに並ぶ「棚」。
+ * 中身の並びは Rust 側の `playlist_entries.position` が持つ
+ */
+export interface Playlist {
+  id: number;
+  name: string;
+  videoCount: number;
+  position: number;
+}
+
+/**
+ * 再生キュー(v1.40)。**DB には無い。フロントのメモリだけにある。**
+ *
+ * 保存リストを開いてもここへ**複写**されるだけで、編集は保存側に一切届かない。
+ * 書き戻すのは「上書き保存」を押したときだけ(DESIGN.md「プレイリスト」節)。
+ *
+ * `items` は手で並べた列そのもの。同じ動画は 2 回入らない(追加が冪等になる)ので、
+ * 「いま再生中」は **`currentId`(video_id)で指せる** —— 並べ替えても追随する。
+ */
+export interface QueueState {
+  items: VideoRow[];
+  /**
+   * いまキューから再生している動画の id。null = キューでは再生していない。
+   *
+   * **`items` に無い id が入りうる**。再生中の 1 件をキューから外しても再生は
+   * 続けるため(そのときは `orphanIndex` が次の行き先を覚えている)
+   */
+  currentId: number | null;
+  /**
+   * 再生中の動画をキューから外したときの、外した位置。
+   * 次へ進むとここの要素が来る。キューに居るあいだは null
+   */
+  orphanIndex: number | null;
+  /** この中身の出所になった保存リスト(null = ゼロから組んだ無名のキュー) */
+  sourceId: number | null;
+  sourceName: string;
+  /** 出所から変わっているか。`●` と「上書き保存」の活性を決める */
+  dirty: boolean;
 }
 
 export interface Tag {

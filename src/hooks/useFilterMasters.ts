@@ -25,8 +25,9 @@ export function useFilterMasters(enabled: boolean, version: number): FilterMaste
       api.listTags().catch(() => []),
       api.listWatchedFolders().catch(() => []),
       api.listSeries().catch(() => []),
-    ]).then(([tags, folders, series]) => {
-      if (alive) setMasters({ tags, folders, series });
+      api.listPlaylists().catch(() => []),
+    ]).then(([tags, folders, series, playlists]) => {
+      if (alive) setMasters({ tags, folders, series, playlists });
     });
     return () => {
       alive = false;

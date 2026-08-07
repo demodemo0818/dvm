@@ -11,6 +11,8 @@ import { GRID_GAP, GRID_PAD, gridMetrics } from '../lib/grid';
 import { gridTemplate, needsLabels, totalWidth } from '../lib/listColumns';
 import { parentDir } from '../lib/paths';
 import { buildQuery, type FilterState } from '../lib/query';
+import { addToQueue, EMPTY_QUEUE, QUEUE_LIMIT } from '../lib/queue';
+import type { AddMode } from '../lib/queue';
 import { useLibrary } from '../store';
 import type { PlanItem, SortKey, VideoQuery, VideoRow, ViewMode } from '../types';
 import { ContextMenu } from './ContextMenu';
@@ -41,7 +43,7 @@ type MenuTarget =
 
 export function VideoGrid() {
   const {
-    text, sort, folderId, dirPath, dirPathRecursive, tagIds, seriesId, missingOnly,
+    text, sort, folderId, dirPath, dirPathRecursive, tagIds, seriesId, playlistId, missingOnly,
     duplicatesOnly, advanced, randomSeed, version,
     viewMode, cardWidth, listColumns, listZebra, selection, anchorIndex, focusIndex,
     clearSelection, setSelection, setFocusIndex, selectOnly, playFromList, toggleDirPath,
@@ -50,10 +52,10 @@ export function VideoGrid() {
 
   /** 絞り込み一式。buildQuery と余白メニューが同じものを見る */
   const filters = useMemo<FilterState>(() => ({
-    text, sort, folderId, dirPath, dirPathRecursive, tagIds, seriesId, missingOnly,
+    text, sort, folderId, dirPath, dirPathRecursive, tagIds, seriesId, playlistId, missingOnly,
     duplicatesOnly, advanced, randomSeed,
   }), [
-    text, sort, folderId, dirPath, dirPathRecursive, tagIds, seriesId, missingOnly,
+    text, sort, folderId, dirPath, dirPathRecursive, tagIds, seriesId, playlistId, missingOnly,
     duplicatesOnly, advanced, randomSeed,
   ]);
   const query = useMemo<VideoQuery>(() => buildQuery(filters), [filters]);
@@ -202,6 +204,48 @@ export function VideoGrid() {
     [playerPath, playFromList, query, total],
   );
 
+  /**
+   * 選択をキューに入れる(v1.40)。`Q` キーと右クリックメニューが共用する。
+   *
+   * `replace` は「今のキューを捨てて、選んだものだけで再生を始める」。
+   * ダブルクリックはクエリ方式の連続再生のままなので、**選んだものだけを流す唯一の入口**。
+   * 上限に当たったときは部分的に入れず全部断る(何が入ったのか分からなくなるため)
+   */
+  const addSelectionToQueue = useCallback(
+    (mode: AddMode | 'replace') => {
+      const s = useLibrary.getState();
+      const videos = s.selection;
+      if (videos.length === 0) return;
+
+      if (mode === 'replace') {
+        const { queue: next } = addToQueue(EMPTY_QUEUE, videos);
+        s.setQueue(next);
+        s.setQueueTabOpen(true);
+        const first = next.items.find((v) => !v.isMissing && !v.isOffline);
+        if (first) s.playFromQueue(first);
+        else pushToast('再生できる動画がありません');
+        return;
+      }
+
+      const { queue: next, added, overflow } = addToQueue(s.queue, videos, mode);
+      if (overflow) {
+        pushToast(`キューが上限の ${QUEUE_LIMIT} 件を超えるため追加しませんでした`);
+        return;
+      }
+      if (added === 0) {
+        pushToast('すでにキューに入っています', 'info');
+        return;
+      }
+      s.setQueue(next);
+      s.setQueueTabOpen(true);
+      pushToast(
+        mode === 'next' ? `${added} 件を次に再生します` : `${added} 件をキューに追加しました`,
+        'info',
+      );
+    },
+    [pushToast],
+  );
+
   /** クリック。Shift = anchor からの範囲、Ctrl = トグル、素 = 単独選択 */
   const onPick = useCallback(
     async (video: VideoRow, index: number, e: React.MouseEvent | { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) => {
@@ -342,6 +386,15 @@ export function VideoGrid() {
         case 'play':
           play(target, index);
           break;
+        case 'queue:add':
+          addSelectionToQueue('end');
+          break;
+        case 'queue:next':
+          addSelectionToQueue('next');
+          break;
+        case 'queue:replace':
+          addSelectionToQueue('replace');
+          break;
         case 'openDefault':
           await api.openWithDefault(target.id);
           break;
@@ -392,7 +445,10 @@ export function VideoGrid() {
         default:
       }
     },
-    [play, toggleDirPath, pushToast, copyToClipboard, removeFromLibrary, trashSelection],
+    [
+      play, toggleDirPath, pushToast, copyToClipboard, removeFromLibrary, trashSelection,
+      addSelectionToQueue,
+    ],
   );
 
   const runFolderAction = useCallback(
@@ -575,6 +631,17 @@ export function VideoGrid() {
           e.preventDefault();
           setAskDelete(true);
           break;
+        /*
+         * 選択をキューの末尾に足す(v1.40)。プレイヤー側の Q は
+         * 「キューパネルの開閉」で意味が違うが、これは既存の作法どおり ——
+         * ArrowLeft も一覧では「前の動画へ」、プレイヤーでは「10 秒戻す」になっている
+         */
+        case 'q':
+        case 'Q':
+          if (selection.length === 0) return;
+          e.preventDefault();
+          addSelectionToQueue('end');
+          break;
         default:
       }
     };
@@ -582,7 +649,7 @@ export function VideoGrid() {
     return () => window.removeEventListener('keydown', onKey);
   }, [
     playingVideo, showAiPanel, contextMenuOpen, focusIndex, cols, total, selection.length,
-    moveFocus, selectAll, getVideo, play,
+    moveFocus, selectAll, getVideo, play, addSelectionToQueue,
   ]);
 
   // 選択が空になったら削除の確認は用済み。Esc(App 側で選択解除)でも閉じることになる

@@ -71,6 +71,8 @@ export interface FilterState {
   dirPathRecursive: boolean;
   tagIds: number[];
   seriesId: number | null;
+  /** 保存プレイリストで絞る(v1.40)。サイドバーの「プレイリスト」セクションから */
+  playlistId: number | null;
   missingOnly: boolean;
   duplicatesOnly: boolean;
   /** 詳細検索ポップオーバーの中身ぜんぶ(types.ts の AdvancedFilter) */
@@ -90,6 +92,7 @@ export const EMPTY_FILTER: FilterState = {
   dirPathRecursive: false,
   tagIds: [],
   seriesId: null,
+  playlistId: null,
   missingOnly: false,
   duplicatesOnly: false,
   advanced: EMPTY_ADVANCED,
@@ -170,6 +173,7 @@ export function buildQuery(s: FilterState): VideoQuery {
     dirPathRecursive: s.dirPath !== null && s.dirPathRecursive ? true : undefined,
     tagIds: s.tagIds.length > 0 ? s.tagIds : undefined,
     seriesId: s.seriesId,
+    playlistId: s.playlistId,
     missing: s.missingOnly ? true : undefined,
     duplicatesOnly: s.duplicatesOnly ? true : undefined,
 
@@ -224,6 +228,7 @@ export function toFilterState(q: VideoQuery): FilterState {
     dirPathRecursive: q.dirPathRecursive ?? false,
     tagIds: q.tagIds ?? [],
     seriesId: q.seriesId ?? null,
+    playlistId: q.playlistId ?? null,
     missingOnly: q.missing ?? false,
     duplicatesOnly: q.duplicatesOnly ?? false,
     advanced: {

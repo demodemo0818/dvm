@@ -55,7 +55,7 @@ function PlayerView({ video }: { video: VideoRow }) {
  * ネイティブ再生に失敗したら transcode へ切り替え、それでも失敗したら外部プレイヤーへ。
  */
 function Html5PlayerView({ video }: { video: VideoRow }) {
-  const { setPlayingVideo, bumpVersion, autoplayNext, repeatOne, pushToast } = useLibrary();
+  const { setPlayingVideo, bumpVersion, repeatOne, pushToast } = useLibrary();
   const queue = usePlayQueue();
   const videoRef = useRef<HTMLVideoElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
@@ -66,6 +66,9 @@ function Html5PlayerView({ video }: { video: VideoRow }) {
   const hideTimer = useRef<number | undefined>(undefined);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
+  // 再生キュー(v1.40)。mpv 側と同じくバーの自動非表示と Esc の分岐に関わる
+  const [queueOpen, setQueueOpen] = useState(false);
+  const queueCount = useLibrary((s) => s.queue.items.length);
 
   // 再生方式: native はそのまま、remux/transcode は FFmpeg で変換してから再生。
   // native の onError で transcode に切り替える(HEVC 拡張の誤検出などもアプリ内で完結)
@@ -145,10 +148,12 @@ function Html5PlayerView({ video }: { video: VideoRow }) {
     return () => window.clearTimeout(hideTimer.current);
   }, [wake]);
 
-  // フルスクリーン中の Esc はブラウザが解除するので、通常時のみ閉じる
+  // フルスクリーン中の Esc はブラウザが解除するので、通常時のみ閉じる。
+  // キューが開いていればそれだけ閉じる(mpv 側と同じ分岐。v1.40)
   const onEscape = useCallback(() => {
-    if (!document.fullscreenElement) close();
-  }, [close]);
+    if (queueOpen) setQueueOpen(false);
+    else if (!document.fullscreenElement) close();
+  }, [queueOpen, close]);
 
   // 今見ているコマをサムネイルにする(10% 固定で暗転を引いたときの手当て)。
   // 変換キャッシュを再生している場合も尺は同じなので位置はそのまま使える
@@ -180,6 +185,10 @@ function Html5PlayerView({ video }: { video: VideoRow }) {
     onPrev: queue.prev,
     onSetThumbnail: setThumbnail,
     onSaveFrame: saveFrame,
+    onToggleQueue: () => {
+      wake();
+      setQueueOpen((v) => !v);
+    },
   });
 
   const { menu, onContextMenu, close: closeMenu, run: runMenu } =
@@ -217,7 +226,7 @@ function Html5PlayerView({ video }: { video: VideoRow }) {
     };
   }, [video.id, src, bumpVersion]);
 
-  const visible = controlsVisible || player.state.paused;
+  const visible = controlsVisible || player.state.paused || queueOpen;
 
   return (
     <div className="player-overlay" onClick={close} onMouseMove={wake}>
@@ -261,7 +270,8 @@ function Html5PlayerView({ video }: { video: VideoRow }) {
               api.markViewed(video.id).then(() => bumpVersion());
             }}
             onEnded={() => {
-              if (autoplayNext && queue.hasNext) void queue.next();
+              // キューモードでは autoplayNext を見ない(判断は usePlayQueue.autoAdvance)
+              if (queue.autoAdvance && queue.hasNext) void queue.next();
             }}
             onError={() => {
               if (mode === 'native') {
@@ -304,6 +314,12 @@ function Html5PlayerView({ video }: { video: VideoRow }) {
             // 再生中と同じ src を使う。変換経路ならキャッシュ mp4 なので確実に読める
             previewSrc={src}
             queue={queue}
+            queueOpen={queueOpen}
+            queueCount={queueCount}
+            onToggleQueue={() => {
+              wake();
+              setQueueOpen((v) => !v);
+            }}
           />
         )}
 

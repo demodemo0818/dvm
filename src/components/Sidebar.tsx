@@ -1,18 +1,21 @@
 import { ask, open } from '@tauri-apps/plugin-dialog';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
-import { ChevronDown, Copy, FolderSearch, Library, ListOrdered, TriangleAlert } from 'lucide-react';
+import {
+  ChevronDown, Copy, FolderSearch, Library, ListOrdered, ListVideo, TriangleAlert,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useContextMenu } from '../hooks/useContextMenu';
 import {
-  buildLibraryMenu, buildSeriesMenu, buildSmartFolderMenu, buildWatchedFolderMenu,
+  buildLibraryMenu, buildPlaylistMenu, buildSeriesMenu, buildSmartFolderMenu, buildWatchedFolderMenu,
 } from '../lib/contextMenu';
 import { baseName } from '../lib/paths';
 import { buildQuery, toFilterState } from '../lib/query';
+import { loadedQueue, needsSavePrompt } from '../lib/queue';
 import { useLibrary } from '../store';
 import type {
-  FolderNode, LibraryEntry, PlanItem, Series, SidebarTab, SmartFolder, Tag, TagGroup, VideoQuery,
-  WatchedFolder,
+  FolderNode, LibraryEntry, PlanItem, Playlist, Series, SidebarTab, SmartFolder, Tag, TagGroup,
+  VideoQuery, WatchedFolder,
 } from '../types';
 import { ContextMenu } from './ContextMenu';
 import { FileOpDialog } from './FileOpDialog';
@@ -30,6 +33,7 @@ type MenuTarget =
   | { kind: 'wf'; folder: WatchedFolder }
   | { kind: 'sf'; sf: SmartFolder }
   | { kind: 'series'; series: Series }
+  | { kind: 'playlist'; playlist: Playlist }
   // v1.27。これだけ右クリックではなくボタンの左クリックで開く
   | { kind: 'library' };
 
@@ -46,6 +50,7 @@ export function Sidebar() {
   const {
     folderId, setFolderId, dirPath, version, bumpVersion, sidebarWidth,
     seriesId, toggleSeriesFilter,
+    playlistId, togglePlaylistFilter,
     missingOnly, toggleMissingOnly,
     duplicatesOnly, toggleDuplicatesOnly, applyFilter, pushToast,
     libraryId: currentLibId,
@@ -57,6 +62,7 @@ export function Sidebar() {
   const [tagGroups, setTagGroups] = useState<TagGroup[]>([]);
   const [seriesList, setSeriesList] = useState<Series[]>([]);
   const [smartFolders, setSmartFolders] = useState<SmartFolder[]>([]);
+  const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [missingCount, setMissingCount] = useState(0);
   const [duplicateCount, setDuplicateCount] = useState(0);
@@ -76,6 +82,7 @@ export function Sidebar() {
     api.listTagGroups().then(setTagGroups);
     api.listSeries().then(setSeriesList);
     api.listSmartFolders().then(setSmartFolders);
+    api.listPlaylists().then(setPlaylists);
     api.countVideos({}).then(setTotalCount);
     api.countVideos({ missing: true }).then(setMissingCount);
     api.countVideos({ duplicatesOnly: true }).then(setDuplicateCount);
@@ -150,6 +157,41 @@ export function Sidebar() {
     });
     if (!yes) return;
     await api.deleteSmartFolder(sf.id);
+    bumpVersion();
+  };
+
+  /**
+   * 保存リストをキューへ**複写**して再生を始める(v1.40)。
+   * 複写なので、ここから先の編集は保存リストに一切届かない
+   * (書き戻すのは「上書き保存」を押したときだけ)
+   */
+  const loadPlaylist = async (p: Playlist) => {
+    try {
+      const rows = await api.getPlaylistVideos(p.id);
+      if (rows.length === 0) {
+        pushToast(`「${p.name}」は空です`, 'info');
+        return;
+      }
+      const s = useLibrary.getState();
+      s.setQueue(loadedQueue(rows, p.id, p.name));
+      s.setQueueTabOpen(true);
+      // 先頭から再生。見つからない動画なら開かず、送りに任せて飛ばさせる
+      const first = rows.find((v) => !v.isMissing && !v.isOffline);
+      if (first) s.playFromQueue(first);
+      else pushToast(`「${p.name}」の動画はどれも見つかりませんでした`);
+    } catch {
+      // トーストは call() の担当
+    }
+  };
+
+  const removePlaylist = async (p: Playlist) => {
+    const yes = await ask(
+      `プレイリスト「${p.name}」を削除しますか?\n(動画自体は消えません)`,
+      { title: 'プレイリストの削除' },
+    );
+    if (!yes) return;
+    await api.deletePlaylist(p.id);
+    if (playlistId === p.id) togglePlaylistFilter(p.id);
     bumpVersion();
   };
 
@@ -246,6 +288,19 @@ export function Sidebar() {
       pushToast(`「${lib.name}」に接続できません(${lib.root})`);
       return;
     }
+    /*
+     * キューの保存確認(v1.40)。**切り替えは再起動なのでユーザーから見れば終了と同じ**だが、
+     * `AppHandle::restart()` は `CloseRequested` を配送しないので、
+     * useQueueLifecycle の確認はここを通らない。だから自前で 1 枚挟む
+     */
+    if (needsSavePrompt(useLibrary.getState().queue)) {
+      const keep = await ask(
+        `保存していないキュー(${useLibrary.getState().queue.items.length} 件)があります。\n` +
+          '切り替えると失われます。続けますか?',
+        { title: 'キューの保存', kind: 'warning' },
+      );
+      if (!keep) return;
+    }
     const yes = await ask(`「${lib.name}」に切り替えます。アプリを再起動しますか?`, {
       title: 'ライブラリの切り替え',
     });
@@ -340,6 +395,25 @@ export function Sidebar() {
         return;
       }
 
+      if (target.kind === 'playlist') {
+        const p = target.playlist;
+        switch (id) {
+          case 'pl:load': await loadPlaylist(p); break;
+          case 'pl:filter': togglePlaylistFilter(p.id); break;
+          case 'pl:rename': {
+            const name = window.prompt('新しいプレイリスト名', p.name);
+            if (name === null || name.trim() === '' || name.trim() === p.name) return;
+            await api.renamePlaylist(p.id, name.trim());
+            bumpVersion();
+            break;
+          }
+          case 'pl:duplicate': await api.duplicatePlaylist(p.id).then(() => bumpVersion()); break;
+          case 'pl:delete': await removePlaylist(p); break;
+          default:
+        }
+        return;
+      }
+
       const s = target.series;
       switch (id) {
         case 'series:filter': toggleSeriesFilter(s.id); break;
@@ -362,6 +436,7 @@ export function Sidebar() {
   const needle = sideFilter.trim().toLowerCase();
   const hit = (s: string) => !needle || s.toLowerCase().includes(needle);
   const shownSmart = smartFolders.filter((sf) => hit(sf.name));
+  const shownPlaylists = playlists.filter((p) => hit(p.name));
   const shownFolders = folders.filter((f) => hit(baseName(f.path)));
   const shownSeries = seriesList.filter((s) => hit(s.name));
   // タグはグループ名でも引ける(「ジャンル」と打てばそのグループのタグが全部出る)
@@ -372,6 +447,7 @@ export function Sidebar() {
   const nothingMatches =
     needle !== '' &&
     shownSmart.length === 0 &&
+    shownPlaylists.length === 0 &&
     shownFolders.length === 0 &&
     shownSeries.length === 0 &&
     shownTags.length === 0;
@@ -496,6 +572,38 @@ export function Sidebar() {
                 onClick={(e) => {
                   e.stopPropagation();
                   removeSmartFolder(sf);
+                }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+
+          {/*
+            保存プレイリスト(v1.40)。**スマートフォルダの直後**に置く ——
+            スマートフォルダ = 条件で選んだ集合、プレイリスト = 手で選んだ集合で、
+            並べるなら隣同士が意味的に正しい。
+            クリックは既存 2 つと揃えて「一覧を絞り込む」。キューへの読み込みは右クリックから
+          */}
+          {shownPlaylists.length > 0 && <div className="side-section">プレイリスト</div>}
+          {shownPlaylists.map((p) => (
+            <div
+              key={p.id}
+              className={`side-item folder ${playlistId === p.id ? 'active' : ''}`}
+              onClick={() => togglePlaylistFilter(p.id)}
+              onContextMenu={(e) =>
+                openMenu(e, buildPlaylistMenu(p, playlistId === p.id), { kind: 'playlist', playlist: p })}
+              title={`${p.name}(クリックで絞り込み。右クリックからキューに読み込めます)`}
+            >
+              <ListVideo className="tag-mark" />
+              <span className="folder-name">{p.name}</span>
+              <span className="count">{p.videoCount}</span>
+              <button
+                className="remove"
+                title="プレイリストを削除"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removePlaylist(p);
                 }}
               >
                 ×

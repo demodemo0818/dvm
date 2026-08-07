@@ -81,6 +81,7 @@ describe('VideoQuery ⇄ FilterState の往復', () => {
     dirPathRecursive: true,
     tagIds: [1, 5, 9],
     seriesId: 7,
+    playlistId: 3,
     missing: true,
     duplicatesOnly: true,
     // --- 詳細検索(AdvancedFilter)に入るもの ---
@@ -118,13 +119,14 @@ describe('VideoQuery ⇄ FilterState の往復', () => {
   it('空のクエリは何も絞っていない状態になる', () => {
     const state = toFilterState({});
     expect(state).toEqual(EMPTY_FILTER);
-    // 効いている条件が 1 つも無いので、値を持つのは sort と null 2 つだけ
+    // 効いている条件が 1 つも無いので、値を持つのは sort と null 3 つだけ
     const q = buildQuery(state);
     const set = Object.entries(q).filter(([, v]) => v !== undefined);
     expect(Object.fromEntries(set)).toEqual({
       sort: 'added_desc',
       folderId: null,
       seriesId: null,
+      playlistId: null,
     });
   });
 

@@ -1,35 +1,76 @@
 import { useCallback, useMemo } from 'react';
 import { api } from '../../api';
+import { queueIndex, queueStep } from '../../lib/queue';
 import { useLibrary } from '../../store';
 
 /**
- * 連続再生(v1.8)。
- * プレイヤーは「クエリ + 一覧内の位置」だけを持ち、次の 1 件は Rust から都度引く。
- * グリッドのページキャッシュに依存しないので、再生中にソートを変えても
- * 次に進んだ時点の並びで正しく次が来る。
+ * 連続再生(v1.8)と再生キュー(v1.40)。**プレイヤーの送りはこの 1 か所に集める**。
+ *
+ * モードは 2 つあり、**排他**:
+ *
+ * - **クエリモード**(v1.8)。`playQueue = { query, index, total }` を持ち、
+ *   次の 1 件は `query_videos(query, 1, index+1)` で Rust から都度引く。
+ *   グリッドのページキャッシュに依存しないので、再生中にソートを変えても
+ *   次は新しい並びで来る。10 万件の絞り込みでもオブジェクト 1 個で済む
+ * - **キューモード**(v1.40)。手で並べた `queue.items` の中を進む。
+ *   `playQueue === null` かつ `queue.currentId !== null` がその印
+ *
+ * **キューモードは `autoplayNext` を見ない**(`autoAdvance` を参照)。
  */
 export function usePlayQueue() {
   const playQueue = useLibrary((s) => s.playQueue);
+  const queue = useLibrary((s) => s.queue);
+  const autoplayNext = useLibrary((s) => s.autoplayNext);
   const playFromList = useLibrary((s) => s.playFromList);
   const pushToast = useLibrary((s) => s.pushToast);
 
-  const hasPrev = playQueue != null && playQueue.index > 0;
-  const hasNext = playQueue != null && playQueue.index + 1 < playQueue.total;
+  // playQueue が非 null ならクエリモード。両方 null なら単発再生
+  const inQueue = playQueue === null && queue.currentId !== null;
 
+  const hasPrev = inQueue
+    ? queueStep(queue, -1) !== null
+    : playQueue != null && playQueue.index > 0;
+  const hasNext = inQueue
+    ? queueStep(queue, 1) !== null
+    : playQueue != null && playQueue.index + 1 < playQueue.total;
+
+  // 状態は毎回 getState() から読む(キューは編集で頻繁に変わるので、
+  // 参照を deps に入れるとハンドラが張り替わり続ける)
   const go = useCallback(
-    async (delta: 1 | -1) => {
-      const q = useLibrary.getState().playQueue;
+    async function step(delta: 1 | -1): Promise<void> {
+      const s = useLibrary.getState();
+      // キューモード。行はすでに手元にあるので Rust には聞かない
+      if (s.playQueue === null && s.queue.currentId !== null) {
+        const next = queueStep(s.queue, delta);
+        if (next === null) return;
+        if (next.isMissing || next.isOffline) {
+          /*
+           * 見つからない / オフラインは**飛ばして先へ進む**(v1.40)。キューは
+           * 「並べて放っておく」ための道具なので、1 本の欠損で列が止まると目的を果たさない。
+           * 飛ばしたことは黙らず断る
+           */
+          pushToast(`${next.filename} は見つからないため飛ばしました`, 'info');
+          s.playFromQueue(next);
+          // 飛ばした先からさらに進む。端に着けば queueStep が null を返して止まる
+          await step(delta);
+          return;
+        }
+        s.playFromQueue(next);
+        return;
+      }
+
+      const q = s.playQueue;
       if (!q) return;
-      const next = q.index + delta;
-      if (next < 0 || next >= q.total) return;
+      const nextIndex = q.index + delta;
+      if (nextIndex < 0 || nextIndex >= q.total) return;
       try {
-        const rows = await api.queryVideos(q.query, 1, next);
+        const rows = await api.queryVideos(q.query, 1, nextIndex);
         if (rows.length === 0) {
           // 再生中に絞り込み対象から外れた(タグを消した等)。端に着いたのと同じ扱い
           pushToast('次の動画が見つかりませんでした', 'info');
           return;
         }
-        playFromList(rows[0], { ...q, index: next });
+        playFromList(rows[0], { ...q, index: nextIndex });
       } catch {
         // 失敗は api 側でトースト済み
       }
@@ -37,17 +78,34 @@ export function usePlayQueue() {
     [playFromList, pushToast],
   );
 
-  return useMemo(
-    () => ({
+  return useMemo(() => {
+    const at = queueIndex(queue);
+    return {
       hasPrev,
       hasNext,
       next: () => go(1),
       prev: () => go(-1),
+      /** キューの中を進んでいるか。位置表示にアイコンを添える判断に使う */
+      inQueue,
+      /**
+       * 終端に着いたとき自動で次へ送るか。
+       *
+       * **キューモードでは設定を見ない**(v1.40) —— `autoplay_next` は
+       * 「絞り込み結果を延々流し続けるか」への答えで既定 OFF。手で 10 本選んで
+       * 並べた人が「次に進まないでほしい」と思うことはまずない
+       */
+      autoAdvance: inQueue || autoplayNext,
       /** 「3 / 128」のような位置表示。単発再生なら null */
-      position: playQueue ? `${playQueue.index + 1} / ${playQueue.total}` : null,
-    }),
-    [hasPrev, hasNext, go, playQueue],
-  );
+      position: inQueue
+        ? at >= 0
+          ? `${at + 1} / ${queue.items.length}`
+          : // 再生中の 1 件をキューから外した状態。位置は無いが総数は出す
+            `- / ${queue.items.length}`
+        : playQueue
+          ? `${playQueue.index + 1} / ${playQueue.total}`
+          : null,
+    };
+  }, [hasPrev, hasNext, go, playQueue, queue, inQueue, autoplayNext]);
 }
 
 export type PlayQueueControls = ReturnType<typeof usePlayQueue>;

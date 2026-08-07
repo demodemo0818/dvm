@@ -6,6 +6,7 @@ pub mod history;
 pub mod libraries;
 pub mod maintenance;
 pub mod playback;
+pub mod playlists;
 
 /// operations_log の actor を検証する。省略時は "user"。"user"/"ai" 以外は拒否
 pub fn validate_actor(actor: Option<String>) -> Result<String, String> {

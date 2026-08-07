@@ -179,6 +179,28 @@ CREATE TABLE IF NOT EXISTS smart_folders (
   position INTEGER NOT NULL DEFAULT 0
 );
 
+-- 保存プレイリスト(v1.40)。手で選んで並べた動画の列。サイドバーに出す。
+-- **シリーズとは別物**: シリーズは「この動画は何の一部か」という動画側の属性で一覧のカードにも出るが、
+-- こちらは「何をどの順で観るか」という動画の外の入れ物(DESIGN.md「プレイリスト」節)。
+-- name は UNIQUE COLLATE NOCASE —— 同名が 2 つ並ぶと、どちらに保存したのか見分けが付かない
+CREATE TABLE IF NOT EXISTS playlists (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  -- サイドバーでの表示順。小さいほど上(smart_folders と同じ)
+  position INTEGER NOT NULL DEFAULT 0
+);
+
+-- PK が (playlist_id, video_id) なので**同じ動画を 2 回入れられない**。これは意図的で、
+-- 「選択して追加」を 2 回押してもリストが倍にならない(追加が冪等になる)
+CREATE TABLE IF NOT EXISTS playlist_entries (
+  playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+  video_id INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (playlist_id, video_id)
+);
+-- series_entries と同じ理由(video_id 単独の検索が全走査になる)で索引を張る
+CREATE INDEX IF NOT EXISTS idx_playlist_entries_video ON playlist_entries(video_id, playlist_id);
+
 -- 視聴 1 回につき 1 行(v1.18)。videos.last_viewed_at が上書きで最後の 1 点しか
 -- 残さないのに対し、こちらは全回を残す。**v1.18 では書くだけで誰も読まない** —
 -- 後から作っても過去は復元できないため、貯め始めだけ先行させている。

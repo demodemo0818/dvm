@@ -15,6 +15,7 @@ pub mod mcp;
 pub mod metadata;
 pub mod offline;
 pub mod playback;
+pub mod playlists;
 pub mod query;
 pub mod series;
 pub mod settings;

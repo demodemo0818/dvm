@@ -3,8 +3,8 @@ import { useLibrary } from './store';
 import type {
   AppInfo, BackupInfo, DedupePlan, DedupeResult, ExcludedPath, ExtensionCount, FolderNode,
   LibraryEntry, LibraryState, LibraryStats, MediaInfo, OpEntry,
-  OpResult, PlanItem, Series, SmartFolder, SubfolderView, Tag, TagCount, TagGroup, VideoLabels,
-  VideoInfo, VideoQuery, VideoRow, ViewEntry, ViewStats, WatchedFolder,
+  OpResult, PlanItem, Playlist, Series, SmartFolder, SubfolderView, Tag, TagCount, TagGroup,
+  VideoLabels, VideoInfo, VideoQuery, VideoRow, ViewEntry, ViewStats, WatchedFolder,
 } from './types';
 import type { ViewRange } from './lib/viewHistory';
 
@@ -159,6 +159,28 @@ export const api = {
     }),
   deleteSmartFolder: (id: number) => call<void>('delete_smart_folder', { id }),
   reorderSmartFolders: (ids: number[]) => call<void>('reorder_smart_folders', { ids }),
+
+  // --- 保存プレイリスト(v1.40)。キューは DB に無いのでここには出てこない ---
+  listPlaylists: () => call<Playlist[]>('list_playlists'),
+  /** 保存した並びのまま一覧行で返す(キューへの読み込み) */
+  getPlaylistVideos: (id: number) => call<VideoRow[]>('get_playlist_videos', { id }),
+  /**
+   * id を指定してまとめて引く。**返る順は渡した順**で、消えた動画は落ちる。
+   * キューを `library:changed` で引き直すのに使う
+   */
+  getVideosByIds: (ids: number[]) => call<VideoRow[]>('get_videos_by_ids', { ids }),
+  /** 「上書きしますか?」を尋ねる前の下調べ。名前が空いていれば null */
+  findPlaylistByName: (name: string) =>
+    call<number | null>('find_playlist_by_name', { name }),
+  createPlaylist: (name: string, videoIds: number[], actor?: 'user' | 'ai') =>
+    call<number>('create_playlist', { name, videoIds, actor }),
+  /** 中身を丸ごと差し替える(上書き保存)。名前は変わらない */
+  replacePlaylist: (id: number, videoIds: number[], actor?: 'user' | 'ai') =>
+    call<void>('replace_playlist', { id, videoIds, actor }),
+  renamePlaylist: (id: number, name: string) => call<void>('rename_playlist', { id, name }),
+  duplicatePlaylist: (id: number) => call<number>('duplicate_playlist', { id }),
+  deletePlaylist: (id: number) => call<void>('delete_playlist', { id }),
+  reorderPlaylists: (ids: number[]) => call<void>('reorder_playlists', { ids }),
   libraryStats: () => call<LibraryStats>('library_stats'),
   getAppInfo: () => call<AppInfo>('get_app_info'),
   backupDb: () => call<BackupInfo>('backup_db'),

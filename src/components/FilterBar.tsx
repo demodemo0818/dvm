@@ -31,14 +31,15 @@ export function FilterBar({
 }) {
   const {
     setText, setAdvanced, toggleTagFilter, setTagFilter, setFolderId, toggleDirPath,
-    toggleSeriesFilter, toggleMissingOnly, toggleDirPathRecursive,
+    toggleSeriesFilter, togglePlaylistFilter, toggleMissingOnly, toggleDirPathRecursive,
     toggleDuplicatesOnly, applyFilter, version, bumpVersion, pushToast,
   } = useLibrary();
   const [showDedupe, setShowDedupe] = useState(false);
 
   // 名前を引かないと出せない条件が効いているときだけマスタを取りに行く
   const needsMasters =
-    filters.tagIds.length > 0 || filters.folderId !== null || filters.seriesId !== null;
+    filters.tagIds.length > 0 || filters.folderId !== null || filters.seriesId !== null ||
+    filters.playlistId !== null;
   const masters = useFilterMasters(needsMasters, version);
   const terms = describeFilter(filters, masters);
 
@@ -94,6 +95,9 @@ export function FilterBar({
       case 'dirPath': toggleDirPath(null); break;
       case 'series':
         if (filters.seriesId !== null) toggleSeriesFilter(filters.seriesId);
+        break;
+      case 'playlist':
+        if (filters.playlistId !== null) togglePlaylistFilter(filters.playlistId);
         break;
       case 'missing': toggleMissingOnly(); break;
       case 'duplicates': toggleDuplicatesOnly(); break;

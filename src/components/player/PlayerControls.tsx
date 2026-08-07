@@ -19,6 +19,7 @@ import { chapterLabelAt, hasChapters } from '../../lib/chapters';
 import { fmtTime } from '../../lib/format';
 import { hdrTooltip } from '../../lib/hdrInfo';
 import { useLibrary } from '../../store';
+import { QueuePanel } from '../queue/QueuePanel';
 import { ChapterList } from './ChapterList';
 import { SeekPreview } from './SeekPreview';
 import { RATE_OPTIONS } from './types';
@@ -187,6 +188,9 @@ export function PlayerControls({
   subtitleStyleOpen = false,
   chaptersOpen = false,
   onToggleChapters,
+  queueOpen = false,
+  onToggleQueue,
+  queueCount = 0,
 }: {
   player: VideoPlayer;
   isFullscreen: boolean;
@@ -214,6 +218,14 @@ export function PlayerControls({
    */
   chaptersOpen?: boolean;
   onToggleChapters?: () => void;
+  /**
+   * 再生キューの開閉(v1.40)。チャプター・字幕パネルと同じく**状態は呼び出し側が持つ**。
+   * 開いている間はコントロールバーを隠せないし、Esc はパネルだけを閉じたい
+   */
+  queueOpen?: boolean;
+  onToggleQueue?: () => void;
+  /** ボタンに出す件数バッジ。0 のときは出さない */
+  queueCount?: number;
 }) {
   const { state } = player;
   const { autoplayNext, toggle: toggleAutoplay } = useAutoplayToggle();
@@ -293,7 +305,17 @@ export function PlayerControls({
         <span className="player-time">
           {fmtTime(state.currentTime)} / {fmtTime(state.duration)}
         </span>
-        {queue?.position && <span className="player-position">{queue.position}</span>}
+        {/*
+          位置表示。**キューモードではアイコンを添える**(v1.40) ——
+          数字だけだと「絞り込み結果の中の 3 / 12」なのか
+          「手で並べたキューの 3 / 12」なのかが読み取れない
+        */}
+        {queue?.position && (
+          <span className={`player-position ${queue.inQueue ? 'in-queue' : ''}`}>
+            {queue.inQueue && <ListVideo />}
+            {queue.position}
+          </span>
+        )}
         {/*
           HDR バッジ(v1.31)。時刻の隣に置く —— 「今流れているものの説明」で、
           右側の操作ボタン群とは性質が違う。SDR の動画では何も出さない
@@ -312,6 +334,29 @@ export function PlayerControls({
           </span>
         )}
         <div className="player-spacer" />
+        {/*
+          再生キュー(v1.40)。**再生中は `.app` ごと消える**ので、再生中に並べ替え・削除を
+          するにはここから開くしかない(ChapterList と同じ制約・同じ作法)。
+          中身は右ペインのキュータブとまったく同じコンポーネント
+        */}
+        {onToggleQueue && (
+          <div className="queue-anchor">
+            <button
+              className={queueOpen ? 'active' : ''}
+              onMouseDown={noFocus}
+              onClick={onToggleQueue}
+              title="再生キュー(並べ替え・削除)(Q)"
+            >
+              <ListVideo />
+              {queueCount > 0 && <span className="queue-badge">{queueCount}</span>}
+            </button>
+            {queueOpen && (
+              <div className="queue-popover">
+                <QueuePanel compact />
+              </div>
+            )}
+          </div>
+        )}
         {/*
           チャプター(v1.29)。音声・字幕の選択と同じ「この動画の中身から選ぶもの」の
           一角に置く。チャプターが 2 つ未満のファイルでは ChapterList 側が何も描かない

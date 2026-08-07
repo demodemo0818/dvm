@@ -1,12 +1,14 @@
 import {
   AppWindow, ArrowDown, ArrowDownUp, ArrowUp, BookmarkPlus, Camera, ChevronDown, Copy, CopyMinus,
-  ExternalLink, EyeOff, Folder, FolderInput, FolderOpen, FolderPlus, FolderSearch, FolderUp, Funnel,
-  FunnelPlus, FunnelX, GalleryThumbnails, Layers, LayoutGrid, Library, ListOrdered, ListX, Palette,
-  Pencil, Play, Plus, RefreshCw, SquareCheck, SquareDashed, Star, Trash2, Unplug, X,
+  CopyPlus, ExternalLink, EyeOff, Folder, FolderInput, FolderOpen, FolderPlus, FolderSearch,
+  FolderUp, Funnel, FunnelPlus, FunnelX, GalleryThumbnails, Layers, LayoutGrid, Library,
+  ListOrdered, ListVideo, ListX, Palette, Pencil, Play, Plus, RefreshCw, SquareCheck, SquareDashed,
+  Star, Trash2, Unplug, X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type {
-  FolderNode, LibraryEntry, Series, SmartFolder, Tag, TagGroup, VideoRow, ViewMode, WatchedFolder,
+  FolderNode, LibraryEntry, Playlist, Series, SmartFolder, Tag, TagGroup, VideoRow, ViewMode,
+  WatchedFolder,
 } from '../types';
 import { hasActiveFilter } from './filterChips';
 import { sortLabel, sortOptions } from './listColumns';
@@ -80,6 +82,35 @@ export function ratingSubmenu(selection: VideoRow[]): MenuItem[] {
 }
 
 /**
+ * 再生キューのサブメニュー(v1.40)。3 つはそれぞれ別の場面を埋める:
+ *
+ * - **末尾に追加** が基本形
+ * - **次に再生** は再生中に効く(一覧側からしか挟めない)
+ * - **キューを置き換えて再生** は、選んだものだけで再生を始める唯一の入口。
+ *   ダブルクリックはクエリ方式の連続再生のままなので、これが無いと
+ *   「選択した数本だけを流す」ができない
+ */
+export function queueSubmenu(count: number): MenuItem[] {
+  const n = count > 1 ? `${count} 件を` : '';
+  return [
+    { id: 'queue:add', label: `${n}キューに追加`, icon: Plus, hint: 'キューの末尾に足します' },
+    {
+      id: 'queue:next',
+      label: `${n}次に再生`,
+      icon: ListVideo,
+      hint: 'いま再生している動画の次に挟みます',
+    },
+    // サブメニューは区切り線を持てない(MenuItem[] なので)。3 項目なので要らない
+    {
+      id: 'queue:replace',
+      label: `${n}キューを置き換えて再生`,
+      icon: Play,
+      hint: '今のキューを捨てて、選んだ動画だけで再生を始めます',
+    },
+  ];
+}
+
+/**
  * 動画カード / リスト行のメニュー。
  * `selection` が対象の全件、`target` は右クリックしたカードの動画。
  * 1 件しか意味を持たない項目(エクスプローラーで表示など)は target を見る
@@ -111,20 +142,42 @@ export function buildVideoMenu(selection: VideoRow[], target: VideoRow): MenuEnt
       icon: Star,
       submenu: ratingSubmenu(selection),
     },
-    { separator: true },
+    /*
+     * 再生キュー(v1.40)。**サブメニューに畳んである** —— 動画メニューはちょうど
+     * 12 項目で目安の上限なので、トップレベルはこの 1 つに収める。
+     *
+     * 「キューは常に 1 本」にしたので、**どのキューに入れるかを選ぶ入力が要らない**。
+     * だからこの基準(候補一覧から選ぶ入力が要るものは載せない)の内側に入る。
+     * 逆に「保存リストに追加」は**載せない** —— どのリストかを選ぶ必要があり、
+     * シリーズ登録・タグ付けとまったく同じ理由で詳細ペイン側の担当になる
+     */
     {
-      id: 'openDefault',
-      label: '既定のアプリで開く',
+      id: 'queue',
+      label: 'キュー',
+      icon: ListVideo,
+      submenu: queueSubmenu(selection.length),
+    },
+    { separator: true },
+    /*
+     * OS 連携の 2 つ(v1.40 でサブメニューに畳んだ)。
+     *
+     * v1.39 まで動画メニューはちょうど 12 項目で目安の上限にあり、キューを足すと
+     * 13 になる。**新項目をサブメニューにしても、その入口 1 つぶんは増える** ——
+     * 「サブメニューに畳むか既存項目を見直す」の後半を使い、
+     * 「どのアプリで開くか」という同じ問いの 2 つをここにまとめて 1 枠に戻した。
+     * `reveal`(エクスプローラーで表示)は入れない —— あちらは動画を再生するのではなく
+     * 場所を見せる操作で、問いが違う
+     */
+    {
+      id: 'openWithApp',
+      label: '他のアプリで開く',
       icon: ExternalLink,
       disabled: !single || !usable(target),
       hint: singleHint,
-    },
-    {
-      id: 'openWith',
-      label: '他のプログラムから開く...',
-      icon: AppWindow,
-      disabled: !single || !usable(target),
-      hint: singleHint,
+      submenu: [
+        { id: 'openDefault', label: '既定のアプリ', icon: ExternalLink },
+        { id: 'openWith', label: 'プログラムを選ぶ...', icon: AppWindow },
+      ],
     },
     {
       id: 'reveal',
@@ -467,6 +520,50 @@ export function buildSmartFolderMenu(
       icon: Trash2,
       danger: true,
       hint: '保存した条件だけを消します(動画は消えません)',
+    },
+  ];
+}
+
+/**
+ * サイドバーの保存プレイリスト行(v1.40)。
+ *
+ * **中身の編集はここに置かない** —— 編集経路は「キューに読み込む → 直す → 上書き保存」の
+ * 1 本だけにしてある。棚側にも直接編集を足すと書き込み経路が 2 本になり、
+ * 「削除は即反映、追加は上書き保存が必要」という説明しづらい非対称が生まれる
+ * (詳細ペインからファイル操作を外したときと同じ判断)
+ */
+export function buildPlaylistMenu(playlist: Playlist, isActive: boolean): MenuEntry[] {
+  const empty = playlist.videoCount === 0;
+  return [
+    {
+      id: 'pl:load',
+      label: 'キューに読み込んで再生',
+      icon: ListVideo,
+      disabled: empty,
+      hint: empty ? '空のプレイリストです' : '今のキューを置き換えます',
+    },
+    {
+      id: 'pl:filter',
+      label: isActive ? '絞り込みを解除' : 'このリストで絞り込む',
+      icon: Funnel,
+      checked: isActive,
+      hint: '一覧に保存した並び順で出します',
+    },
+    { separator: true },
+    { id: 'pl:rename', label: '名前を変更...', icon: Pencil },
+    {
+      id: 'pl:duplicate',
+      label: '複製',
+      icon: CopyPlus,
+      hint: `「${playlist.name} のコピー」を作ります`,
+    },
+    { separator: true },
+    {
+      id: 'pl:delete',
+      label: '削除',
+      icon: Trash2,
+      danger: true,
+      hint: 'リストだけを消します(動画は消えません)',
     },
   ];
 }

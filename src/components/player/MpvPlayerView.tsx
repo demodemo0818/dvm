@@ -23,7 +23,7 @@ import { usePlayQueue } from './usePlayQueue';
  * ファイルが再生できない(end-file reason=error)ときは onFail で WebView2 経路へ。
  */
 export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () => void }) {
-  const { setPlayingVideo, bumpVersion, autoplayNext, pushToast } = useLibrary();
+  const { setPlayingVideo, bumpVersion, pushToast } = useLibrary();
   const player = useMpvPlayer();
   const queue = usePlayQueue();
   const counted = useRef(false);
@@ -39,13 +39,20 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
   const [styleOpen, setStyleOpen] = useState(false);
   // チャプター一覧(v1.29)。バーの自動非表示と Esc の分岐に関わるのでここで持つ
   const [chaptersOpen, setChaptersOpen] = useState(false);
+  // 再生キュー(v1.40)。チャプター一覧とまったく同じ扱い
+  const [queueOpen, setQueueOpen] = useState(false);
+  const queueCount = useLibrary((s) => s.queue.items.length);
 
   const stateRef = useRef(player.state);
   stateRef.current = player.state;
-  // 連続再生はプレイヤーからも切り替えられる(v1.12)。値を deps に入れると、終端で
-  // 止まったまま ON にした瞬間に下の effect が走って次へ飛ぶので ref 経由で読む
-  const autoplayRef = useRef(autoplayNext);
-  autoplayRef.current = autoplayNext;
+  /*
+   * 送りを自動でやるか(v1.12。v1.40 でキューモードを足した)。
+   * 値を deps に入れると、終端で止まったまま ON にした瞬間に下の effect が走って
+   * 次へ飛ぶので ref 経由で読む。**キューモードでは設定に関わらず常に true** になる
+   * (判断は usePlayQueue の autoAdvance が持つ)
+   */
+  const autoplayRef = useRef(queue.autoAdvance);
+  autoplayRef.current = queue.autoAdvance;
 
   // 再生中だけ WebView を透過して背後の mpv を見せる(グリッドは非表示)
   useEffect(() => {
@@ -187,13 +194,14 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
   }, [wake]);
 
   const onEscape = useCallback(() => {
-    // チャプター一覧が開いていれば、まずそれだけ閉じる(v1.29)。
-    // 字幕パネルのように全キーを譲る(suspended)必要は無い —— 一覧に入力欄は無いので、
+    // チャプター一覧・キューが開いていれば、まずそれだけ閉じる(v1.29 / v1.40)。
+    // 字幕パネルのように全キーを譲る(suspended)必要は無い —— 入力欄が無いので、
     // 開いたまま Space で再生・停止できる方が使いやすい
-    if (chaptersOpen) setChaptersOpen(false);
+    if (queueOpen) setQueueOpen(false);
+    else if (chaptersOpen) setChaptersOpen(false);
     else if (isFullscreen) toggleFullscreen();
     else close();
-  }, [chaptersOpen, isFullscreen, toggleFullscreen, close]);
+  }, [queueOpen, chaptersOpen, isFullscreen, toggleFullscreen, close]);
 
   // 今見ているコマをサムネイルにする(10% 固定で暗転を引いたときの手当て)
   const setThumbnail = useCallback(() => {
@@ -221,6 +229,10 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
     onPrev: queue.prev,
     onSetThumbnail: setThumbnail,
     onSaveFrame: saveFrame,
+    onToggleQueue: () => {
+      wake();
+      setQueueOpen((v) => !v);
+    },
     // パネルは入力欄だらけなので、開いている間はキーをすべてパネルに譲る
     suspended: styleOpen,
   });
@@ -231,7 +243,8 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
   // パネルを開いている間はバーを消さない(アンカーのボタンごと消えるうえ、
   // .mpv-overlay.controls-hidden の cursor:none でカーソルまで見えなくなる)。
   // チャプター一覧もボタンにぶら下がっているので同じ扱い(v1.29)
-  const visible = controlsVisible || player.state.paused || styleOpen || chaptersOpen;
+  const visible =
+    controlsVisible || player.state.paused || styleOpen || chaptersOpen || queueOpen;
 
   // 今出ている字幕が自前のスタイルを持っているか。持っていれば色を変えても効かない
   const assWarning = (player.tracks ?? []).some(
@@ -271,6 +284,12 @@ export function MpvPlayerView({ video, onFail }: { video: VideoRow; onFail: () =
         onToggleChapters={() => {
           wake();
           setChaptersOpen((v) => !v);
+        }}
+        queueOpen={queueOpen}
+        queueCount={queueCount}
+        onToggleQueue={() => {
+          wake();
+          setQueueOpen((v) => !v);
         }}
       />
 
