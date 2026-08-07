@@ -1,7 +1,9 @@
-import { GripVertical, ListVideo, Save, SaveAll, Trash2, X } from 'lucide-react';
+import { convertFileSrc } from '@tauri-apps/api/core';
+import { GripVertical, ListVideo, Save, SaveAll, TriangleAlert, Trash2, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { api } from '../../api';
 import { fmtTime } from '../../lib/format';
+import { thumbSrc } from '../../lib/thumbs';
 import {
   clearQueue, moveInQueue, QUEUE_LIMIT, queueIndex, removeFromQueue, savedQueue,
 } from '../../lib/queue';
@@ -33,6 +35,8 @@ export function QueuePanel({ compact = false }: { compact?: boolean }) {
   const playFromQueue = useLibrary((s) => s.playFromQueue);
   const pushToast = useLibrary((s) => s.pushToast);
   const bumpVersion = useLibrary((s) => s.bumpVersion);
+  // 作り直したサムネイルを読み直させるカウンタ(v1.22)。グリッドと同じものを見る
+  const thumbVersion = useLibrary((s) => s.thumbVersion);
 
   /** 掴んだ瞬間の位置。ここから DRAG_THRESHOLD 動いて初めてドラッグになる */
   const dragStart = useRef<{ index: number; x: number; y: number } | null>(null);
@@ -216,6 +220,30 @@ export function QueuePanel({ compact = false }: { compact?: boolean }) {
               </span>
               <button className="queue-name" onClick={() => play(v)} title={v.path}>
                 <span className="queue-no">{i + 1}</span>
+                {/*
+                  サムネイル(v1.40)。**ディスクキャッシュの jpg を読むだけ**なので
+                  原則 2 の内側(ChapterList の「コマは出さない」は、あちらが再生中の
+                  ファイルをシークデコードする話なので当てはまらない)。
+
+                  `loading="lazy"` が要点 —— このパネルは仮想化していないので、
+                  500 件ぶんの img を一度に読ませないためにこれで間引く。
+                  読めなかったものは onError で隠して地色を見せる(カードと同じ作法)
+                */}
+                <span className="queue-thumb">
+                  {v.thumbState === 2 && <TriangleAlert size={11} />}
+                  {v.thumbPath && (
+                    <img
+                      key={v.id}
+                      src={thumbSrc(convertFileSrc(v.thumbPath), thumbVersion)}
+                      loading="lazy"
+                      alt=""
+                      draggable={false}
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                      }}
+                    />
+                  )}
+                </span>
                 <span className="queue-file">{v.title || v.filename}</span>
               </button>
               <span className="queue-dur">{v.durationMs ? fmtTime(v.durationMs / 1000) : ''}</span>

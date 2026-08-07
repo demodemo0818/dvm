@@ -4848,7 +4848,8 @@ input[type='range']:focus-visible {
 .queue-name {
   flex: 1;
   display: flex;
-  align-items: baseline;
+  /* サムネイルが入るので baseline ではなく center(文字だけの時代の名残を残さない) */
+  align-items: center;
   gap: 6px;
   min-width: 0;
   background: none;
@@ -4868,6 +4869,31 @@ input[type='range']:focus-visible {
   font-size: 10px;
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+
+/*
+ * 16:9 の枠を実寸で確保する。img が来る前も来なかった後も高さが動かないので、
+ * スクロール中に行が跳ねない(読み込み待ちの「…」を出さないのはカードと同じ判断)
+ */
+.queue-thumb {
+  flex: none;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 25px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: #14161b;
+  color: #6b7280;
+}
+
+.queue-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .queue-file {
