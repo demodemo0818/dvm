@@ -41,10 +41,16 @@ pub fn rebuild(app: &AppHandle) {
         None => return,
     };
 
-    // イベントのパス → フォルダ id を引くための対応表(小文字比較)
+    // イベントのパス → フォルダ id を引くための対応表。
+    // 小文字化 + 区切りを \ に揃え、**末尾に \ を付けて境界込みで**比較する。
+    // 区切りなしの前方一致だと C:\a\bc のイベントが C:\a\b に誤配され、
+    // 実際にファイルが増えた場所がスキャンされない(library.rs の deepest_owner と同じ判定)
     let index: Vec<(i64, String)> = folders
         .iter()
-        .map(|(id, path, _)| (*id, path.to_lowercase()))
+        .map(|(id, path, _)| {
+            let normalized = path.to_lowercase().replace('/', "\\");
+            (*id, format!("{}\\", normalized.trim_end_matches('\\')))
+        })
         .collect();
 
     let handler = move |res: notify::Result<notify::Event>| {
@@ -58,11 +64,14 @@ pub fn rebuild(app: &AppHandle) {
             if crate::core::excludes::is_excluded(&excluded, &path.to_string_lossy()) {
                 continue;
             }
-            let p = path.to_string_lossy().to_lowercase();
-            // 最も深くマッチする監視フォルダに割り当てる
+            let p = path.to_string_lossy().to_lowercase().replace('/', "\\");
+            // 最も深くマッチする監視フォルダに割り当てる(境界込み。
+            // フォルダ自身のイベントも p == prefix(末尾 \ なし)で拾う)
             let mut best: Option<(i64, usize)> = None;
             for (id, prefix) in &index {
-                if p.starts_with(prefix) && best.map(|(_, l)| prefix.len() > l).unwrap_or(true) {
+                let hit = p.starts_with(prefix.as_str())
+                    || p.as_str() == &prefix[..prefix.len() - 1];
+                if hit && best.map(|(_, l)| prefix.len() > l).unwrap_or(true) {
                     best = Some((*id, prefix.len()));
                 }
             }
