@@ -3080,8 +3080,25 @@ DVM を 2 つ起動して別々に切り替えると `current_library_id` は後
 - 一覧のページキャッシュ(`hooks/useVideos.ts`)は **クエリ変更では捨てるが、ライブラリ更新
   (version)では捨てない**。version で捨てると取り込み中に一覧が毎回「…」へ戻ってちらつくため、
   表示は保ったまま裏で取り直して差し替える(世代番号で古い応答を破棄)
+  - ただし裏で取り直すのは**最近アクセスした 5 ページだけ**(2026-08-07)。深くスクロールした後に
+    全ページを取り直すと、取り込み中に「数十ページ × 200 件」の query_videos が
+    300ms おきに飛び続けるため。残りは捨てて、また見えたときに普通の遅延取得で引き直す
 - 同じページの取得に 2 回続けて失敗したらそのページは諦める。スクロールのたびに再要求して
   無限リトライになるのを防ぐ
+- **ストアの購読はセレクタで**(2026-08-07)。セレクタなしの `useLibrary()` はストア全体を返し、
+  どのフィールドが変わっても再レンダーされる(Zustand v5)。スキャン中の `scan:state` や
+  字幕スライダーのドラッグでアプリ全ツリーが描き直されていた。
+  `useLibrary(useShallow(pickState('a', 'b')))` の形で使うキーだけを列挙する
+  (`pickState` は store.ts)。あわせて `VideoCard` / `VideoListRow` は `React.memo` ——
+  これが効くために、VideoGrid が行へ渡すコールバックは useCallback で安定させておくこと
+- **Rust 側の書き込みトランザクションは `unchecked_transaction`**(2026-08-07)。
+  生の `BEGIN`/`COMMIT` は途中の `?` で抜けたとき ROLLBACK されず、共有コネクションが
+  「cannot start a transaction within a transaction」で再起動まで壊れる。
+  `conn.unchecked_transaction()?` は drop で自動 ROLLBACK される(`videos.rs` の
+  `mark_opened` が最初からこの形)。また、スキャン・ごみ箱送り・移動などファイル I/O を
+  伴う処理は「読み取り(短いロック)→ ファイル I/O(ロックなし)→ DB 更新(短いロック +
+  1 トランザクション)」に分割する(`library.rs::scan_folder` / `videos.rs::trash_paths` /
+  `fileops.rs::move_files` がその形)
 
 ## ロードマップ
 
