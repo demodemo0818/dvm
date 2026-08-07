@@ -97,7 +97,11 @@ pub fn sync_drive_letters(conn: &Connection) -> Result<Vec<DriveRemap>> {
 
     for (id, path, stored) in &folders {
         let root = offline::root_of(path);
-        if root.starts_with("\\\\") || root.len() < 3 {
+        // 「英字ドライブレター + :」で始まる形だけを対象にする。**バイト単位で見る** ——
+        // 長さだけの判定だと、先頭がマルチバイト文字の不正パスで下の root[..2] が
+        // 文字境界パニックになり、スキャン全体が道連れになる
+        let b = root.as_bytes();
+        if root.starts_with("\\\\") || b.len() < 3 || !b[0].is_ascii_alphabetic() || b[1] != b':' {
             continue; // UNC・不正パスは対象外
         }
         let root_upper = format!("{}{}", root[..2].to_ascii_uppercase(), &root[2..]);
@@ -136,8 +140,8 @@ pub fn sync_drive_letters(conn: &Connection) -> Result<Vec<DriveRemap>> {
     let mut applied = Vec::new();
     for (old_drive, new_drive) in remaps {
         // prefix 比較は LIKE ではなく substr で行う(パス中の % _ のエスケープ問題を回避)
-        conn.execute_batch("BEGIN")?;
-        let res = conn
+        let tx = conn.unchecked_transaction()?;
+        let res = tx
             .execute(
                 "UPDATE watched_folders SET path = ?1 || substr(path, 3)
                  WHERE substr(upper(path), 1, 2) = ?2",
@@ -145,7 +149,7 @@ pub fn sync_drive_letters(conn: &Connection) -> Result<Vec<DriveRemap>> {
             )
             .and_then(|_| {
                 // 旧パスが UNIQUE 衝突する場合は安全側(スキップ)に倒す
-                conn.execute(
+                tx.execute(
                     "UPDATE OR IGNORE videos SET path = ?1 || substr(path, 3)
                      WHERE substr(upper(path), 1, 2) = ?2",
                     params![new_drive, old_drive],
@@ -153,7 +157,7 @@ pub fn sync_drive_letters(conn: &Connection) -> Result<Vec<DriveRemap>> {
             });
         match res {
             Ok(_) => {
-                conn.execute_batch("COMMIT")?;
+                tx.commit()?;
                 db::log_op(
                     conn,
                     "system",
@@ -166,7 +170,7 @@ pub fn sync_drive_letters(conn: &Connection) -> Result<Vec<DriveRemap>> {
                 });
             }
             Err(e) => {
-                let _ = conn.execute_batch("ROLLBACK");
+                // ROLLBACK は tx の Drop がやる
                 eprintln!("drive_remap {old_drive}->{new_drive} failed: {e}");
             }
         }

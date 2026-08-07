@@ -198,6 +198,8 @@ export const api = {
     call<number>('regenerate_thumbnails', { onlyFailed }),
   /** atMs を省略するとサムネイルのコマ選びを自動に戻す */
   setThumbTime: (id: number, atMs?: number) => call<void>('set_thumb_time', { id, atMs }),
+  /** 選択分をまとめて作り直す(1 件ずつ setThumbTime を呼ばない。IPC 1 回で済ませる) */
+  rethumbVideos: (ids: number[]) => call<number>('rethumb_videos', { ids }),
   /**
    * 再生中のコマを PNG で保存する(v1.26)。返り値は保存したフルパス。
    * `setThumbTime` と違い **DB は変わらない**(グリッドの再取得は不要)

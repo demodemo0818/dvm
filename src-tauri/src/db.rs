@@ -232,10 +232,14 @@ CREATE TABLE IF NOT EXISTS operations_log (
 "#;
 
 pub fn log_op(conn: &Connection, actor: &str, action: &str, payload: &str) {
-    let _ = conn.execute(
+    // 記録に失敗しても本体の操作は成功させる(ここで Err を返すと undo の土台のせいで
+    // タグ付けそのものが失敗する)。ただし undo と監査の基盤なので、黙殺はせず痕跡を残す
+    if let Err(e) = conn.execute(
         "INSERT INTO operations_log (actor, action, payload) VALUES (?1, ?2, ?3)",
         rusqlite::params![actor, action, payload],
-    );
+    ) {
+        eprintln!("operations_log への記録に失敗({action}): {e}");
+    }
 }
 
 #[cfg(test)]

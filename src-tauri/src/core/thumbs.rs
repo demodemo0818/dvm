@@ -109,6 +109,22 @@ pub fn set_thumb_time(conn: &Connection, video_id: i64, at_ms: Option<i64>) -> R
     Ok(())
 }
 
+/// 複数の動画をまとめて「未生成 + コマ自動選択」に戻す(右クリックの一括作り直し)。
+/// `set_thumb_time(_, id, None)` を 1 件ずつ呼ぶのと同じ意味を 1 文で行う ——
+/// 1000 件選択で 1000 回の IPC + 1000 回の auto-commit(原則 5 違反)を避ける
+pub fn reset_thumbs(conn: &Connection, video_ids: &[i64]) -> Result<usize> {
+    if video_ids.is_empty() {
+        return Ok(0);
+    }
+    // i64 なので直接埋め込んでも安全(core/videos.rs の ids_csv と同じ扱い)
+    let csv = video_ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+    let n = conn.execute(
+        &format!("UPDATE videos SET thumb_time_ms = NULL, thumb_state = 0 WHERE id IN ({csv})"),
+        [],
+    )?;
+    Ok(n)
+}
+
 /// videos に対応する行が無い孤児サムネイルを削除する。戻り値は (削除数, 解放バイト数)
 pub fn purge_orphans(conn: &Connection, thumbs_dir: &Path) -> Result<(usize, u64)> {
     let mut stmt = conn.prepare("SELECT id FROM videos")?;
@@ -206,5 +222,32 @@ mod tests {
             .query_row("SELECT thumb_time_ms FROM videos WHERE id = 1", [], |r| r.get(0))
             .unwrap();
         assert_eq!(t, None);
+    }
+
+    #[test]
+    fn reset_thumbs_batches_and_survives_empty_input() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::apply_schema(&conn).unwrap();
+        conn.execute_batch(
+            r"INSERT INTO videos (id, path, filename, thumb_state, thumb_time_ms) VALUES
+              (1, 'C:\a.mp4', 'a.mp4', 1, 500),
+              (2, 'C:\b.mp4', 'b.mp4', 2, NULL),
+              (3, 'C:\c.mp4', 'c.mp4', 1, 900);",
+        )
+        .unwrap();
+
+        // 空リストは SQL を組み立てずに 0 を返す(WHERE id IN () の構文エラー防止)
+        assert_eq!(reset_thumbs(&conn, &[]).unwrap(), 0);
+
+        assert_eq!(reset_thumbs(&conn, &[1, 2]).unwrap(), 2);
+        let rows: Vec<(i64, i64, Option<i64>)> = conn
+            .prepare("SELECT id, thumb_state, thumb_time_ms FROM videos ORDER BY id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        // 対象は未生成 + コマ自動選択に戻り、対象外(3)は触られない
+        assert_eq!(rows, vec![(1, 0, None), (2, 0, None), (3, 1, Some(900))]);
     }
 }

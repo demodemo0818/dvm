@@ -210,6 +210,10 @@ fn plan_one_move(roots: &mut RootCache, video_id: i64, from: &str, to: &str) -> 
 }
 
 fn paths_of(conn: &Connection, video_ids: &[i64]) -> Result<Vec<(i64, String)>> {
+    // 空リストだと `WHERE id IN ()` の SQL 構文エラーになる
+    if video_ids.is_empty() {
+        return Ok(Vec::new());
+    }
     let ids_csv = video_ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
     let mut stmt =
         conn.prepare(&format!("SELECT id, path FROM videos WHERE id IN ({ids_csv})"))?;
@@ -382,7 +386,12 @@ fn move_file(from: &str, to: &str) -> Result<()> {
     if std::fs::rename(from, to).is_ok() {
         return Ok(());
     }
-    std::fs::copy(from, to)?;
+    if let Err(e) = std::fs::copy(from, to) {
+        // コピー途中の失敗(ディスクフル・ケーブル抜け)は書きかけの to が残り、
+        // 再実行が Conflict 誤報告になる。掃除してから失敗を返す
+        let _ = std::fs::remove_file(to);
+        return Err(e.into());
+    }
     if let Err(e) = std::fs::remove_file(from) {
         // コピーは成功したが元が消せない。中途半端に 2 つ残すより
         // コピーを取り消して「失敗」に倒す(ユーザーが原因を直して再実行できる)

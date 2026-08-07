@@ -93,10 +93,20 @@ pub async fn add_watched_folder(app: AppHandle, path: String, recursive: Option<
 
 #[tauri::command]
 pub fn remove_watched_folder(app: AppHandle, id: i64, remove_videos: bool) -> Result<(), String> {
-    {
+    // 動画ごと消すときは、消える id を先に控えておく(キャッシュ掃除に使う)
+    let removed_ids: Vec<i64> = {
         let state = app.state::<AppState>();
         let conn = state.db.lock().unwrap();
+        let mut removed = Vec::new();
         if remove_videos {
+            let mut stmt = conn
+                .prepare("SELECT id FROM videos WHERE watched_folder_id=?1")
+                .map_err(|e| e.to_string())?;
+            removed = stmt
+                .query_map(params![id], |r| r.get(0))
+                .map_err(|e| e.to_string())?
+                .filter_map(|r| r.ok())
+                .collect();
             conn.execute("DELETE FROM videos WHERE watched_folder_id=?1", params![id])
                 .map_err(|e| e.to_string())?;
         }
@@ -108,6 +118,16 @@ pub fn remove_watched_folder(app: AppHandle, id: i64, remove_videos: bool) -> Re
             "remove_watched_folder",
             &format!("id={id}, remove_videos={remove_videos}"),
         );
+        removed
+    };
+    // サムネイル・変換キャッシュの孤児を残さない(remove_videos コマンドと同じ後始末)。
+    // ファイル I/O なので DB のロックを手放してから行う
+    {
+        let state = app.state::<AppState>();
+        for vid in &removed_ids {
+            let _ = std::fs::remove_file(state.thumbs_dir.join(format!("{vid}.jpg")));
+            crate::core::playback::remove_cache_for(&state.transcode_dir, *vid);
+        }
     }
     crate::core::watcher::rebuild(&app);
     Ok(())

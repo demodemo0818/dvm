@@ -15,6 +15,10 @@ fn ids_csv(video_ids: &[i64]) -> String {
 }
 
 pub fn set_rating(conn: &Connection, actor: &str, video_ids: &[i64], rating: i64) -> Result<()> {
+    // 空リストだと `WHERE id IN ()` の SQL 構文エラーになる(MCP 経由で空配列が来うる)
+    if video_ids.is_empty() {
+        return Ok(());
+    }
     let rating = rating.clamp(0, 5);
     // 取り消し用に変更前の値を控える(動画ごとに違う値だったのを一律にする操作なので、
     // 「1 つ前の値」ではなく id ごとの対応表が要る)
@@ -125,6 +129,10 @@ pub fn set_video_info(
 
 /// ライブラリから登録を削除する(ファイル自体は消さない)
 pub fn remove_videos(conn: &Connection, actor: &str, video_ids: &[i64]) -> Result<()> {
+    // 空リストだと `WHERE id IN ()` の SQL 構文エラーになる(MCP 経由で空配列が来うる)
+    if video_ids.is_empty() {
+        return Ok(());
+    }
     conn.execute(&format!("DELETE FROM videos WHERE id IN ({})", ids_csv(video_ids)), [])?;
     db::log_op(
         conn,
@@ -208,6 +216,10 @@ pub struct TrashResult {
 }
 
 pub fn paths_of(conn: &Connection, video_ids: &[i64]) -> Result<Vec<(i64, String)>> {
+    // 空リストだと `WHERE id IN ()` の SQL 構文エラーになる
+    if video_ids.is_empty() {
+        return Ok(Vec::new());
+    }
     let sql = format!("SELECT id, path FROM videos WHERE id IN ({})", ids_csv(video_ids));
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt

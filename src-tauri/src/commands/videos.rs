@@ -153,6 +153,21 @@ pub async fn set_thumb_time(app: AppHandle, id: i64, at_ms: Option<i64>) -> Resu
     Ok(())
 }
 
+/// 選択した動画のサムネイルをまとめて作り直す(右クリック「サムネイルを作り直す」)。
+/// set_thumb_time を 1 件ずつ呼ぶと選択数ぶんの IPC と auto-commit になるので、
+/// DB は 1 文で未生成に戻し、生成ワーカーは 1 回だけ起こす
+#[tauri::command]
+pub async fn rethumb_videos(app: AppHandle, ids: Vec<i64>) -> Result<usize, String> {
+    let count = {
+        let state = app.state::<AppState>();
+        let conn = state.db.lock().unwrap();
+        crate::core::thumbs::reset_thumbs(&conn, &ids).map_err(|e| e.to_string())?
+    };
+    let app2 = app.clone();
+    tauri::async_runtime::spawn_blocking(move || library::process_pending(&app2, ids));
+    Ok(count)
+}
+
 /// 再生中のコマを画像として保存する(v1.26)。返り値は保存したフルパス。
 ///
 /// `set_thumb_time` とは**別の機能**。あちらは DB を書いてサムネイルキャッシュを作り直させるが、

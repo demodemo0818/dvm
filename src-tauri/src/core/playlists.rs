@@ -7,7 +7,7 @@
 
 use crate::db;
 use anyhow::Result;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -58,9 +58,11 @@ pub fn entries(conn: &Connection, playlist_id: i64) -> Result<Vec<i64>> {
 /// UI は「上書きしますか?」を尋ねるためにこれを先に呼ぶ
 pub fn find_by_name(conn: &Connection, name: &str) -> Result<Option<i64>> {
     let name = name.trim();
+    // `.ok()` だと DB エラーまで「無い」に化けて、上書きすべき場面で
+    // create に進んで UNIQUE 違反になる。無いときだけ None にする
     Ok(conn
         .query_row("SELECT id FROM playlists WHERE name = ?1", params![name], |r| r.get(0))
-        .ok())
+        .optional()?)
 }
 
 /// 新規作成して中身を書き込む。名前が既にあればエラー

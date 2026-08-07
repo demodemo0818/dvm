@@ -255,6 +255,7 @@ pub fn run() {
             commands::videos::set_video_info,
             commands::videos::remove_videos,
             commands::videos::set_thumb_time,
+            commands::videos::rethumb_videos,
             commands::videos::save_frame,
             commands::videos::get_media_info,
             commands::tags::list_tags,

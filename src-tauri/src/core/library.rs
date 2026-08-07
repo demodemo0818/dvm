@@ -570,12 +570,27 @@ pub fn process_pending(app: &AppHandle, ids: Vec<i64>) {
     let _ = app.emit("thumbs:changed", ());
 }
 
+/// スキャン終了時に `scanning` フラグと「スキャン中...」表示を**必ず**戻す(Drop で)。
+/// スキャンは spawn_blocking のスレッド上なので、途中でパニックしてもアプリは落ちず、
+/// 戻し忘れたフラグだけが立ちっぱなしになって以後のスキャンが全部無視されていた
+struct ScanGuard<'a> {
+    app: &'a AppHandle,
+}
+
+impl Drop for ScanGuard<'_> {
+    fn drop(&mut self) {
+        emit_state(self.app, false, "");
+        self.app.state::<AppState>().scanning.store(false, Ordering::SeqCst);
+    }
+}
+
 /// 全監視フォルダのスキャン + 個別登録ファイルのチェック(多重起動ガードつき)
 pub fn run_scan_all(app: &AppHandle) {
     let state = app.state::<AppState>();
     if state.scanning.swap(true, Ordering::SeqCst) {
         return;
     }
+    let _guard = ScanGuard { app };
     emit_state(app, true, "スキャン中...");
 
     // ドライブレター変動(E: → F: 等)を検出したら path を再マッピングしてからスキャンする
@@ -614,8 +629,7 @@ pub fn run_scan_all(app: &AppHandle) {
     emit_changed(app);
 
     process_pending(app, pending);
-    emit_state(app, false, "");
-    state.scanning.store(false, Ordering::SeqCst);
+    // フラグと表示は _guard の Drop が戻す
 }
 
 #[cfg(test)]
@@ -809,11 +823,11 @@ pub fn run_scan_folder(app: &AppHandle, folder_id: i64) {
     if state.scanning.swap(true, Ordering::SeqCst) {
         return;
     }
+    let _guard = ScanGuard { app };
     emit_state(app, true, "スキャン中...");
     match scan_folder(app, folder_id) {
         Ok(pending) => process_pending(app, pending),
         Err(e) => eprintln!("scan_folder({folder_id}) failed: {e}"),
     }
-    emit_state(app, false, "");
-    state.scanning.store(false, Ordering::SeqCst);
+    // フラグと表示は _guard の Drop が戻す
 }

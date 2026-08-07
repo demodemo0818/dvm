@@ -456,8 +456,8 @@ export function VideoGrid() {
           break;
         }
         case 'rethumb':
-          // 生成そのものは Rust のワーカーが順にこなす。ここでは予約するだけ
-          for (const v of sel) await api.setThumbTime(v.id);
+          // 生成そのものは Rust のワーカーが順にこなす。ここでは 1 回の IPC でまとめて予約するだけ
+          await api.rethumbVideos(sel.map((v) => v.id));
           pushToast(`${sel.length} 件のサムネイルを作り直しています`, 'info');
           break;
         case 'removeFromLibrary':
