@@ -359,8 +359,15 @@ interface LibraryState {
   /** index は一覧内の通し番号。省略すると範囲選択の起点を持たない選択になる */
   selectOnly: (video: VideoRow, index?: number | null) => void;
   toggleSelect: (video: VideoRow, index?: number | null) => void;
-  /** 範囲選択・全選択の結果をまとめて反映する */
-  setSelection: (videos: VideoRow[], focusIndex?: number | null) => void;
+  /**
+   * 範囲選択・全選択の結果をまとめて反映する。
+   * `anchorIndex` は**省略すると据え置き** —— Shift+クリックや Shift+矢印は
+   * 起点を動かさずに範囲を伸ばすため。矩形選択(v1.42)のように
+   * 「ここが次の起点」と決まる操作だけが明示的に渡す
+   */
+  setSelection: (
+    videos: VideoRow[], focusIndex?: number | null, anchorIndex?: number | null,
+  ) => void;
   setFocusIndex: (focusIndex: number | null) => void;
   clearSelection: () => void;
   /** 選択中の全行に部分更新を適用する(例: レーティング変更の即時反映) */
@@ -597,8 +604,12 @@ export const useLibrary = create<LibraryState>((set) => ({
       anchorIndex: index,
       focusIndex: index,
     })),
-  setSelection: (selection, focusIndex) =>
-    set((s) => ({ selection, focusIndex: focusIndex === undefined ? s.focusIndex : focusIndex })),
+  setSelection: (selection, focusIndex, anchorIndex) =>
+    set((s) => ({
+      selection,
+      focusIndex: focusIndex === undefined ? s.focusIndex : focusIndex,
+      anchorIndex: anchorIndex === undefined ? s.anchorIndex : anchorIndex,
+    })),
   setFocusIndex: (focusIndex) => set({ focusIndex }),
   clearSelection: () => set({ ...CLEARED }),
   patchSelection: (patch) =>

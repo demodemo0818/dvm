@@ -5,8 +5,8 @@ import type {
 } from '../types';
 import {
   buildFolderMenu, buildFolderTreeMenu, buildGridBlankMenu, buildLibraryMenu, buildPlayerMenu,
-  buildSeriesMenu, buildSmartFolderMenu, buildTagGroupMenu, buildTagMenu, buildVideoMenu,
-  buildWatchedFolderMenu, isSeparator,
+  buildSeriesMenu, buildSideSectionMenu, buildSmartFolderMenu, buildTagGroupMenu, buildTagMenu,
+  buildVideoMenu, buildWatchedFolderMenu, isSeparator,
 } from './contextMenu';
 import type { GridBlankState, MenuEntry, MenuItem } from './contextMenu';
 import { CURATED_SORTS, sortLabel } from './listColumns';
@@ -658,6 +658,7 @@ describe('メニュー共通の約束', () => {
     ['buildSmartFolderMenu', buildSmartFolderMenu(smartRow(), 0, 1, true), 'sf:'],
     ['buildSeriesMenu', buildSeriesMenu(seriesRow(), true), 'series:'],
     ['buildFolderTreeMenu', buildFolderTreeMenu(nodeRow({ online: false }), false, false, true), 'tree:'],
+    ['buildSideSectionMenu', buildSideSectionMenu('タグ', true), 'section:'],
     ['buildGridBlankMenu', buildGridBlankMenu(blank({ total: 0 })), 'blank:'],
     ['buildPlayerMenu', buildPlayerMenu(row({ isMissing: true })), 'player:'],
     ['buildLibraryMenu', buildLibraryMenu([libRow({ online: false })], 'zzz'), 'lib:'],

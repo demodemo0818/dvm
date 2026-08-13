@@ -429,6 +429,26 @@ export function buildTagGroupMenu(
 }
 
 /**
+ * サイドバーのセクション見出し(v1.42)。
+ *
+ * 折りたたみが右クリックにも入口を持つのはタググループ(`group:toggle`)・
+ * フォルダーツリー(`tree:expand`)と同じ規約。**「すべて開く」を必ず置く** ——
+ * 5 つ全部畳んだ状態から見出しのクリックだけで戻すと 5 回押すことになる
+ */
+export function buildSideSectionMenu(label: string, collapsed: boolean): MenuEntry[] {
+  return [
+    {
+      id: 'section:toggle',
+      label: collapsed ? `${label}を表示` : `${label}を隠す`,
+      icon: ChevronDown,
+    },
+    { separator: true },
+    { id: 'section:collapseAll', label: 'すべて畳む', icon: CopyMinus },
+    { id: 'section:expandAll', label: 'すべて開く', icon: CopyPlus },
+  ];
+}
+
+/**
  * サイドバーの監視フォルダ行(v1.20)。
  *
  * オフラインでも「表示」「パスをコピー」「監視対象から外す」は押せる —

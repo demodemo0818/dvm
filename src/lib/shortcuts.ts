@@ -151,11 +151,23 @@ export const SHORTCUTS: ShortcutGroup[] = [
   {
     key: 'mouse',
     title: 'マウスと組み合わせる',
-    when: '一覧のカード・行をクリックするとき',
+    when: '一覧のカード・行と、その余白',
     items: [
       { keys: [], display: 'クリック', label: 'その 1 件だけを選ぶ' },
       { mods: ['Ctrl'], keys: [], display: 'クリック', label: '選択に足す / 外す' },
       { mods: ['Shift'], keys: [], display: 'クリック', label: '直前に選んだ位置からの範囲を選ぶ' },
+      {
+        keys: [],
+        display: '余白からドラッグ',
+        label: '囲んだ範囲をまとめて選ぶ',
+        note: 'カードの上から掴むとキューパネルへの追加',
+      },
+      {
+        mods: ['Ctrl'],
+        keys: [],
+        display: '余白からドラッグ',
+        label: '囲んだ範囲を選択に足す',
+      },
     ],
   },
   {

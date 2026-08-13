@@ -1,15 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
   CACHE_GB_DEFAULT,
+  SECTION_KEYS,
   SETTINGS_SIZE_DEFAULT,
   SETTINGS_SIZE_MAX,
   SETTINGS_SIZE_MIN,
   parseCacheGb,
+  parseCollapsedSections,
   parseFlag,
   parseModalSize,
+  serializeCollapsedSections,
   serializeFlag,
   serializeModalSize,
 } from './settings';
+import type { SectionKey } from './settings';
 
 describe('parseFlag', () => {
   it('未設定は既定値を返す', () => {
@@ -86,5 +90,40 @@ describe('parseModalSize', () => {
   it('往復しても値が変わらない', () => {
     expect(parseModalSize(serializeModalSize({ w: 900, h: 800 }))).toEqual({ w: 900, h: 800 });
     expect(serializeModalSize(SETTINGS_SIZE_DEFAULT)).toBe('780x720');
+  });
+});
+
+describe('parseCollapsedSections', () => {
+  const set = (...keys: SectionKey[]) => new Set(keys);
+
+  // 読めない値で項目が消えたように見えるより、余分に開いているほうが害が無い
+  it('未設定・空・壊れた値はすべて「全部開く」', () => {
+    expect(parseCollapsedSections(null)).toEqual(new Set());
+    expect(parseCollapsedSections('')).toEqual(new Set());
+    expect(parseCollapsedSections('   ')).toEqual(new Set());
+    expect(parseCollapsedSections('{"tag":true}')).toEqual(new Set());
+  });
+
+  it('知らないキーは捨てる(消したセクションの残りを持ち越さない)', () => {
+    expect(parseCollapsedSections('tag,recent,series')).toEqual(set('tag', 'series'));
+    expect(parseCollapsedSections('recent')).toEqual(new Set());
+  });
+
+  it('前後の空白を許す', () => {
+    expect(parseCollapsedSections(' tag , series ')).toEqual(set('tag', 'series'));
+  });
+
+  it('往復しても値が変わらない', () => {
+    for (const keys of [[], ['tag'], ['smart', 'watched'], [...SECTION_KEYS]] as SectionKey[][]) {
+      const s = new Set(keys);
+      expect(parseCollapsedSections(serializeCollapsedSections(s))).toEqual(s);
+    }
+  });
+
+  // 集合の反復順で値が揺れると、同じ状態なのに設定への書き込みが毎回変わる
+  it('直列化の並びは SECTION_KEYS の順に揃う', () => {
+    expect(serializeCollapsedSections(set('tag', 'smart'))).toBe('smart,tag');
+    expect(serializeCollapsedSections(set('smart', 'tag'))).toBe('smart,tag');
+    expect(serializeCollapsedSections(new Set())).toBe('');
   });
 });

@@ -10,6 +10,8 @@ import { buildFolderMenu, buildGridBlankMenu, buildVideoMenu } from '../lib/cont
 import { excludeTargets, type ExcludeTargets } from '../lib/excludeOnDelete';
 import { GRID_GAP, GRID_PAD, gridMetrics } from '../lib/grid';
 import { gridTemplate, needsLabels, totalWidth } from '../lib/listColumns';
+import { bandHas, cellIndices, marqueeCells, rectFrom, sameCells } from '../lib/marquee';
+import type { CellRange, MarqueeHit, MarqueeLayout } from '../lib/marquee';
 import { parentDir } from '../lib/paths';
 import { buildQuery, type FilterState } from '../lib/query';
 import { addToQueue, EMPTY_QUEUE, needsSavePrompt, QUEUE_LIMIT } from '../lib/queue';
@@ -44,6 +46,41 @@ const SELECT_ALL_LIMIT = 1000;
  * ダブルクリック・範囲選択と同居していて誤発動の実害が大きいため
  */
 const QUEUE_DRAG_THRESHOLD = 6;
+
+/** 余白から始める矩形選択(投げ縄、v1.42)で自動スクロールを始める端からの距離(px) */
+const MARQUEE_EDGE = 48;
+/** 自動スクロールの最大速度(px/秒)。端に近いほどこれに寄る */
+const MARQUEE_SPEED_MAX = 1400;
+
+/**
+ * カード・行・列ヘッダの上か。**余白の右クリックメニュー(v1.20)と投げ縄(v1.42)で
+ * 必ず同じ判定を使う** —— 片方だけ増やすと「右クリックはメニューが出るのに
+ * 左ドラッグは始まらない」ずれになる。
+ * フォルダカードは `.card` を持ち `data-grid-index` を持たないので、ここで落ちる
+ * (フォルダは選択の対象外という既存の規約と一致する)
+ */
+const BLANK_SELECTOR = '.card, .list-row, .list-head';
+const isBlank = (t: EventTarget | null) =>
+  t instanceof HTMLElement && t.closest(BLANK_SELECTOR) === null;
+
+/**
+ * ドラッグで終わった pointerup の直後に来る click を 1 回だけ食べる。
+ * キューへの D&D(v1.41)と投げ縄(v1.42)が共用する。
+ *
+ * 通すと、キュー D&D では単独選択が走って複数選択が 1 件に潰れ、
+ * 投げ縄では `.grid-scroll` の余白クリックが走って**囲んだ選択がその場で消える**。
+ * click が来なかったときに次のクリックを食べないよう、必ず外す(QueuePanel と同じ)
+ */
+function eatNextClick() {
+  const eat = (ce: MouseEvent) => {
+    ce.stopPropagation();
+    ce.preventDefault();
+  };
+  window.addEventListener('click', eat, { capture: true, once: true });
+  window.setTimeout(() => window.removeEventListener('click', eat, { capture: true }), 0);
+}
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
 
 /** 右クリックメニューの対象。動画・サブフォルダ・余白で持ち物が違う */
 type MenuTarget =
@@ -206,6 +243,18 @@ export function VideoGrid() {
   // カード幅・表示モードを変えたら行高が変わるので測り直させる
   useEffect(() => virtualizer.measure(), [rowHeight, cols, virtualizer]);
 
+  /*
+   * 投げ縄の当たり判定に渡す一覧のかたち(v1.42)。
+   * **ref にも写す** —— rAF のループが最新の値を読む必要があるが、
+   * これを effect の依存に入れると 1 フレームごとにループが作り直される
+   */
+  const layout = useMemo<MarqueeLayout>(
+    () => ({ list, cols, cardW: grid.cardW, rowHeight, folderRows, total }),
+    [list, cols, grid.cardW, rowHeight, folderRows, total],
+  );
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
+
   /** その位置の動画で再生を開始する(⏭ で続きへ進めるようキューも渡す) */
   const play = useCallback(
     (video: VideoRow, index: number) => {
@@ -297,18 +346,197 @@ export function VideoGrid() {
     { x: number; y: number; over: boolean; count: number } | null
   >(null);
 
+  /*
+   * 余白からの矩形選択(投げ縄、v1.42)。
+   *
+   * 掴んだ場所で意味が変わる —— **カードの上ならキューへの D&D、余白なら投げ縄**
+   * (エクスプローラーと同じ)。入口は `onPointerDown` 1 つしか持てないのでここで分けるが、
+   * move / up の中身が互いに何も共有しないので**状態は別に持つ**。
+   *
+   * 当たり判定に DOM を使わない理由と幾何は `lib/marquee.ts` を参照
+   */
+  const innerRef = useRef<HTMLDivElement>(null);
+  /** 帯そのもの。毎フレームの再描画を避けるため React を通さず style を直接書く */
+  const marqueeRef = useRef<HTMLDivElement>(null);
+  const [marqueePress, setMarqueePress] = useState<
+    { x: number; y: number; contentX: number; contentY: number; additive: boolean } | null
+  >(null);
+  /** 閾値を超えてから離すまで true。囲めていない間も帯は出す */
+  const [marqueeOn, setMarqueeOn] = useState(false);
+  /** 塗るセルの範囲。**Set は作らない**(bandHas が算術で答える) */
+  const [band, setBand] = useState<CellRange | null>(null);
+  /** Ctrl 併用で足す元の選択。掴んだ瞬間に控える */
+  const marqueeBase = useRef<VideoRow[]>([]);
+
   const onGridPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (e.button !== 0) return;
       const el = (e.target as HTMLElement).closest('[data-grid-index]');
-      if (!(el instanceof HTMLElement)) return;
-      const index = Number(el.dataset.gridIndex);
-      const video = getVideo(index);
-      if (!video) return;
-      setQueuePress({ x: e.clientX, y: e.clientY, video, index });
+      if (el instanceof HTMLElement) {
+        const index = Number(el.dataset.gridIndex);
+        const video = getVideo(index);
+        if (!video) return;
+        setQueuePress({ x: e.clientX, y: e.clientY, video, index });
+        return;
+      }
+      // カード(未取得のプレースホルダとフォルダカードを含む)と列ヘッダの上では始めない
+      if (!isBlank(e.target)) return;
+      const inner = innerRef.current;
+      if (!inner) return;
+      const r = inner.getBoundingClientRect();
+      marqueeBase.current = useLibrary.getState().selection;
+      setMarqueePress({
+        x: e.clientX,
+        y: e.clientY,
+        // 始点は内容座標で覚える。スクロールしても掴んだ場所に貼り付いたままにする
+        contentX: e.clientX - r.left,
+        contentY: e.clientY - r.top,
+        // Shift は付けない —— このアプリの Shift は「anchor からの連続範囲」で意味が決まっている
+        additive: e.ctrlKey || e.metaKey,
+      });
     },
     [getVideo],
   );
+
+  /**
+   * 囲み終わったときに 1 回だけ選択を確定する。
+   *
+   * **ドラッグ中は store の `selection` を触らない**。`getRange` が非同期なので
+   * 毎フレームは待てず、同期の `getVideo` で埋めると未取得ページに穴が空く。
+   * それ以上に、`showInspector` が選択件数を見ているので**選択が 0 → 1 になった瞬間に
+   * 詳細ペインが開いて一覧の幅が変わり、指の下で列数が組み替わる**
+   */
+  const commitMarquee = useCallback(
+    async (hit: MarqueeHit | null, additive: boolean, downward: boolean) => {
+      const s = useLibrary.getState();
+      const l = layoutRef.current;
+      const idx = hit ? cellIndices(hit.range, l) : [];
+      if (idx.length === 0) {
+        // 何も囲めなかった。素のドラッグなら余白クリックと同じく選択を捨てる
+        if (!additive) s.clearSelection();
+        return;
+      }
+      const lo = idx[0];
+      // 足りないページを取りに行かせてから、同期の getVideo で歯抜けの行を拾う
+      // (getRange の戻りは詰められているので通し番号との対応に使えない)
+      await getRange(lo, idx[idx.length - 1]);
+      const picked = idx
+        .map((i) => getVideo(i))
+        .filter((v): v is VideoRow => v !== undefined);
+      const base = additive ? marqueeBase.current : [];
+      const seen = new Set(base.map((v) => v.id));
+      const merged = [...base, ...picked.filter((v) => !seen.has(v.id))];
+      // 次の Shift+クリックの起点はドラッグの終わり側に置く(そこから素直に伸びる)
+      const edge = downward ? idx[idx.length - 1] : lo;
+      s.setSelection(merged, edge, edge);
+      /*
+       * 上限は行単位で切るので、実際の件数は SELECT_ALL_LIMIT ちょうどにはならない
+       * (6 列なら 166 行 = 996 件)。**数えた実数を出す** —— 「1000 件」と言いながら
+       * 996 件しか選ばれていないと、数字を信じて次の操作をしたときに食い違う
+       */
+      if (hit?.truncated) {
+        pushToast(`先頭 ${idx.length} 件を選択しました(囲みの残りは入りません)`, 'info');
+      }
+    },
+    [getRange, getVideo, pushToast],
+  );
+
+  useEffect(() => {
+    if (!marqueePress) return;
+    const scroller = parentRef.current;
+    const inner = innerRef.current;
+    if (!scroller || !inner) return;
+
+    let started = false;
+    let raf = 0;
+    let lastT = 0;
+    let cur = { x: marqueePress.x, y: marqueePress.y };
+    let range: CellRange | null = null;
+
+    /** 最新のポインタ位置から帯を描き直し、触れているセルを返す */
+    const compute = (): MarqueeHit | null => {
+      const r = inner.getBoundingClientRect();
+      /*
+       * **帯をコンテンツの中に収める**。はみ出させると絶対配置の子として
+       * スクロール領域を伸ばし、自動スクロールと噛み合って際限なく伸び続ける
+       */
+      const maxX = Math.max(0, scroller.scrollWidth - inner.offsetLeft);
+      const maxY = inner.offsetHeight;
+      const rect = rectFrom(
+        marqueePress.contentX,
+        marqueePress.contentY,
+        clamp(cur.x - r.left, 0, maxX),
+        clamp(cur.y - r.top, 0, maxY),
+      );
+      const el = marqueeRef.current;
+      if (el) {
+        el.style.left = `${rect.left}px`;
+        el.style.top = `${rect.top}px`;
+        el.style.width = `${rect.right - rect.left}px`;
+        el.style.height = `${rect.bottom - rect.top}px`;
+      }
+      return marqueeCells(rect, layoutRef.current, SELECT_ALL_LIMIT);
+    };
+
+    /*
+     * **ポインタが止まっていても回す**。端に張り付けている間は内容だけが動くので、
+     * pointermove 起点にすると自動スクロール中に選択が伸びない
+     */
+    const frame = (t: number) => {
+      raf = requestAnimationFrame(frame);
+      const dt = lastT === 0 ? 0 : Math.min((t - lastT) / 1000, 0.05);
+      lastT = t;
+      if (!started) return;
+
+      const box = scroller.getBoundingClientRect();
+      const over = cur.y < box.top + MARQUEE_EDGE
+        ? cur.y - (box.top + MARQUEE_EDGE)
+        : Math.max(0, cur.y - (box.bottom - MARQUEE_EDGE));
+      if (over !== 0) {
+        const ratio = clamp(Math.abs(over) / MARQUEE_EDGE, 0, 1);
+        scroller.scrollTop += Math.sign(over) * ratio * MARQUEE_SPEED_MAX * dt;
+      }
+
+      const hit = compute();
+      // 触れているセルが変わったフレームだけ描き直す(帯の追従は上の style 直書きで済む)
+      if (!sameCells(hit?.range ?? null, range)) {
+        range = hit?.range ?? null;
+        setBand(range);
+      }
+    };
+    raf = requestAnimationFrame(frame);
+
+    const onMove = (e: PointerEvent) => {
+      cur = { x: e.clientX, y: e.clientY };
+      if (started) return;
+      if (Math.hypot(e.clientX - marqueePress.x, e.clientY - marqueePress.y)
+        < QUEUE_DRAG_THRESHOLD) return;
+      started = true;
+      setMarqueeOn(true);
+    };
+    const onUp = (e: PointerEvent) => {
+      cur = { x: e.clientX, y: e.clientY };
+      const hit = started ? compute() : null;
+      const downward = e.clientY - marqueePress.y >= 0;
+      setMarqueePress(null);
+      // 動かしていない = ただのクリック。従来どおり余白クリックの選択解除に任せる
+      if (!started) return;
+      eatNextClick();
+      void commitMarquee(hit, marqueePress.additive, downward);
+    };
+    const onCancel = () => setMarqueePress(null);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+      setMarqueeOn(false);
+      setBand(null);
+    };
+  }, [marqueePress, commitMarquee]);
 
   useEffect(() => {
     if (!queuePress) return;
@@ -614,7 +842,8 @@ export function VideoGrid() {
     if (total === 0) return;
     const limit = Math.min(total, SELECT_ALL_LIMIT);
     const rows = await getRange(0, limit - 1);
-    setSelection(rows, 0);
+    // anchor も先頭に置く。据え置くと全選択の直後の Shift+クリックが的外れな範囲を選ぶ
+    setSelection(rows, 0, 0);
     if (total > SELECT_ALL_LIMIT) {
       pushToast(`先頭 ${SELECT_ALL_LIMIT} 件を選択しました(全 ${total} 件)`, 'info');
     }
@@ -630,7 +859,16 @@ export function VideoGrid() {
    */
   const onBlankContextMenu = useCallback(
     (e: React.MouseEvent) => {
-      if ((e.target as HTMLElement).closest('.card, .list-row, .list-head')) return;
+      /*
+       * **左ボタンで掴んだままの右クリック**では pointerup が来ず帯が宙に浮くので、
+       * 投げ縄を中止してメニューは出さない(TagTree の `cancelDragForMenu` と同じ判断)。
+       * 右クリックで投げ縄が始まらないのは `onGridPointerDown` の `e.button !== 0`
+       */
+      if (marqueePress) {
+        setMarqueePress(null);
+        return;
+      }
+      if (!isBlank(e.target)) return;
       openMenu(
         e,
         buildGridBlankMenu({
@@ -816,7 +1054,7 @@ export function VideoGrid() {
     >
       {/* 仮想化コンテナの手前に置く。中に入れると folderRows の添字計算が崩れる */}
       {list && <ListHeader columns={listColumns} />}
-      <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+      <div ref={innerRef} style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
         {virtualizer.getVirtualItems().map((row) => (
           <div
             key={row.key}
@@ -882,7 +1120,18 @@ export function VideoGrid() {
                 // 行より一拍遅れて届く。未取得なら undefined のまま渡す
                 labels: video ? getLabels(video.id) : undefined,
                 index,
-                selected: video ? selectedIds.has(video.id) : false,
+                /*
+                 * 投げ縄の最中は**囲みの中身をそのまま選択の見た目で出す**(v1.42)。
+                 * 別のクラスにすると「離したら結果が変わった」に見えるので、
+                 * 見えているとおりが離した瞬間に確定するようにしてある。
+                 * Ctrl 併用のときだけ掴む前の選択も残す
+                 */
+                selected: video
+                  ? (marqueeOn
+                    ? (band !== null && bandHas(band, index, layout))
+                      || (marqueePress?.additive === true && selectedIds.has(video.id))
+                    : selectedIds.has(video.id))
+                  : false,
                 focused: focusIndex === index,
                 onPick,
                 onPlay: play,
@@ -896,6 +1145,13 @@ export function VideoGrid() {
             })}
           </div>
         ))}
+        {/*
+          投げ縄の帯(v1.42)。**仮想化コンテナの中**に内容座標で置く ——
+          当たり判定と同じ座標系になるので、`.grid-scroll` の padding-top や
+          sticky な列ヘッダのぶんを自分で足し引きしなくて済む。
+          位置は rAF が style に直接書く(毎フレーム React を通さないため)
+        */}
+        {marqueeOn && <div className="marquee" ref={marqueeRef} />}
       </div>
       {total === 0 && folderEntries.length === 0 && (
         <div className="empty-hint">

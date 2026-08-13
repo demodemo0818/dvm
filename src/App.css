@@ -168,6 +168,43 @@ body {
   padding: 12px 10px 4px;
 }
 
+/*
+ * 折りたためるセクションの見出し(v1.42)。中身は詳細ペインと同じ
+ * .section-toggle / .section-chevron を使い回す —— もともと
+ * 「.side-section と同じトーンに揃える」つもりで作られたもの(下の v1.15 の節を参照)。
+ * ここが持つのは .side-section と同じ余白と、件数を右へ寄せる flex だけ
+ */
+.side-section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 10px 4px;
+}
+
+/* 見出しの当たり判定を行いっぱいにする(文字の右の余白を押しても畳める) */
+.side-section-head .section-toggle {
+  flex: 1;
+  min-width: 0;
+}
+
+/*
+ * 絞り込み中の見出し。畳みが効かないので三角を出さず、
+ * v1.41 までの .side-section と同じただの文字に戻す(押しても効かないボタンを作らない)。
+ * 三角ぶん(14px + gap 2px)だけ左にずれないよう padding で埋める
+ */
+.side-section-label {
+  flex: 1;
+  min-width: 0;
+  padding-left: 16px;
+  color: #8a8f9c;
+  font-size: 11px;
+}
+
+/* 畳んでいるときだけ出す項目数。行の .count(= 動画の本数)とは意味が違う */
+.side-section-head .count {
+  flex-shrink: 0;
+}
+
 /* ライブラリ / フォルダー の切り替え。サイドバーの下半分だけを入れ替える */
 .sidebar-tabs {
   display: flex;
@@ -312,6 +349,24 @@ body {
 
 .side-item.active .pl-meta {
   color: #dfe6f5;
+}
+
+/*
+ * 余白からのドラッグで囲む帯(投げ縄、v1.42)。
+ *
+ * **z-index は 1 まで**。詳細リストの `.list-head` が sticky で z-index: 2 を持っており、
+ * 超えると帯が列ヘッダの上に乗る。
+ * `pointer-events: none` は必須 —— 無いと帯の下のカードのホバーと
+ * `elementFromPoint`(キューへの D&D)が死ぬ。
+ * 色は新しく持ち込まず、枠は `.card.focused` の #6ea8ff、塗りは選択色 #2f66d0 から取る
+ */
+.marquee {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+  border: 1px solid #6ea8ff;
+  background: rgba(47, 102, 208, 0.18);
+  border-radius: 2px;
 }
 
 /* カード → キューパネル D&D のゴースト(v1.41、C-5)。カーソルに追従する札 */

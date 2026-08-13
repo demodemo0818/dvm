@@ -41,6 +41,37 @@ export function parseCacheGb(raw: string | null): number {
   return Math.min(Math.max(Math.round(n), CACHE_GB_MIN), CACHE_GB_MAX);
 }
 
+/*
+ * サイドバー(ライブラリタブ)の折りたたみ(v1.42)。
+ *
+ * **`tag_groups` の折りたたみ(localStorage)とは持ち方が違う**。あちらは中身が
+ * ライブラリごとに別物の id なのでライブラリ単位に分けているが、こちらのキーは
+ * ライブラリに依存しない固定文字列なので `sidebar_tab` / `sidebar_collapsed` と
+ * 同じく app.db の settings に置く
+ */
+export const SECTION_KEYS = ['smart', 'playlist', 'watched', 'series', 'tag'] as const;
+export type SectionKey = (typeof SECTION_KEYS)[number];
+
+/**
+ * 畳んでいるセクション。**未設定・壊れた値はすべて「全部開く」に落とす** ——
+ * 読めない値のせいで項目が消えたように見えるより、余分に開いているほうが害が無い。
+ * 知らないキー(将来消したセクションの残り)は捨てる
+ */
+export function parseCollapsedSections(raw: string | null): Set<SectionKey> {
+  const known = new Set<string>(SECTION_KEYS);
+  return new Set(
+    (raw ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s): s is SectionKey => known.has(s)),
+  );
+}
+
+/** 並びは SECTION_KEYS の順に揃える(集合の反復順で値が揺れないようにする) */
+export function serializeCollapsedSections(keys: Set<SectionKey>): string {
+  return SECTION_KEYS.filter((k) => keys.has(k)).join(',');
+}
+
 /** 設定モーダルの大きさ(v1.38) */
 export type ModalSize = { w: number; h: number };
 

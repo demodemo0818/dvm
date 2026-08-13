@@ -8,13 +8,18 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useContextMenu } from '../hooks/useContextMenu';
 import {
-  buildLibraryMenu, buildPlaylistMenu, buildSeriesMenu, buildSmartFolderMenu, buildWatchedFolderMenu,
+  buildLibraryMenu, buildPlaylistMenu, buildSeriesMenu, buildSideSectionMenu, buildSmartFolderMenu,
+  buildWatchedFolderMenu,
 } from '../lib/contextMenu';
 import { fmtTime } from '../lib/format';
 import { baseName } from '../lib/paths';
 import { buildQuery, toFilterState } from '../lib/query';
 import { QUEUE_LIMIT, sourceRemoved, sourceRenamed } from '../lib/queue';
 import { replaceQueueWith } from '../lib/queueLoad';
+import {
+  SECTION_KEYS, parseCollapsedSections, serializeCollapsedSections,
+} from '../lib/settings';
+import type { SectionKey } from '../lib/settings';
 import { thumbSrc } from '../lib/thumbs';
 import { useShallow } from 'zustand/react/shallow';
 import { pickState, useLibrary } from '../store';
@@ -39,8 +44,65 @@ type MenuTarget =
   | { kind: 'sf'; sf: SmartFolder }
   | { kind: 'series'; series: Series }
   | { kind: 'playlist'; playlist: Playlist }
+  // v1.42。セクション見出しの折りたたみ
+  | { kind: 'section'; section: SectionKey; label: string }
   // v1.27。これだけ右クリックではなくボタンの左クリックで開く
   | { kind: 'library' };
+
+/**
+ * 折りたためるセクションの見出し(v1.42)。ライブラリタブの 5 か所で使う。
+ *
+ * **見出しの JSX はここ 1 本にする**。三角・件数・右クリックが付いて 1 か所 10 行になり、
+ * 5 か所に写すと片方だけ直したときにずれる。三角の見た目は詳細ペインの
+ * `.section-toggle` / `.section-chevron` をそのまま使う(もともと `.side-section` と
+ * 同じトーンで作られている。App.css の v1.15 の節を参照)。
+ *
+ * **`<div>` で包まずフラグメントを返すこと**。`.sidebar` は `gap: 2px` の 1 段の flex で
+ * 行がすべてその直接の子なので、包むとセクションまるごとが 1 個の flex アイテムに潰れて
+ * 行間が消える(`MediaInfoSection` がフラグメントを返しているのも同じ理由)。
+ *
+ * `children` にはその節の一覧だけでなく「+ フォルダを追加」のような**付属のボタンも入れる** ——
+ * 見出しを畳んだのにボタンだけ残ると、何に対する追加なのか分からなくなる
+ */
+function SideSection({
+  label, count, collapsed, filtering, onToggle, onContextMenu, children,
+}: {
+  label: string;
+  /** 項目数。**畳んでいるときだけ出す** —— 行の `.count` は動画の本数なので、
+   *  開いている間も出すと同じ見た目の数字が 2 つの意味で並ぶ */
+  count: number;
+  collapsed: boolean;
+  /** 絞り込み中。畳みを無視して必ず開き、押しても何も起きない三角は消す */
+  filtering: boolean;
+  onToggle: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+  children: React.ReactNode;
+}) {
+  const open = filtering || !collapsed;
+  return (
+    <>
+      <div className="side-section-head" onContextMenu={onContextMenu}>
+        {filtering ? (
+          // 絞り込み中は畳めないので、v1.41 までと同じただの見出しに戻す。
+          // 三角を残すと「押しても何も変わらないボタン」になる
+          <span className="side-section-label">{label}</span>
+        ) : (
+          <button
+            className={`section-toggle ${open ? 'open' : ''}`}
+            onClick={onToggle}
+            title={open ? `${label}を隠す` : `${label}を表示`}
+          >
+            {/* 開閉でアイコンを変えず CSS で回す(形が変わると大きさが違って見える) */}
+            <ChevronDown className="section-chevron" />
+            {label}
+          </button>
+        )}
+        {!open && <span className="count">{count}</span>}
+      </div>
+      {open && children}
+    </>
+  );
+}
 
 /**
  * いま画面に効いている絞り込みを VideoQuery にする(スマートフォルダの上書き用)。
@@ -85,6 +147,14 @@ export function Sidebar() {
   // ライブラリタブの項目名で絞り込む(v1.19)。DB は引かず手元の配列を絞るだけなので
   // デバウンスは要らない。動画そのものの検索はツールバー側の担当
   const [sideFilter, setSideFilter] = useState('');
+  /*
+   * 畳んでいるセクション(v1.42)。項目が増えると左ペインが縦に伸びきるので節ごとに畳める。
+   *
+   * **localStorage ではなく settings に持つ**。TagTree のグループを localStorage に
+   * 置いているのは中身が `tag_groups.id` でライブラリごとに別物だからで、
+   * こちらのキーはライブラリに依存しない固定文字列。`sidebar_tab` と同じ扱いにする
+   */
+  const [collapsed, setCollapsed] = useState<Set<SectionKey>>(new Set());
 
   useEffect(() => {
     api.listWatchedFolders().then(setFolders);
@@ -118,9 +188,27 @@ export function Sidebar() {
     api.listFolderTree().then(setFolderTree);
   }, [tab, version]);
 
+  // 畳んでいた節を復元する(sidebar_tab と同じくここで読む)
+  useEffect(() => {
+    api.getSetting('sidebar_sections').then((v) => setCollapsed(parseCollapsedSections(v)));
+  }, []);
+
   const selectTab = (next: SidebarTab) => {
     setTab(next);
     api.setSetting('sidebar_tab', next);
+  };
+
+  /** 畳み状態の唯一の書き込み口。state と設定を必ず一緒に動かす */
+  const saveCollapsed = (next: Set<SectionKey>) => {
+    setCollapsed(next);
+    api.setSetting('sidebar_sections', serializeCollapsedSections(next));
+  };
+
+  const toggleSection = (key: SectionKey) => {
+    const next = new Set(collapsed);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    saveCollapsed(next);
   };
 
   /**
@@ -430,6 +518,16 @@ export function Sidebar() {
         return;
       }
 
+      if (target.kind === 'section') {
+        switch (id) {
+          case 'section:toggle': toggleSection(target.section); break;
+          case 'section:collapseAll': saveCollapsed(new Set(SECTION_KEYS)); break;
+          case 'section:expandAll': saveCollapsed(new Set()); break;
+          default:
+        }
+        return;
+      }
+
       if (target.kind === 'wf') {
         const f = target.folder;
         switch (id) {
@@ -531,6 +629,22 @@ export function Sidebar() {
     (t) => hit(t.name) || hit(t.groupName ?? '') || (t.groupId == null && hit('未分類')),
   );
   const currentLib = libraries.find((l) => l.id === currentLibId) ?? null;
+  /*
+   * セクション見出しに渡す共通の props(v1.42)。絞り込み中は畳みを無視して必ず開く ——
+   * TagTree のグループ(`renderHeader` の `!filtering && collapsed.has(key)`)と同じ規約で、
+   * 絞った結果が畳まれていては意味がないため
+   */
+  const sectionProps = (section: SectionKey, label: string, count: number) => ({
+    label,
+    count,
+    collapsed: collapsed.has(section),
+    filtering: needle !== '',
+    onToggle: () => toggleSection(section),
+    onContextMenu: (e: React.MouseEvent) =>
+      openMenu(e, buildSideSectionMenu(label, collapsed.has(section)), {
+        kind: 'section' as const, section, label,
+      }),
+  });
   const nothingMatches =
     needle !== '' &&
     shownSmart.length === 0 &&
@@ -631,40 +745,43 @@ export function Sidebar() {
             onChange={(e) => setSideFilter(e.target.value)}
           />
 
-          {shownSmart.length > 0 && <div className="side-section">スマートフォルダ</div>}
-          {shownSmart.map((sf) => (
-            <div
-              key={sf.id}
-              className="side-item folder"
-              onClick={() => openSmartFolder(sf)}
-              onContextMenu={(e) =>
-                openMenu(
-                  e,
-                  // 並べ替えの index は絞り込む前の並びで数える
-                  buildSmartFolderMenu(
-                    sf,
-                    smartFolders.findIndex((x) => x.id === sf.id),
-                    smartFolders.length,
-                    needle !== '',
-                  ),
-                  { kind: 'sf', sf },
-                )}
-              title={`${sf.name}(保存した検索条件を復元します)`}
-            >
-              <FolderSearch className="tag-mark" />
-              <span className="folder-name">{sf.name}</span>
-              <button
-                className="remove"
-                title="スマートフォルダを削除"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  removeSmartFolder(sf);
-                }}
-              >
-                ×
-              </button>
-            </div>
-          ))}
+          {shownSmart.length > 0 && (
+            <SideSection {...sectionProps('smart', 'スマートフォルダ', smartFolders.length)}>
+              {shownSmart.map((sf) => (
+                <div
+                  key={sf.id}
+                  className="side-item folder"
+                  onClick={() => openSmartFolder(sf)}
+                  onContextMenu={(e) =>
+                    openMenu(
+                      e,
+                      // 並べ替えの index は絞り込む前の並びで数える
+                      buildSmartFolderMenu(
+                        sf,
+                        smartFolders.findIndex((x) => x.id === sf.id),
+                        smartFolders.length,
+                        needle !== '',
+                      ),
+                      { kind: 'sf', sf },
+                    )}
+                  title={`${sf.name}(保存した検索条件を復元します)`}
+                >
+                  <FolderSearch className="tag-mark" />
+                  <span className="folder-name">{sf.name}</span>
+                  <button
+                    className="remove"
+                    title="スマートフォルダを削除"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeSmartFolder(sf);
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </SideSection>
+          )}
 
           {/*
             保存プレイリスト(v1.40)。**スマートフォルダの直後**に置く ——
@@ -675,152 +792,162 @@ export function Sidebar() {
             機能に気づく入口が右クリックメニューと Q キーだけで、棚が空の人ほど見えなかった
           */}
           {(shownPlaylists.length > 0 || !needle) && (
-            <div className="side-section">プレイリスト</div>
-          )}
-          {playlists.length === 0 && !needle && (
-            <div className="side-empty">
-              動画を選んで右クリック →「キュー」で並べ、キューパネルから保存するとここに並びます
-            </div>
-          )}
-          {shownPlaylists.map((p) => (
-            <div
-              key={p.id}
-              className={`side-item playlist-row ${playlistId === p.id ? 'active' : ''}`}
-              onClick={() => togglePlaylistFilter(p.id)}
-              onContextMenu={(e) =>
-                openMenu(
-                  e,
-                  // 並べ替えの index は絞り込む前の並びで数える(スマートフォルダと同じ)
-                  buildPlaylistMenu(
-                    p,
-                    playlistId === p.id,
-                    playlists.findIndex((x) => x.id === p.id),
-                    playlists.length,
-                    needle !== '',
-                  ),
-                  { kind: 'playlist', playlist: p },
-                )}
-              title={`${p.name}(クリックで絞り込み。右クリックからキューに読み込めます)`}
-            >
-              {/*
-                先頭サムネイル + 2 行(v1.41、C-6)。キュー行と同じ 44×25 の枠で、
-                **ディスクキャッシュの jpg を読むだけ**(原則 2 の内側)。
-                サムネイルを持つ動画が 1 本も無ければ枠の地色だけが見える
-              */}
-              <span className="pl-thumb">
-                {p.thumbPath && (
-                  <img
-                    src={thumbSrc(convertFileSrc(p.thumbPath), thumbVersion)}
-                    loading="lazy"
-                    alt=""
-                    draggable={false}
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
+            <SideSection {...sectionProps('playlist', 'プレイリスト', playlists.length)}>
+              {playlists.length === 0 && !needle && (
+                <div className="side-empty">
+                  動画を選んで右クリック →「キュー」で並べ、キューパネルから保存するとここに並びます
+                </div>
+              )}
+              {shownPlaylists.map((p) => (
+                <div
+                  key={p.id}
+                  className={`side-item playlist-row ${playlistId === p.id ? 'active' : ''}`}
+                  onClick={() => togglePlaylistFilter(p.id)}
+                  onContextMenu={(e) =>
+                    openMenu(
+                      e,
+                      // 並べ替えの index は絞り込む前の並びで数える(スマートフォルダと同じ)
+                      buildPlaylistMenu(
+                        p,
+                        playlistId === p.id,
+                        playlists.findIndex((x) => x.id === p.id),
+                        playlists.length,
+                        needle !== '',
+                      ),
+                      { kind: 'playlist', playlist: p },
+                    )}
+                  title={`${p.name}(クリックで絞り込み。右クリックからキューに読み込めます)`}
+                >
+                  {/*
+                    先頭サムネイル + 2 行(v1.41、C-6)。キュー行と同じ 44×25 の枠で、
+                    **ディスクキャッシュの jpg を読むだけ**(原則 2 の内側)。
+                    サムネイルを持つ動画が 1 本も無ければ枠の地色だけが見える
+                  */}
+                  <span className="pl-thumb">
+                    {p.thumbPath && (
+                      <img
+                        src={thumbSrc(convertFileSrc(p.thumbPath), thumbVersion)}
+                        loading="lazy"
+                        alt=""
+                        draggable={false}
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
+                        onLoad={(e) => {
+                          e.currentTarget.style.display = '';
+                        }}
+                      />
+                    )}
+                  </span>
+                  <span className="pl-lines">
+                    <span className="folder-name">{p.name}</span>
+                    <span className="pl-meta">
+                      {p.videoCount} 本
+                      {p.durationMs > 0 ? `・${fmtTime(p.durationMs / 1000)}` : ''}
+                    </span>
+                  </span>
+                  <button
+                    className="remove"
+                    title="プレイリストを削除"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removePlaylist(p);
                     }}
-                    onLoad={(e) => {
-                      e.currentTarget.style.display = '';
-                    }}
-                  />
-                )}
-              </span>
-              <span className="pl-lines">
-                <span className="folder-name">{p.name}</span>
-                <span className="pl-meta">
-                  {p.videoCount} 本
-                  {p.durationMs > 0 ? `・${fmtTime(p.durationMs / 1000)}` : ''}
-                </span>
-              </span>
-              <button
-                className="remove"
-                title="プレイリストを削除"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  removePlaylist(p);
-                }}
-              >
-                ×
-              </button>
-            </div>
-          ))}
-          {/* M3U8 の取り込み(v1.41、C-3)。絞り込み中は追加ボタンを隠す(下の 2 つと同じ) */}
-          {!needle && (
-            <button
-              className="side-action"
-              title="M3U8 / M3U を読み込んで同じ名前のプレイリストを作ります(未登録の動画はライブラリにも登録されます)"
-              onClick={importM3u8}
-            >
-              + M3U8 を読み込む
-            </button>
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              {/* M3U8 の取り込み(v1.41、C-3)。絞り込み中は追加ボタンを隠す(下の 2 つと同じ) */}
+              {!needle && (
+                <button
+                  className="side-action"
+                  title="M3U8 / M3U を読み込んで同じ名前のプレイリストを作ります(未登録の動画はライブラリにも登録されます)"
+                  onClick={importM3u8}
+                >
+                  + M3U8 を読み込む
+                </button>
+              )}
+            </SideSection>
           )}
 
           {(shownFolders.length > 0 || !needle) && (
-            <div className="side-section" title="クリックするとそのフォルダ配下の動画をまとめて表示します">
-              監視フォルダ
-            </div>
-          )}
-          {shownFolders.map((f) => (
-            <div
-              key={f.id}
-              className={`side-item folder ${folderId === f.id ? 'active' : ''}`}
-              onClick={() => setFolderId(f.id)}
-              onContextMenu={(e) =>
-                openMenu(e, buildWatchedFolderMenu(f, folderId === f.id), { kind: 'wf', folder: f })}
-              title={`${f.path}\nクリックでこのフォルダ配下すべてを表示(サブフォルダ単位で絞るなら「フォルダー」タブ)`}
-            >
-              <span className={`dot ${f.online ? 'online' : 'offline'}`} />
-              <span className="folder-name">{baseName(f.path)}</span>
-              <span className="count">{f.videoCount}</span>
-              <button
-                className="remove"
-                title="監視対象から外す"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  removeFolder(f);
-                }}
-              >
-                ×
-              </button>
-            </div>
-          ))}
+            <SideSection {...sectionProps('watched', '監視フォルダ', folders.length)}>
+              {shownFolders.map((f) => (
+                <div
+                  key={f.id}
+                  className={`side-item folder ${folderId === f.id ? 'active' : ''}`}
+                  onClick={() => setFolderId(f.id)}
+                  onContextMenu={(e) =>
+                    openMenu(e, buildWatchedFolderMenu(f, folderId === f.id), {
+                      kind: 'wf', folder: f,
+                    })}
+                  title={`${f.path}\nクリックでこのフォルダ配下すべてを表示(サブフォルダ単位で絞るなら「フォルダー」タブ)`}
+                >
+                  <span className={`dot ${f.online ? 'online' : 'offline'}`} />
+                  <span className="folder-name">{baseName(f.path)}</span>
+                  <span className="count">{f.videoCount}</span>
+                  <button
+                    className="remove"
+                    title="監視対象から外す"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeFolder(f);
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
 
-          {/* 絞り込み中は追加ボタンを隠す — 探している最中に出ていても邪魔なだけ */}
-          {!needle && (
-            <>
-              <button className="side-action" onClick={addFolder}>+ フォルダを追加</button>
-              <button className="side-action" onClick={addFiles}>+ ファイルを追加</button>
-            </>
+              {/* 絞り込み中は追加ボタンを隠す — 探している最中に出ていても邪魔なだけ */}
+              {!needle && (
+                <>
+                  <button className="side-action" onClick={addFolder}>+ フォルダを追加</button>
+                  <button className="side-action" onClick={addFiles}>+ ファイルを追加</button>
+                </>
+              )}
+            </SideSection>
           )}
 
-          {shownSeries.length > 0 && <div className="side-section">シリーズ</div>}
-          {shownSeries.map((s) => (
-            <div
-              key={s.id}
-              className={`side-item folder ${seriesId === s.id ? 'active' : ''}`}
-              onClick={() => toggleSeriesFilter(s.id)}
-              onContextMenu={(e) =>
-                openMenu(e, buildSeriesMenu(s, seriesId === s.id), { kind: 'series', series: s })}
-              title={`${s.name}(クリックで絞り込み。シリーズ内は登録順で表示)`}
-            >
-              <ListOrdered className="tag-mark" />
-              <span className="folder-name">{s.name}</span>
-              <span className="count">{s.videoCount}</span>
-              <button
-                className="remove"
-                title="シリーズを削除"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  removeSeries(s);
-                }}
-              >
-                ×
-              </button>
-            </div>
-          ))}
+          {shownSeries.length > 0 && (
+            <SideSection {...sectionProps('series', 'シリーズ', seriesList.length)}>
+              {shownSeries.map((s) => (
+                <div
+                  key={s.id}
+                  className={`side-item folder ${seriesId === s.id ? 'active' : ''}`}
+                  onClick={() => toggleSeriesFilter(s.id)}
+                  onContextMenu={(e) =>
+                    openMenu(e, buildSeriesMenu(s, seriesId === s.id), {
+                      kind: 'series', series: s,
+                    })}
+                  title={`${s.name}(クリックで絞り込み。シリーズ内は登録順で表示)`}
+                >
+                  <ListOrdered className="tag-mark" />
+                  <span className="folder-name">{s.name}</span>
+                  <span className="count">{s.videoCount}</span>
+                  <button
+                    className="remove"
+                    title="シリーズを削除"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeSeries(s);
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </SideSection>
+          )}
 
           {/* タグが 0 個でも見出しを出す — ここから作成を始めるため。
-              ただし絞り込み中にヒットが無いなら消す */}
-          {(shownTags.length > 0 || !needle) && <div className="side-section">タグ</div>}
-          <TagTree tags={shownTags} groups={tagGroups} filtering={needle !== ''} />
+              ただし絞り込み中にヒットが無いなら消す(TagTree 側も全部 null を返す) */}
+          {(shownTags.length > 0 || !needle) && (
+            <SideSection {...sectionProps('tag', 'タグ', tags.length)}>
+              <TagTree tags={shownTags} groups={tagGroups} filtering={needle !== ''} />
+            </SideSection>
+          )}
 
           {nothingMatches && (
             <div className="side-empty">「{sideFilter.trim()}」に一致する項目はありません</div>
