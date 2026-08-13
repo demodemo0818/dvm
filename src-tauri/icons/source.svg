@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 512 512">
+  <!-- DVM アプリアイコン。D の counter(内側の空き)がそのまま再生記号になっている。
+       図柄を変えるときはこの SVG を編集し、npx tauri icon にこのファイルを渡して
+       全サイズを再生成する(手順は docs/DESIGN.md「アプリアイコン」節)。 -->
+  <defs>
+    <linearGradient id="tile" x1="56" y1="32" x2="456" y2="480" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4d86f2"/>
+      <stop offset="1" stop-color="#2450b4"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="115" fill="url(#tile)"/>
+  <path fill="#ffffff" fill-rule="evenodd"
+        d="M108 132 A24 24 0 0 1 132 108 H236 C346 108 404 174 404 256 C404 338 346 404 236 404 H132 A24 24 0 0 1 108 380 Z M174 174 L320 256 L174 338 Z"/>
+</svg>
