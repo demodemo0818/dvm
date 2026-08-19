@@ -1,10 +1,14 @@
 [package]
 name = "dvm"
-version = "1.31.0"
+version = "1.43.0"
 description = "DVM(Demodemo Video Manager)— Windows 向け動画管理ソフト"
 authors = ["taiki"]
 edition = "2021"
 default-run = "dvm"
+# FFmpeg を GPL ビルドのまま同梱するので本体も GPLv3 に揃えている
+# (詳細は THIRD-PARTY-NOTICES.md)
+license = "GPL-3.0-or-later"
+repository = "https://github.com/demodemo0818/dvm"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

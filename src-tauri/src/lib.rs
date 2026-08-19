@@ -351,3 +351,65 @@ pub fn run() {
             }
         });
 }
+
+/// 配布物に入れるライセンス文書が、リポジトリルートの正本とずれていないか見張る。
+///
+/// GPL は「コピーと一緒にライセンス全文を渡す」ことを求めるので、`bundle.resources` で
+/// `src-tauri/resources/` をインストール先に入れている。**ここにコピーを置いているのは、
+/// `bundle.resources` が `../` を辿れないため**(Tauri 2.11 では `../LICENSE` を書くと
+/// ビルドが `os error 5` で落ちる)。二重管理になる以上、片方だけ直したときに
+/// 気づけるようにしておく。
+#[cfg(test)]
+mod bundled_legal_docs {
+    /// 改行コードの差(git の autocrlf)は本質ではないので揃えてから比べる
+    fn normalized(s: &str) -> String {
+        s.replace("\r\n", "\n")
+    }
+
+    #[test]
+    fn license_matches_repo_root() {
+        assert_eq!(
+            normalized(include_str!("../resources/LICENSE")),
+            normalized(include_str!("../../LICENSE")),
+            "src-tauri/resources/LICENSE がルートの LICENSE と違う。コピーし直すこと",
+        );
+    }
+
+    #[test]
+    fn third_party_notices_matches_repo_root() {
+        assert_eq!(
+            normalized(include_str!("../resources/THIRD-PARTY-NOTICES.md")),
+            normalized(include_str!("../../THIRD-PARTY-NOTICES.md")),
+            "src-tauri/resources/THIRD-PARTY-NOTICES.md がルートのものと違う。コピーし直すこと",
+        );
+    }
+}
+
+/// バージョン番号は `Cargo.toml` / `tauri.conf.json` / `package.json` の 3 か所にある。
+///
+/// **実際に 1.31.0 のまま v1.43 まで開発が進んでいた**(公開準備で気づいた)。ずれると
+/// インストーラのファイル名と中身の版が食い違うので、上げ忘れをテストで落とす。
+/// 手順は `docs/RELEASE.md`。
+#[cfg(test)]
+mod version_consistency {
+    #[test]
+    fn all_manifests_agree() {
+        let cargo = env!("CARGO_PKG_VERSION");
+
+        let tauri: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json"))
+            .expect("tauri.conf.json が JSON として読めない");
+        assert_eq!(
+            tauri["version"].as_str(),
+            Some(cargo),
+            "tauri.conf.json の version が Cargo.toml とずれている",
+        );
+
+        let pkg: serde_json::Value = serde_json::from_str(include_str!("../../package.json"))
+            .expect("package.json が JSON として読めない");
+        assert_eq!(
+            pkg["version"].as_str(),
+            Some(cargo),
+            "package.json の version が Cargo.toml とずれている",
+        );
+    }
+}

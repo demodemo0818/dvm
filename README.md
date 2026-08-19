@@ -4,20 +4,48 @@ Windows 向けの動画管理ソフトです。動画ファイルを**コピー�
 サムネイル・タグ・シリーズ・評価で整理します。外付け HDD や NAS に置いた大量の動画を
 そのまま扱えます。
 
+![DVM のメイン画面](docs/images/main.png)
+
 - サムネイルグリッド(仮想化済みなので数万件でも軽い)
 - タグ / タググループ / シリーズ / 評価 / スマートフォルダ
 - アプリ内再生(libmpv)、ホバープレビュー、視聴履歴とレジューム
 - 重複検出、見つからないファイルの検出と再リンク
 - **AI からの操作**(下記)
 
+| タグとシリーズで分類 | libmpv によるアプリ内再生 |
+|---|---|
+| ![タグ付け](docs/images/tags.png) | ![プレイヤー](docs/images/player.png) |
+
+使い方の詳しい説明は **[公式サイト(demo2.jp/dvm)](https://demo2.jp/dvm/)** にあります。
+
+## 動作環境
+
+- Windows 10 / 11(64bit)
+- WebView2 ランタイム — Windows 11 には標準で入っています。無い場合はインストーラが自動で入れます
+
 ## インストール
 
-インストーラを実行するだけです。FFmpeg も MCP サーバーも同梱されているので、
-別途用意するものはありません。
+[Releases](https://github.com/demodemo0818/dvm/releases) から最新の
+`DVM_x.y.z_x64-setup.exe` をダウンロードして実行してください。FFmpeg も MCP サーバーも
+同梱されているので、別途用意するものはありません。
+
+> [!IMPORTANT]
+> **「WindowsによってPCが保護されました」と出た場合**
+>
+> コード署名証明書を付けていないため、Windows SmartScreen が警告を出します。
+> **「詳細情報」→「実行」** で進めてください。ダウンロードした exe を信用できるか
+> 確かめたい場合は、Releases に併記した SHA-256 ハッシュと照合できます。
+>
+> ```powershell
+> Get-FileHash .\DVM_1.43.0_x64-setup.exe
+> ```
 
 データベースとサムネイルは「ライブラリフォルダ」(既定は
 `%APPDATA%\jp.demo2.dvm\libraries\マイライブラリ`)に保存されます。
 動画ファイル自体には触れません。
+
+アンインストールしてもライブラリフォルダは残ります。完全に消したい場合は
+`%APPDATA%\jp.demo2.dvm` とライブラリフォルダを手で削除してください。
 
 ## 複数のライブラリを使い分ける
 
@@ -101,6 +129,11 @@ API は従量課金の別契約です。サブスクのまま使いたい場合�
 モデルは候補から選べますが手入力もできます。費用を抑えたいときは `claude-haiku-4-5` や
 `gpt-5-mini`、`gemini-2.5-flash` などに変更してください。
 
+> [!WARNING]
+> **API キーは暗号化されずに保存されます。** `%APPDATA%\jp.demo2.dvm\app.db` に平文で
+> 入るため、その PC を使える人はキーを読み出せます。共用 PC では使わないでください
+> (Windows DPAPI での保護は今後の課題です)。
+
 ## 開発
 
 初回だけ、同梱するバイナリを揃えます。**これをやらないと `cargo` のビルドが
@@ -130,3 +163,16 @@ npm run tauri dev
 | `cd src-tauri && cargo check` | Rust の型チェック |
 
 設計の全体像・データモデル・ロードマップは [docs/DESIGN.md](docs/DESIGN.md) にあります。
+
+## ライセンス
+
+**GPL-3.0-or-later**([LICENSE](LICENSE))。
+
+GPL を選んでいるのは、サムネイル生成と変換に使う **FFmpeg を GPL ビルドのまま同梱している**
+ためです。同梱している FFmpeg / libmpv のライセンスとソース入手先は
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) にまとめてあります。
+
+Copyright (C) 2026 demodemo
+
+このプログラムはフリーソフトウェアです。**まったく無保証**です。詳しくは
+GNU General Public License をお読みください。

@@ -10,7 +10,12 @@ Windows 向け動画管理ソフト DVM(Demodemo Video Manager)。
 
 ## 決定事項(2026-07-23)
 
-- **配布**: 当面は自分用。FFmpeg 同梱のライセンス対応は公開を決めた時点で見直す
+- **配布**: ~~当面は自分用~~ → **GitHub で公開する(2026-08-19 決定)**。
+  ソース公開 + Releases でインストーラ配布。**ライセンスは GPL-3.0-or-later** ——
+  FFmpeg を GPL ビルド(gyan.dev essentials。`--enable-gpl --enable-version3` で
+  libx264 / libx265 入り)のまま同梱するので、本体もそれに合わせた。
+  同梱物の内訳と入手先は `THIRD-PARTY-NOTICES.md`。**コード署名は当面つけない**
+  (SmartScreen の警告と回避手順を README に書いて対応する)
 - **データ置き場**: アプリ全体のもの(ライブラリ一覧・設定・再生用の変換キャッシュ)は
   `%APPDATA%\jp.demo2.dvm` 配下(Tauri の `identifier`。v1.17 で `com.taiki.videoshelf` から改名)。
   **動画の DB・サムネイル・バックアップは「ライブラリフォルダ」の中**で、置き場所は任意
@@ -791,6 +796,12 @@ mkv を扱えるという読みを実測で確認したため(それまでは無
   - **設定 > データとバックアップ から変えられる(v1.38)**。それまでは読み手だけで UI が無く、DB を直接書くしかなかった。入力は `parseCacheGb` が 1〜1000 に丸める —— **0 を通すと変換のたびに全消しになる**ため。同じ画面に現在量(`AppInfo.transcode_size`)と「今すぐ掃除」(`purge_transcode_cache`)も出す
   - 現在量は副作用の無い `core::playback::cache_size` で数える。`collect_cache_files` は走査ついでに `.tmp.mp4` を消すので、読み取り表示から流用しない
 - assetProtocol の scope は `"**"`(全パス許可)。動画は任意ドライブに置かれる前提のため。トレードオフ: 万一 webview で XSS が起きると任意ファイルを読まれ得る(ローカル個人用アプリとして許容。csp は元々 null)
+  - **公開(2026-08-19)にあたって再評価したが、このままとした**。「ローカル個人用」という
+    前提は変わるが、XSS の実際の入口が無い —— フロントは React でテキストとして描画するだけで
+    `innerHTML` / `dangerouslySetInnerHTML` / `eval` を**一切使っていない**(AI の応答や
+    ファイル名のような外から来る文字列も同じ経路)。scope を絞ると任意ドライブの動画が
+    読めなくなるので、絞る側の代償のほうが大きい。**`innerHTML` 系を導入するときは
+    この判断ごと見直すこと**
 - Tauri 2 の asset protocol は HTTP Range 対応でシークも動く(キャッシュ mp4 も同じ経路)
 
 ### プレイヤー UI(v1.4、`src/components/player/`)
@@ -2910,8 +2921,26 @@ effect と同居していて `[dirPath, version]` だったため、**動画を�
 - dll は `npx tauri-plugin-libmpv-api setup-lib` で `src-tauri/lib/` に取得
   (`libmpv-wrapper.dll` + `libmpv-2.dll`、zhongfly/mpv-winbuild の LGPL ビルド)。**gitignore 対象**(ffmpeg と同方針)
 - 配布バンドルには tauri.conf.json の `bundle.resources: ["lib/**/*"]` で同梱
-- libmpv-2.dll は LGPLv2.1+(動的リンクなので同梱可)。公開配布時はライセンス表記とソース入手先
-  (github.com/zhongfly/mpv-winbuild)の明記が必要(FFmpeg 同梱と合わせて公開決定時に見直し)
+- libmpv-2.dll は LGPLv2.1+(動的リンクなので同梱可)。`libmpv-wrapper.dll` も LGPL-2.1。
+  **公開にあたり `THIRD-PARTY-NOTICES.md` に表記とソース入手先を書いた**(zhongfly/mpv-winbuild の
+  `mpv-dev-lgpl-x86_64` アセットであることは dll 内の文字列でも確認済み)
+
+### ライセンス文書を配布物に入れる(公開時に踏んだ罠)
+
+GPL は「コピーと一緒にライセンス全文を渡す」ことを求めるので、`LICENSE` と
+`THIRD-PARTY-NOTICES.md` を `bundle.resources` でインストール先に入れている。
+このとき **`bundle.resources` について 2 つ制約がある**(Tauri 2.11.5 で確認):
+
+1. **`../` を辿れない**。`"../LICENSE"` と書くとビルドが
+   `アクセスが拒否されました。(os error 5)` で落ちる。エラーメッセージがパスを
+   指さないので原因が分かりにくい
+2. **マップ形式(`{ "src": "dest" }`)も同じエラーで落ちる**。配列形式なら動く
+
+そのため **`src-tauri/resources/` にコピーを置き、配列形式で `"resources/*"` を指定**している。
+リポジトリルートの正本と二重管理になるので、**`lib.rs` の `bundled_legal_docs` テストで
+`include_str!` による内容一致を縛った**(片方だけ直すと `cargo test` が落ちる)。
+
+配布物の中身を変えたときは `docs/RELEASE.md` の確認項目も見ること。
 - 既知の癖: DevTools をドックすると mpv がドック領域の背後に見えることがある(デバッグ時はデタッチ推奨)
 
 ## AI 連携を見据えたアーキテクチャ(必守)
