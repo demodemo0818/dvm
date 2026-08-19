@@ -116,8 +116,13 @@ jobs:
             $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
             '| `' + $_.Name + '` | `' + $hash + '` |'
           }
-          $body = gh release view $env:TAG --json body -q .body
+          # gh の出力は PowerShell では行ごとの配列になる。そのまま --notes に渡すと
+          # 配列の各要素が別々の引数として展開され「accepts 1 arg(s), received 10」で落ちる
+          $body = (gh release view $env:TAG --json body -q .body | Out-String).TrimEnd()
           $add = $nl + $nl + '## SHA-256' + $nl + $nl +
                  '| ファイル | ハッシュ |' + $nl + '|---|---|' + $nl + ($rows -join $nl) + $nl + $nl +
                  '`Get-FileHash <ダウンロードしたファイル>` の出力と見比べてください。'
-          gh release edit $env:TAG --notes ($body + $add)
+          # 日本語を含む長文なので、引数ではなくファイルで渡す
+          $notesFile = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          Set-Content -Path $notesFile -Value ($body + $add) -Encoding utf8NoBOM
+          gh release edit $env:TAG --notes-file $notesFile
