@@ -55,6 +55,18 @@ Windows 向け動画管理ソフト(Tauri 2 + React + TypeScript + Rust)。
 - テスト: `cd src-tauri && cargo test`(コアロジック)/ `npm run test`(フロントの純関数)
 - 既存 DB でマイグレーションを試す: `cd src-tauri && cargo run --example dbtool -- <db のコピー> check`
 
+## リリース(公開後のルール)
+
+- **バージョンを上げるのは「リリースして」と明示的に言われたときだけ**。普段のコミットでは
+  `package.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json` の `version` に触らない。
+  機能を足しても、頼まれていなければ据え置く
+- **タグ(`v*`)を push するのも同じく指示があったときだけ**。タグの push が引き金になって
+  GitHub Actions がビルドし、Release の下書きができる。普通のコミット・push では何も起きない
+- コミットメッセージに `(v1.43)` のようなバージョンを書くのは**リリースするときだけ**。
+  普段は変更内容だけを書く
+- 手順は [docs/RELEASE.md](docs/RELEASE.md)。バージョンの上げ忘れ・上げ間違いは
+  `cargo test` の `version_consistency` が落とす
+
 ## 会話・ドキュメント
 
 - ユーザーへの説明は日本語で行う
