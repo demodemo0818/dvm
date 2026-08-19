@@ -63,6 +63,13 @@ jobs:
             Write-Warning 'FFmpeg が GPL ビルドではありません。THIRD-PARTY-NOTICES.md と本体のライセンスを見直してください'
           }
 
+      # cargo test も tauri.conf.json の bundle.resources の実在チェックを通るので、
+      # dvm-mcp.exe が無いと「resource path `binaries\dvm-mcp.exe` doesn't exist」で止まる。
+      # 配布ビルドでは beforeBuildCommand が作ってくれるが、テストはその前に走るのでここで用意する。
+      # debug で作るのは cargo test と同じプロファイルでコンパイル結果を使い回せるから。
+      - name: MCP サーバーをビルド(テスト用)
+        run: npm run build:mcp -- -Config debug
+
       - name: テスト
         run: |
           npm run test
