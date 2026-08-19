@@ -41,11 +41,27 @@ jobs:
 
       # 同梱バイナリはリポジトリに入れていない(gitignore 対象)ので毎回取得する。
       # 詳しくは README の「開発」節。
+      # gyan.dev は CI のようなデータセンター IP に 503 を返すことがあり、そのときは
+      # GitHub Releases から取り直す。API のレート制限に引っかからないようトークンを渡す
       - name: FFmpeg / ffprobe を取得
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: powershell -ExecutionPolicy Bypass -File scripts/fetch-ffmpeg.ps1
 
       - name: libmpv の DLL を取得
         run: npx tauri-plugin-libmpv-api setup-lib
+
+      # THIRD-PARTY-NOTICES.md では FFmpeg の版を固定していない(毎回最新を取るため)ので、
+      # 「このリリースに入っていたのはどれか」を後から追えるようログに残す。
+      # あわせて GPL ビルドのままであることも確認する(LGPL に変わったらライセンス方針の見直し)
+      - name: 同梱する FFmpeg の版を記録
+        shell: pwsh
+        run: |
+          $v = & ./src-tauri/binaries/ffmpeg.exe -version
+          $v | Select-Object -First 1
+          if ($v -join ' ' -notmatch '--enable-gpl') {
+            Write-Warning 'FFmpeg が GPL ビルドではありません。THIRD-PARTY-NOTICES.md と本体のライセンスを見直してください'
+          }
 
       - name: テスト
         run: |
@@ -58,8 +74,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: ${{ github.ref_name }}
+          # workflow_dispatch(タグ以外)で走らせたときは、空にして Release を作らせない。
+          # ここを github.ref_name のままにすると "master" という Release ができてしまう
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
           releaseDraft: true
           prerelease: false
           releaseBody: |

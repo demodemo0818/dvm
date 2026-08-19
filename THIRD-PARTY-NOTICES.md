@@ -16,7 +16,7 @@ DVM 本体は GNU General Public License version 3 以降(GPL-3.0-or-later)で�
 
 | | |
 |---|---|
-| バージョン | 8.1.2 (`essentials_build`) |
+| バージョン | ビルド時点の release-essentials(**同梱物の正確な版は、インストール先の `binaries\ffmpeg.exe -version` で確認できます**。ビルドのたびに配布元の最新版を取得するため、ここには固定の番号を書きません) |
 | ライセンス | **GPL version 3 以降**(`--enable-gpl --enable-version3` でビルドされているため) |
 | 公式サイト | https://ffmpeg.org/ |
 | ソースコード | https://ffmpeg.org/download.html#get-sources |

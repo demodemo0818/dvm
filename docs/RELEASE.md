@@ -83,9 +83,10 @@ npm run tauri build
 
 - インストール先に GPL 全文(`LICENSE`)があること
 - `THIRD-PARTY-NOTICES.md` に FFmpeg / libmpv のソース入手先が載っていること
-- **同梱する FFmpeg のバージョンを上げたら**、`THIRD-PARTY-NOTICES.md` のバージョン表記も
-  直すこと(`ffmpeg.exe -version` の出力に `--enable-gpl` があるかも毎回確認する。
-  もし将来 LGPL ビルドに変えるなら、本体のライセンスも見直せる)
+- FFmpeg は**ビルドのたびに配布元の最新版を取る**ので、`THIRD-PARTY-NOTICES.md` には
+  版を固定で書いていない。代わりに Actions の「同梱する FFmpeg の版を記録」ステップの
+  ログに残る。**GPL ビルドでなくなっていたら警告が出る**ので、そのときは本体の
+  ライセンス方針ごと見直すこと(LGPL ビルドに変えられるなら GPL をやめる選択肢もある)
 
 ルートの `LICENSE` / `THIRD-PARTY-NOTICES.md` と `src-tauri/resources/` のコピーは
 `cargo test` の `bundled_legal_docs` が一致を見張っています(片方だけ直すと落ちます)。
