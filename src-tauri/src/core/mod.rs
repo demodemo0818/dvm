@@ -1,3 +1,4 @@
+pub mod ai_http;
 pub mod backup;
 pub mod dedupe;
 pub mod display;

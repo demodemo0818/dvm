@@ -1999,9 +1999,9 @@ v1.24 の時点では「モーダルのフォームは保存ボタン、直接�
   (`saveStoreFlag`。作法は `ColumnPicker` と同じ)。
   ドラフト方式をやめた結果、モーダルと App.tsx で二重に読んでいた 7 本が
   「減った」のではなく**構造的に消えた**
-- **B. store に無いもの**(`use_embedded_cover` / `frame_save_dir` / `anthropic_api_key` /
-  `anthropic_model` / `mcp_allow_write` / `transcode_cache_limit_gb`)—— Rust か
-  AiPanel が DB から直読みするので store に載せる意味が無い。`hooks/useSetting.ts` の
+- **B. store に無いもの**(`use_embedded_cover` / `frame_save_dir` / `ai_api_key_*` /
+  `ai_model_*` / `ai_base_url_openai_compat` / `mcp_allow_write` / `transcode_cache_limit_gb`)
+  —— Rust か AiPanel が DB から直読みするので store に載せる意味が無い。`hooks/useSetting.ts` の
   `useFlagSetting` / `useTextSetting` がロードと保存の両方を持つ
 
 `useTextSetting` で外してはいけないのが 3 点ある:
@@ -2014,9 +2014,14 @@ v1.24 の時点では「モーダルのフォームは保存ボタン、直接�
 3. **触っていなければ書かない** —— 未設定のキーに空文字の行を作らないため。
    StrictMode で effect が 2 回走るので、この判定が無いと dev で余計な行ができる
 
-デバウンスは使っていない。テキスト欄には live consumer がいない(`anthropic_*` は
-AiPanel が開くたび読み直す、`frame_save_dir` は Rust が保存時に読む、`player_path` は
+デバウンスは使っていない。テキスト欄には live consumer がいない(`ai_*` は
+AiPanel が送信のたび読み直す、`frame_save_dir` は Rust が保存時に読む、`player_path` は
 再生時に読む)ので、blur と unmount で足りる。
+
+なお **v1.43 でプロバイダごとに設定キーが変わるようになった**が、`useTextSetting` 側は
+変えていない(他 6 か所への影響を避けるため)。`dirty` / `saved` の ref は key 変更で
+リセットされないので、**呼び出し側が `key={provider}` で mount し直す**ことで解いている
+(`AiProviderFields`)。
 
 #### Escape で閉じる
 
@@ -2991,14 +2996,59 @@ CP932 として読む。日本語コメント末尾の「。」(`E3 80 82`)は C
 パラメータブロックごと消えて、引数が黙って無視される(原因が見えないので厄介)。
 `scripts/` の .ps1 は BOM 付きで保存すること(`fetch-ffmpeg.ps1` も同じ理由で BOM を付けた)。
 
-### アプリ内 AI アシスタント(v1.3 実装済み)
+### アプリ内 AI アシスタント(v1.3 実装済み / v1.43 でマルチプロバイダ化)
 
-- フロント TypeScript から `@anthropic-ai/sdk`(`dangerouslyAllowBrowser: true`)で Claude API を直接呼ぶ。Rust 側に HTTP クライアントは持たない
-- API キー・モデル名は settings テーブル(`anthropic_api_key` / `anthropic_model`、既定 `claude-opus-5`)。設定 > AI 連携 で入力。**キーは app.db に平文保存される**(v1.27 まではライブラリ側で、DB バックアップにも
+**v1.43 で Anthropic 専用をやめ、Anthropic / OpenAI / Gemini / OpenAI 互換の 4 経路に対応した。**
+`@anthropic-ai/sdk` への依存を外し、共通のプロバイダ層(`src/lib/ai/`)を自前で持つ。
+
+- **HTTP は Rust 側(`core/ai_http.rs` + `commands/ai.rs`)を通す。** v1.42 までの「Rust 側に
+  HTTP クライアントは持たない」方針をここで変えた。理由は CORS —— 実測(WebView2)で
+  **OpenAI はプリフライトの応答に `Access-Control-Allow-Origin` を返さず、`Authorization` を
+  付けた POST が WebView から一切通らない**(OpenAI SDK の `dangerouslyAllowBrowser` は
+  SDK 側のガードを外すだけで CORS には無関係)。Anthropic が通っていたのは
+  `anthropic-dangerous-direct-browser-access` という同社専用ヘッダがあるからで、他社にはない。
+  Gemini は fetch でも通るが、**2 経路を保守しないため 3 社ともまとめて Rust を通す**。
+  dev(`http://localhost:1420`)と配布版(`http://tauri.localhost`)で origin が変わる問題と、
+  Ollama の `OLLAMA_ORIGINS` 制限も、これで最初から関係なくなる
+- **Rust は SSE を解釈しない。** 行に切って `ipc::Channel` で流すだけ(パースは TS 側)。
+  行分割は**バイト列で貯めてから改行で切る** —— チャンク境界が UTF-8 の途中に落ちると
+  日本語が化けるため
+- 構成: `types.ts`(共通型)/ `sse.ts`(行 → イベント)/ `schema.ts`(ツール定義の変換)/
+  `transport.ts`(Rust を呼ぶ唯一の場所)/ `anthropic.ts` `openai.ts` `gemini.ts`(アダプタ)/
+  `runner.ts`(ツールループ)/ `config.ts` `providers.ts`(設定と既定値)。
+  アダプタは `buildRequest` / `parseChunk` / `toWireMessages` の純関数 3 本 + 薄い `stream()` で、
+  すべて vitest で固めてある
+- 設定キーは**プロバイダごとに分ける**(`ai_provider` / `ai_api_key_{id}` / `ai_model_{id}` /
+  `ai_base_url_openai_compat` / `ai_max_tokens`)。切り替えてもキーを失わない。
+  v1.42 の `anthropic_api_key` / `anthropic_model` は `config.ts` の `planMigration` が
+  **新キーが空のときだけ写す**(冪等)。**旧キーは消さない** —— 古い版に戻しても動くようにするため。
+  **キーは app.db に平文保存される**(v1.27 まではライブラリ側で、DB バックアップにも
   含まれていた。切り替えのたびに入れ直さずに済むようアプリ全体側へ移した。
-  平文であること自体はローカル個人用アプリとして許容中)
-- UI: ツールバーの ✨ で右ドックパネル(`AiPanel.tsx`)をトグル。会話履歴はパネル内 state のみ(永続化しない)。API 履歴はテキストのみ持ち回す(thinking / tool ブロックの再送問題を回避)
-- ツールループ: `client.beta.messages.toolRunner` + `betaTool`(raw JSON Schema)。`thinking: adaptive`・`stream: true` でテキストをストリーミング表示
+  平文であること自体はローカル個人用アプリとして許容中。プロバイダが増えてキーは 4 本になった)
+- UI: ツールバーの ✨ で右ドックパネル(`AiPanel.tsx`)をトグル。会話履歴はパネル内 state のみ(永続化しない)。API 履歴はテキストのみ持ち回す(thinking / tool ブロックの再送問題を回避)。
+  **履歴がテキストだけなのでプロバイダを途中で変えても会話が壊れない**
+- 設定画面はプロバイダのタブ + `AiProviderFields`。**`key={provider}` で mount し直す** ——
+  `useTextSetting` は key が変わっても `dirty` / `saved` の ref をリセットしないので、
+  同じインスタンスのままキーを差し替えると前のプロバイダの入力が別のキーに書かれる。
+  mount し直せば unmount の cleanup が走り、切り替えた瞬間に未確定の入力が保存される利点もある
+- モデルは `<select>` にせず **`<datalist>` + 自由入力**。モデル ID は数か月で古くなるので、
+  候補が陳腐化しても手打ちが通る形を保つ
+- ツールループは自前(`runner.ts`)。SDK の `BetaToolRunner` と同じく**ツールは並列実行**する。
+  v1.42 に無かったものとして**反復上限(既定 8)**と **AbortSignal による中断(停止ボタン)**を足した。
+  **ツールが throw してもループの外へ投げず** `is_error` として結果に載せる(モデルは言い直せる)
+- プロバイダごとの落とし穴(すべてテストで固定):
+  - Anthropic: **thinking の `signature` を持ち回さないと 2 周目で 400**。生ブロックを
+    `AiMessage.raw` に入れて verbatim で戻す(SDK は `msg.content` を丸ごと積んでいたので自動的に満たしていた)。
+    ツール引数は `input_json_delta` の断片なので `content_block_stop` まで連結してから `JSON.parse`
+  - OpenAI: `delta.tool_calls` を **`index` で結合**する(id と name は最初の断片だけ)。
+    **strict は使わない**(`search_videos` はプロパティ 31 個で required 0 個なので相性が悪い)。
+    互換サーバー向けに `max_completion_tokens` / `stream_options` を送らず、キーが空なら
+    `Authorization` ごと省く(Ollama / LM Studio が空 Bearer で 401 を返す)
+  - Gemini: **`?alt=sse` が無いと SSE にならない**。ロールは `user` / `model` のみで、ツール結果は
+    user ロールの `functionResponse`(`response` はオブジェクト必須)。呼び出し ID が無いので合成する。
+    **引数なしのツールは `parameters` ごと落とす**(空 `properties` を弾くため)
+- ツールループ(v1.42 まで): `client.beta.messages.toolRunner` + `betaTool`(raw JSON Schema)。
+  `thinking: adaptive`・`stream: true` でテキストをストリーミング表示
 - ツール(`src/lib/aiTools.ts`。既存 Tauri コマンドの薄いラッパ):
   - 読み取り: `search_videos` / `list_tags` / `list_series`
   - 表示: `apply_filter` — Zustand の `applyFilter` でグリッドを直接絞り込み、件数を返す(自然言語検索の中核)
@@ -3611,13 +3661,27 @@ DVM を 2 つ起動して別々に切り替えると `current_library_id` は後
   スマートフォルダ / プレイリスト / 監視フォルダ / シリーズ / タグの 5 節。
   `sidebar_sections` に永続化し、絞り込み中は三角ごと消して必ず開く)
 
+- **v1.43** ✅(2026-08-19 実装済み): **アプリ内 AI アシスタントのマルチプロバイダ化**。
+  Anthropic 専用をやめ、**Anthropic / OpenAI / Gemini / OpenAI 互換**(OpenRouter・Ollama・
+  LM Studio などベース URL 自由入力)の 4 経路に対応(前述「アプリ内 AI アシスタント」)。
+  `@anthropic-ai/sdk` を外し、共通プロバイダ層 `src/lib/ai/` を自前で持つ。
+  **HTTP は Rust 経由に変えた**(`core/ai_http.rs`)—— 実測で OpenAI がプリフライトに
+  `Access-Control-Allow-Origin` を返さず WebView から叩けないため。
+  SDK の `toolRunner` に代わる自前ループに**反復上限と停止ボタン**を追加。
+  設定はプロバイダごとにキーを分け、v1.42 の `anthropic_*` から冪等に移行する。
+  **MCP 連携の設定スニペットも 3 → 6 クライアント**に拡張(Codex CLI の TOML、
+  Gemini CLI、VS Code の `servers` 形式を追加)。
+  新規テスト: フロント 101 件(アダプタ 3 社・SSE・スキーマ変換・ツールループ・設定移行)、
+  Rust 4 件(SSE の行分割)
+
 ## 今後のタスク
 
 当初の backlog(v1.6 時点の 11 件 + 細かい改善)は v1.7〜v1.9 ですべて消化した。
 残っているのは次の 2 件:
 
 - **API キーの暗号化** — 現状は `app.db` に平文。Windows DPAPI で保護する
-  (ローカル個人用アプリとして許容中)
+  (ローカル個人用アプリとして許容中)。**v1.43 でプロバイダが 4 つになりキーも 4 本になった**ので、
+  露出面は増えている(リスクの性質は変わらない)
 - **MCP に `get_media_info` を出す** — `core::metadata::media_info()` は UI 非依存なので、
   `dvm-mcp.rs` からそのまま呼べる。ついでに MCP 内にベタ書きの `get_video` の SQL も
   `core/` に寄せたい(現状は原則 1 から外れている唯一の箇所)

@@ -33,6 +33,11 @@ anyhow = "1.0.104"
 notify = "8.2.0"
 trash = "5"
 tauri-plugin-window-state = "2.4.1"
+# AI プロバイダへの HTTP(SSE)。**フロントの fetch では OpenAI に届かないため**
+# Rust 側で持つ(理由は core/ai_http.rs の先頭を参照)。
+# TLS は既定のまま = Windows では schannel を使うので追加の依存が増えない
+reqwest = { version = "0.12", features = ["stream"] }
+futures-util = "0.3"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.60", features = [

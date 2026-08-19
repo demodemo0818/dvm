@@ -1,12 +1,24 @@
 import { useState } from 'react';
 import { copyText } from '../../lib/clipboard';
-import { CLAUDE_DESKTOP_CONFIG, claudeCodeCommand, mcpServersJson } from '../../lib/mcpConfig';
+import {
+  CLAUDE_DESKTOP_CONFIG,
+  CODEX_CONFIG,
+  GEMINI_CLI_CONFIG,
+  VSCODE_MCP_CONFIG,
+  claudeCodeCommand,
+  codexConfigToml,
+  mcpServersJson,
+  vscodeMcpJson,
+} from '../../lib/mcpConfig';
 
-type Client = 'desktop' | 'code' | 'other';
+type Client = 'desktop' | 'code' | 'codex' | 'gemini' | 'vscode' | 'other';
 
 const CLIENTS: { key: Client; label: string }[] = [
   { key: 'desktop', label: 'Claude Desktop' },
   { key: 'code', label: 'Claude Code' },
+  { key: 'codex', label: 'Codex CLI' },
+  { key: 'gemini', label: 'Gemini CLI' },
+  { key: 'vscode', label: 'VS Code' },
   { key: 'other', label: 'その他のアプリ' },
 ];
 
@@ -18,8 +30,18 @@ const HOWTO: Record<Client, string> = {
   code:
     'PowerShell かコマンドプロンプトに貼り付けて実行してください。' +
     'そのあと claude mcp list で「dvm ... Connected」と出れば成功です',
+  codex:
+    `${CODEX_CONFIG} を開いて末尾に貼り付けてください(ファイルが無ければ新しく作ります)。` +
+    'そのあと codex を起動し直すと使えるようになります',
+  gemini:
+    `${GEMINI_CLI_CONFIG} を開いて貼り付けてください(ファイルが無ければ新しく作ります)。` +
+    'そのあと gemini を起動し直し、/mcp で「dvm」が出れば成功です',
+  vscode:
+    `${VSCODE_MCP_CONFIG} を開いて貼り付けてください` +
+    '(コマンドパレットの「MCP: Open User Configuration」でも開けます)。' +
+    'VS Code だけ mcpServers ではなく servers 形式で、type の指定が要ります',
   other:
-    'Cursor・Cline・VS Code など、mcpServers 形式に対応した MCP クライアントで同じ設定が使えます。' +
+    'Cursor・Cline・Windsurf など、mcpServers 形式に対応した MCP クライアントで同じ設定が使えます。' +
     'それぞれの設定ファイルに貼り付けてアプリを再起動してください',
 };
 
@@ -31,6 +53,11 @@ const HOWTO: Record<Client, string> = {
 const JSON_CAVEAT =
   '設定ファイルに既に中身がある場合、貼り付ける直前の行の末尾に , が要ります。' +
   'これが抜けると JSON として壊れ、AI アプリが起動時にエラーになります';
+
+/** TOML はカンマの問題が無い代わりに、セクションの入れ子で事故る */
+const TOML_CAVEAT =
+  '設定ファイルに既に [mcp_servers.○○] がある場合は、上のセクションをそのまま末尾に足してください。' +
+  '既存のセクションの中に入れると別のサーバーの設定として読まれます';
 
 export function McpSettings({
   exePath,
@@ -55,11 +82,16 @@ export function McpSettings({
     }
   };
 
-  const snippet = exePath
-    ? client === 'code'
+  const snippet = !exePath
+    ? ''
+    : client === 'code'
       ? claudeCodeCommand({ exePath, allowWrite })
-      : mcpServersJson({ exePath, allowWrite })
-    : '';
+      : client === 'codex'
+        ? codexConfigToml({ exePath, allowWrite })
+        : client === 'vscode'
+          ? vscodeMcpJson({ exePath, allowWrite })
+          : // Claude Desktop / Gemini CLI / その他 は同じ mcpServers 形式
+            mcpServersJson({ exePath, allowWrite });
 
   return (
     <div className="settings-section">
@@ -123,7 +155,11 @@ export function McpSettings({
             </button>
           </div>
           <div className="settings-note">{HOWTO[client]}</div>
-          {client !== 'code' && <div className="settings-note warn">{JSON_CAVEAT}</div>}
+          {client === 'codex' ? (
+            <div className="settings-note warn">{TOML_CAVEAT}</div>
+          ) : (
+            client !== 'code' && <div className="settings-note warn">{JSON_CAVEAT}</div>
+          )}
         </>
       )}
     </div>

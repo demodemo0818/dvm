@@ -11,6 +11,15 @@ export const SERVER_NAME = 'dvm';
 /** Claude Desktop の設定ファイル(Windows) */
 export const CLAUDE_DESKTOP_CONFIG = '%APPDATA%\\Claude\\claude_desktop_config.json';
 
+/** Codex CLI の設定ファイル(Windows) */
+export const CODEX_CONFIG = '%USERPROFILE%\\.codex\\config.toml';
+
+/** Gemini CLI の設定ファイル(Windows) */
+export const GEMINI_CLI_CONFIG = '%USERPROFILE%\\.gemini\\settings.json';
+
+/** VS Code の MCP 設定ファイル(Windows) */
+export const VSCODE_MCP_CONFIG = '%APPDATA%\\Code\\User\\mcp.json';
+
 export interface McpConfigInput {
   /** dvm-mcp.exe の絶対パス */
   exePath: string;
@@ -38,4 +47,45 @@ export function mcpServersJson({ exePath, allowWrite }: McpConfigInput): string 
 export function claudeCodeCommand({ exePath, allowWrite }: McpConfigInput): string {
   const env = allowWrite ? ' -e DVM_ALLOW_WRITE=1' : '';
   return `claude mcp add ${SERVER_NAME} -s user${env} -- "${exePath}"`;
+}
+
+/**
+ * VS Code の mcp.json。**キーが servers**(他のクライアントの mcpServers ではない)で、
+ * **type: "stdio" が必須**。この 2 点だけが mcpServersJson と違う
+ */
+export function vscodeMcpJson({ exePath, allowWrite }: McpConfigInput): string {
+  const server: { type: string; command: string; args: string[]; env?: Record<string, string> } = {
+    type: 'stdio',
+    command: exePath,
+    args: [],
+  };
+  if (allowWrite) server.env = { DVM_ALLOW_WRITE: '1' };
+  return JSON.stringify({ servers: { [SERVER_NAME]: server } }, null, 2);
+}
+
+/**
+ * TOML の文字列リテラル。
+ *
+ * **シングルクォートのリテラル文字列を優先する** —— Windows のパスは `\` を含むが、
+ * リテラル文字列ならエスケープが要らず `C:\Program Files\...` をそのまま貼れる
+ * (基本文字列だと `C:\\Program Files\\...` になり、手で直したときに壊れやすい)。
+ * リテラル文字列には `'` を含められないので、その場合だけ基本文字列に落とす
+ */
+function tomlString(s: string): string {
+  if (!s.includes("'")) return `'${s}'`;
+  return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+/**
+ * Codex CLI の config.toml。
+ * セクション名は **mcp_servers**(アンダースコア。他のクライアントの mcpServers とは綴りが違う)
+ */
+export function codexConfigToml({ exePath, allowWrite }: McpConfigInput): string {
+  const lines = [
+    `[mcp_servers.${SERVER_NAME}]`,
+    `command = ${tomlString(exePath)}`,
+    'args = []',
+  ];
+  if (allowWrite) lines.push('env = { DVM_ALLOW_WRITE = "1" }');
+  return lines.join('\n');
 }

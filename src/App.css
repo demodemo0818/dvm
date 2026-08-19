@@ -1454,8 +1454,10 @@ body {
 }
 
 /* ---- MCP 連携(設定モーダル内)---- */
+/* クライアントが 6 つあるので 1 行に収まらない。折り返して 2 段になる前提 */
 .mcp-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
 }
 
@@ -1585,6 +1587,14 @@ body {
   font-size: 12px;
   color: #c9a35a;
   border-top: 1px solid #2a2e37;
+}
+
+/* 直近のターンのトークン数(v1.43)。目立たせない —— 見たい人だけが見る情報 */
+.ai-usage {
+  padding: 4px 8px 0;
+  color: #6b7280;
+  font-size: 10px;
+  text-align: right;
 }
 
 .ai-input-row {

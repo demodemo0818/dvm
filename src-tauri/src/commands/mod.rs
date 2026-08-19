@@ -1,3 +1,4 @@
+pub mod ai;
 pub mod display;
 pub mod fileops;
 pub mod folders;

@@ -1,13 +1,12 @@
-import Anthropic from '@anthropic-ai/sdk';
-import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import { Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { api } from '../api';
+import { createProvider } from '../lib/ai';
+import { loadAiConfig, missingSettingMessage } from '../lib/ai/config';
+import { runToolLoop } from '../lib/ai/runner';
+import { AiError, type AiMessage } from '../lib/ai/types';
 import { buildSystemPrompt, buildTools } from '../lib/aiTools';
 import { useShallow } from 'zustand/react/shallow';
 import { pickState, useLibrary } from '../store';
-
-const DEFAULT_MODEL = 'claude-opus-5';
 
 interface ChatItem {
   role: 'user' | 'assistant';
@@ -20,33 +19,38 @@ export function AiPanel() {
   const { showAiPanel, aiPanelWidth } = useLibrary(
     useShallow(pickState('showAiPanel', 'aiPanelWidth')),
   );
-  const [apiKey, setApiKey] = useState<string | null>(null);
-  const [model, setModel] = useState(DEFAULT_MODEL);
+  /** 設定が足りないときの案内。undefined は読み込み中、null は送信できる状態 */
+  const [missing, setMissing] = useState<string | null | undefined>(undefined);
   const [chat, setChat] = useState<ChatItem[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  /** 直近のターンのトークン数(課金の目安として小さく出す) */
+  const [usage, setUsage] = useState<{ input: number; output: number } | null>(null);
   // API 履歴(テキストのみ。thinking / tool ブロックは持ち回さない)
-  const history = useRef<BetaMessageParam[]>([]);
+  const history = useRef<AiMessage[]>([]);
+  /** 実行中のターンを止めるためのもの。停止ボタンと会話クリアから使う */
+  const abort = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (showAiPanel) {
-      api.getSetting('anthropic_api_key').then((v) => setApiKey(v ?? ''));
-      api.getSetting('anthropic_model').then((v) => setModel(v?.trim() || DEFAULT_MODEL));
-    }
+    if (showAiPanel) void loadAiConfig().then((c) => setMissing(missingSettingMessage(c)));
   }, [showAiPanel]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [chat]);
 
+  // パネルを閉じたりアプリを離れたりしたら、走らせっぱなしにしない
+  useEffect(() => () => abort.current?.abort(), []);
+
   if (!showAiPanel) return null;
 
   const send = async () => {
     const text = input.trim();
-    if (!text || busy || !apiKey) return;
+    if (!text || busy || missing) return;
     setInput('');
     setBusy(true);
+    setUsage(null);
     setChat((c) => [...c, { role: 'user', text, cards: [] }, { role: 'assistant', text: '', cards: [] }]);
 
     // 空配列ガード: クリア直後にストリーミングの残りが届いても落とさない
@@ -67,52 +71,61 @@ export function AiPanel() {
         return next;
       });
 
+    const ac = new AbortController();
+    abort.current = ac;
+
     try {
-      const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
+      // 送信のたびに読み直す。パネルを開いたまま設定を変えても次の送信から効く
+      const config = await loadAiConfig();
+      const blocked = missingSettingMessage(config);
+      if (blocked) {
+        setMissing(blocked);
+        throw new AiError('auth', blocked);
+      }
       const system = await buildSystemPrompt();
-      history.current.push({ role: 'user', content: text });
-
-      const runner = client.beta.messages.toolRunner({
-        model,
-        max_tokens: 16000,
-        thinking: { type: 'adaptive' },
-        system,
-        tools: buildTools(addCard),
-        messages: [...history.current],
-        stream: true,
-      });
-
       let finalText = '';
-      for await (const stream of runner) {
-        let thinkingShown = false;
-        for await (const ev of stream) {
-          if (ev.type === 'content_block_start' && ev.content_block.type === 'thinking' && !thinkingShown) {
-            thinkingShown = true;
-          }
-          if (ev.type === 'content_block_delta' && ev.delta.type === 'text_delta') {
-            appendText(ev.delta.text);
-          }
+
+      for await (const ev of runToolLoop({
+        provider: createProvider(config),
+        system,
+        history: history.current,
+        userText: text,
+        tools: buildTools(addCard),
+        signal: ac.signal,
+      })) {
+        switch (ev.type) {
+          case 'text':
+            appendText(ev.text);
+            break;
+          // ツール実行を挟むターンの区切り
+          case 'turn_break':
+            appendText('\n');
+            break;
+          case 'card':
+            addCard(ev.text);
+            break;
+          case 'usage':
+            setUsage({ input: ev.inputTokens, output: ev.outputTokens });
+            break;
+          case 'done':
+            finalText = ev.finalText;
+            break;
         }
-        const msg = await stream.finalMessage();
-        for (const block of msg.content) {
-          if (block.type === 'text') finalText += (finalText ? '\n' : '') + block.text;
-        }
-        // ツール実行を挟むターンの区切り
-        if (msg.stop_reason === 'tool_use') appendText('\n');
       }
 
       // 履歴にはテキストのみ積む(thinking / tool ブロックの持ち回し問題を避ける)
-      history.current.push({ role: 'assistant', content: finalText || '(ツールを実行しました)' });
+      history.current.push({ role: 'user', content: text });
+      history.current.push({
+        role: 'assistant',
+        content: finalText || '(ツールを実行しました)',
+      });
     } catch (e) {
-      const msg = e instanceof Anthropic.AuthenticationError
-        ? 'API キーが無効です。設定を確認してください'
-        : e instanceof Anthropic.APIError
-          ? `API エラー (${e.status}): ${e.message}`
-          : String(e);
-      addCard(msg);
-      // 失敗したターンは履歴から取り除く(次回リクエストを壊さない)
-      if (history.current[history.current.length - 1]?.role === 'user') history.current.pop();
+      // 中断は失敗ではない。出かかっていた文字はそのまま残し、履歴にも積まない
+      if (!(e instanceof AiError && e.kind === 'aborted')) {
+        addCard(e instanceof AiError ? e.message : String(e));
+      }
     } finally {
+      if (abort.current === ac) abort.current = null;
       setBusy(false);
     }
   };
@@ -127,6 +140,7 @@ export function AiPanel() {
           disabled={busy}
           onClick={() => {
             setChat([]);
+            setUsage(null);
             history.current = [];
           }}
         >
@@ -156,30 +170,41 @@ export function AiPanel() {
           </div>
         ))}
       </div>
-      {apiKey === '' ? (
-        <div className="ai-setup">
-          API キーが未設定です。ツールバーの設定ボタンから「AI アシスタント」で Anthropic API
-          キーを保存してください
-        </div>
+      {missing ? (
+        <div className="ai-setup">{missing}</div>
       ) : (
-        <div className="ai-input-row">
-          <textarea
-            value={input}
-            placeholder="ライブラリについて質問…"
-            rows={2}
-            disabled={busy}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                send();
-              }
-            }}
-          />
-          <button onClick={send} disabled={busy || !input.trim()}>
-            {busy ? '…' : '送信'}
-          </button>
-        </div>
+        <>
+          {usage && (
+            <div className="ai-usage">
+              入力 {usage.input.toLocaleString()} / 出力 {usage.output.toLocaleString()} トークン
+            </div>
+          )}
+          <div className="ai-input-row">
+            <textarea
+              value={input}
+              placeholder="ライブラリについて質問…"
+              rows={2}
+              disabled={busy}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  send();
+                }
+              }}
+            />
+            {busy ? (
+              // 応答中は「停止」に差し替える(受信の途中でも止まる)
+              <button onClick={() => abort.current?.abort()} title="応答を止める">
+                停止
+              </button>
+            ) : (
+              <button onClick={send} disabled={!input.trim()}>
+                送信
+              </button>
+            )}
+          </div>
+        </>
       )}
     </aside>
   );

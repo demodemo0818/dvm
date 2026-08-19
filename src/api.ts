@@ -1,5 +1,6 @@
-import { invoke } from '@tauri-apps/api/core';
+import { Channel, invoke } from '@tauri-apps/api/core';
 import { useLibrary } from './store';
+import type { AiWireEvent } from './lib/ai/types';
 import type {
   AppInfo, BackupInfo, DedupePlan, DedupeResult, ExcludedPath, ExtensionCount, FolderNode,
   LibraryEntry, LibraryState, LibraryStats, M3u8Import, MediaInfo, OpEntry,
@@ -142,6 +143,24 @@ export const api = {
   seriesForVideos: (videoIds: number[]) => call<Series[]>('series_for_videos', { videoIds }),
   getSetting: (key: string) => call<string | null>('get_setting', { key }),
   setSetting: (key: string, value: string) => call<void>('set_setting', { key, value }),
+  /**
+   * AI プロバイダへ POST して SSE の行を channel に流す(v1.43)。
+   *
+   * **フロントから直接 fetch できないので Rust を経由する** —— OpenAI は
+   * プリフライトに Access-Control-Allow-Origin を返さず、Authorization を付けた
+   * POST が WebView から通らない(詳細は src-tauri/src/core/ai_http.rs)。
+   *
+   * silent。失敗は AI パネル内のカードとして見せるので、トーストと二重に出さない
+   */
+  aiStream: (
+    requestId: number,
+    url: string,
+    headers: Record<string, string>,
+    body: string,
+    channel: Channel<AiWireEvent>,
+  ) => call<void>('ai_stream', { requestId, url, headers, body, channel }, true),
+  /** 実行中の ai_stream を止める。終わった直後に押しても事故らないよう silent */
+  aiCancel: (requestId: number) => call<void>('ai_cancel', { requestId }, true),
   /**
    * 字幕設定のフォント候補(v1.24)。取れなくても手入力できるので silent。
    * 「候補が出ない」以上の意味を持たない失敗にトーストを出さない

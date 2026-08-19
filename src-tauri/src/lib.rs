@@ -281,6 +281,8 @@ pub fn run() {
             commands::series::series_for_videos,
             commands::settings::get_setting,
             commands::settings::set_setting,
+            commands::ai::ai_stream,
+            commands::ai::ai_cancel,
             commands::fonts::list_system_fonts,
             commands::display::is_hdr_display,
             commands::smart_folders::list_smart_folders,

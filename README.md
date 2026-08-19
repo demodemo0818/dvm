@@ -33,13 +33,14 @@ Windows 向けの動画管理ソフトです。動画ファイルを**コピー�
 
 ## AI から操作する
 
-DVM には AI 連携の入口が 2 つあります。**サブスクリプション(Claude Pro / Max)だけで
-使いたい場合は MCP のほうを選んでください。**
+DVM には AI 連携の入口が 2 つあります。**既に契約している AI アプリ(Claude Pro / Max など)
+をそのまま使いたい場合は MCP のほうを選んでください。**
 
 | | MCP 連携 | アプリ内 AI アシスタント |
 |---|---|---|
 | 使う場所 | Claude Desktop など別のアプリ | DVM のツールバー ✨ |
-| 必要なもの | 対応 AI アプリ(サブスクで可) | Anthropic API キー(従量課金) |
+| 必要なもの | 対応 AI アプリ(サブスクで可) | API キー(従量課金)またはローカル LLM |
+| 使える AI | MCP 対応クライアント全般 | Claude / GPT / Gemini / OpenAI 互換 |
 | DVM の起動 | 不要 | 必要 |
 | できること | 検索・統計・タグ付け・評価・シリーズ整理 | 左に同じ + 画面のグリッドを直接絞り込む |
 
@@ -80,12 +81,25 @@ DB の場所を変えている場合は、設定に環境変数 `DVM_DB` でフ�
 
 ### アプリ内 AI アシスタント
 
-Anthropic の API キー(`sk-ant-...`)が必要です。**Claude Pro / Max のサブスクリプションでは
-使えません**(API は別課金です)。設定 → AI アシスタント にキーを入れると、ツールバーの ✨ から
-使えるようになります。自然言語での検索結果をそのままグリッドに反映できるのがこちらの利点です。
+設定 → AI 連携 で使う AI を選び、その API キーを入れると、ツールバーの ✨ から使えるように
+なります。自然言語での検索結果をそのままグリッドに反映できるのがこちらの利点です。
 
-モデルは既定で `claude-opus-5` を使います。費用を抑えたいときは `claude-haiku-4-5` などに
-変更できます。
+| 選べる AI | 必要なもの | 既定のモデル |
+|---|---|---|
+| Anthropic (Claude) | `sk-ant-...`([console.anthropic.com](https://console.anthropic.com)) | `claude-opus-5` |
+| OpenAI (GPT) | `sk-...`([platform.openai.com](https://platform.openai.com)) | `gpt-5` |
+| Google Gemini | `AIza...`([aistudio.google.com](https://aistudio.google.com)) | `gemini-2.5-pro` |
+| OpenAI 互換 | ベース URL(+ 必要ならキー) | 自分で指定 |
+
+**サブスクリプション(Claude Pro / Max、ChatGPT Plus など)では使えません** —— どの会社も
+API は従量課金の別契約です。サブスクのまま使いたい場合は上の MCP 連携をお使いください。
+
+「OpenAI 互換」を選ぶと、OpenRouter・Ollama・LM Studio など OpenAI 互換の API を持つ
+サービスやローカル LLM に繋げます。**ローカル LLM なら API 料金はかかりません**
+(ベース URL のプリセットボタンから選べます)。
+
+モデルは候補から選べますが手入力もできます。費用を抑えたいときは `claude-haiku-4-5` や
+`gpt-5-mini`、`gemini-2.5-flash` などに変更してください。
 
 ## 開発
 

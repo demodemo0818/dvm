@@ -11,8 +11,14 @@ import { parseFlag, serializeFlag } from '../lib/settings';
  * setter を呼ぶついでに set_setting を書く(作法は ColumnPicker.tsx を参照)。
  *
  * ここが受け持つのは、Rust か AiPanel が DB から直読みするので store に載せる意味が
- * 無いキーだけ —— use_embedded_cover / frame_save_dir / anthropic_api_key /
- * anthropic_model / mcp_allow_write / transcode_cache_limit_gb。
+ * 無いキーだけ —— use_embedded_cover / frame_save_dir / ai_api_key_* / ai_model_* /
+ * ai_base_url_openai_compat / mcp_allow_write / transcode_cache_limit_gb。
+ *
+ * **キーが変わる使い方をするなら呼び出し側で mount し直すこと**(v1.43)。
+ * `useEffect` の依存は `[key]` だが `dirty` / `saved` の ref はリセットしないので、
+ * 同じインスタンスのままキーを差し替えると前の入力が別のキーに書かれる。
+ * AI 設定はプロバイダごとにキーが変わるので `key={provider}` を付けている
+ * (`AiProviderFields`)。
  */
 
 /**

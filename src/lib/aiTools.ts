@@ -1,12 +1,31 @@
-import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import { api } from '../api';
 import { useLibrary } from '../store';
 import { describeFilter, NO_MASTERS } from './filterChips';
 import { DURATION_RANGES, toFilterState } from './query';
+import type { AiTool, JsonSchemaProp, ToolSchema } from './ai/types';
 import type { DurationBucket, SortKey, VideoQuery } from '../types';
 
 /** ツール実行を UI(チャット内カード)へ通知するコールバック */
 export type ToolNotify = (message: string) => void;
+
+/**
+ * 宣言と実行をまとめる小さなヘルパー(v1.43。SDK の `betaTool` の代わり)。
+ *
+ * `betaTool` は inputSchema から run の引数型を推論してくれたが、あれは Anthropic SDK
+ * 固有の芸なので、**入力の型は呼び出し側が明示する**ことにした。AI が返す引数は
+ * どのみち実行時に何が来るか分からないので、推論に頼りきらないほうが実態に合う
+ */
+function defineTool<T>(spec: {
+  name: string;
+  description: string;
+  parameters: ToolSchema;
+  run: (input: T) => Promise<string>;
+}): AiTool {
+  return {
+    def: { name: spec.name, description: spec.description, parameters: spec.parameters },
+    run: (input) => spec.run(input as T),
+  };
+}
 
 /** Rust の order_clause() と types.ts の SortKey に合わせて手で同期する */
 const SORT_ENUM = [
@@ -22,7 +41,7 @@ const SORT_ENUM = [
 ] as const;
 
 /** search_videos と apply_filter で共通の絞り込み条件(スキーマがずれないよう 1 か所にまとめる) */
-const FILTER_PROPS = {
+const FILTER_PROPS: Record<string, JsonSchemaProp> = {
   text: { type: 'string', description: 'ファイル名・タイトルの部分一致。空白区切りで複数語すべてを含むものに絞る' },
   searchPath: { type: 'boolean', description: 'text の検索対象にフォルダのパスも含める' },
   dirPath: { type: 'string', description: 'このフォルダ直下にある動画だけに絞る(サブフォルダは含まない)。絶対パスで指定する' },
@@ -55,7 +74,7 @@ const FILTER_PROPS = {
   modifiedBefore: { type: 'string', description: 'ファイル更新日の上限(YYYY-MM-DD。その日を含む)' },
   modifiedWithinDays: { type: 'integer', description: '過去 N 日以内に更新されたものだけ' },
   sort: { type: 'string', enum: [...SORT_ENUM] },
-} as const;
+};
 
 /** FILTER_PROPS に対応する入力(betaTool が推論する型と同じ形) */
 interface FilterInput {
@@ -163,18 +182,18 @@ function fmtDuration(ms: number | null): string {
 }
 
 /** AI アシスタントのツール一式を作る。notify はツール実行カードの表示用 */
-export function buildTools(notify: ToolNotify) {
-  const searchVideos = betaTool({
+export function buildTools(notify: ToolNotify): AiTool[] {
+  const searchVideos = defineTool<FilterInput & { limit?: number }>({
     name: 'search_videos',
     description:
       '動画ライブラリを検索して結果を JSON で返す(画面は変わらない)。結果を画面に表示したいときは apply_filter を使うこと。',
-    inputSchema: {
+    parameters: {
       type: 'object',
       properties: {
         ...FILTER_PROPS,
         limit: { type: 'integer', description: '最大件数(既定 20)' },
       },
-    } as const,
+    },
     run: async (input) => {
       const query = await toQuery(input);
       const total = await api.countVideos(query);
@@ -195,32 +214,32 @@ export function buildTools(notify: ToolNotify) {
     },
   });
 
-  const listTags = betaTool({
+  const listTags = defineTool<Record<string, never>>({
     name: 'list_tags',
     description:
       '全タグと各タグの動画数、所属グループ(groupName)を一覧する。グループは分類の軸(例:「ジャンル」「メディア種別」)で、検索では同じグループのタグ同士が OR になる',
-    inputSchema: { type: 'object', properties: {} } as const,
+    parameters: { type: 'object', properties: {} },
     run: async () => JSON.stringify(await api.listTags()),
   });
 
-  const listSeries = betaTool({
+  const listSeries = defineTool<Record<string, never>>({
     name: 'list_series',
     description: '全シリーズと各シリーズの動画数を一覧する',
-    inputSchema: { type: 'object', properties: {} } as const,
+    parameters: { type: 'object', properties: {} },
     run: async () => JSON.stringify(await api.listSeries()),
   });
 
-  const applyFilter = betaTool({
+  const applyFilter = defineTool<FilterInput>({
     name: 'apply_filter',
     description:
       'アプリのグリッド表示を絞り込む(ユーザーに結果を見せる)。省略した条件は解除される。全条件を省略すると絞り込み解除。',
-    inputSchema: {
+    parameters: {
       type: 'object',
       properties: {
         ...FILTER_PROPS,
         missingOnly: { type: 'boolean', description: 'ファイルが見つからない動画だけ' },
       },
-    } as const,
+    },
     run: async (input) => {
       const query = await toQuery(input);
       // 画面に反映する条件は toQuery の結果から機械的に戻す(スマートフォルダと同じ経路)。
@@ -233,17 +252,17 @@ export function buildTools(notify: ToolNotify) {
     },
   });
 
-  const tagVideos = betaTool({
+  const tagVideos = defineTool<{ videoIds: number[]; tag: string }>({
     name: 'tag_videos',
     description: '動画にタグを付ける(タグが無ければ作成される)',
-    inputSchema: {
+    parameters: {
       type: 'object',
       properties: {
         videoIds: { type: 'array', items: { type: 'integer' } },
         tag: { type: 'string' },
       },
       required: ['videoIds', 'tag'],
-    } as const,
+    },
     run: async (input) => {
       await api.tagVideos(input.videoIds, input.tag, 'ai');
       useLibrary.getState().bumpVersion();
@@ -252,17 +271,17 @@ export function buildTools(notify: ToolNotify) {
     },
   });
 
-  const setRating = betaTool({
+  const setRating = defineTool<{ videoIds: number[]; rating: number }>({
     name: 'set_rating',
     description: '動画のレーティングを設定する(0 で解除)',
-    inputSchema: {
+    parameters: {
       type: 'object',
       properties: {
         videoIds: { type: 'array', items: { type: 'integer' } },
         rating: { type: 'integer', minimum: 0, maximum: 5 },
       },
       required: ['videoIds', 'rating'],
-    } as const,
+    },
     run: async (input) => {
       await api.setRating(input.videoIds, input.rating, 'ai');
       useLibrary.getState().bumpVersion();
@@ -271,17 +290,17 @@ export function buildTools(notify: ToolNotify) {
     },
   });
 
-  const addToSeries = betaTool({
+  const addToSeries = defineTool<{ videoIds: number[]; series: string }>({
     name: 'add_to_series',
     description: '動画をシリーズに追加する(シリーズが無ければ作成される)',
-    inputSchema: {
+    parameters: {
       type: 'object',
       properties: {
         videoIds: { type: 'array', items: { type: 'integer' } },
         series: { type: 'string' },
       },
       required: ['videoIds', 'series'],
-    } as const,
+    },
     run: async (input) => {
       await api.addToSeries(input.videoIds, input.series, 'ai');
       useLibrary.getState().bumpVersion();
