@@ -41,6 +41,11 @@ Windows 向け動画管理ソフト(Tauri 2 + React + TypeScript + Rust)。
 - パスは常に絶対パスで扱う。Windows のパス(`\`、ドライブレター、UNC、長いパス)を意識する
 - 外付け HDD / NAS 前提: ドライブ未接続を missing と誤判定しない(DESIGN.md「オフラインドライブの扱い」参照)
 - 日本語ファイル名・パスが普通に存在する前提でテストする
+- **`scripts/*.ps1` は BOM 付き UTF-8 で保存する**。これらを起動するのは `powershell`
+  (= Windows PowerShell 5.1)で、**BOM が無いと日本語コメントを ANSI として読み、
+  パースエラーで落ちる**。手元の `pwsh`(7)は BOM 無しでも読めてしまい再現しないので、
+  書き換えたら必ず `powershell -ExecutionPolicy Bypass -File <script>` で確かめること
+  (これで CI を 1 回落とした)
 
 ## 開発コマンド
 
